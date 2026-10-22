@@ -19,30 +19,54 @@ func (p sourceProof) projectionSources(node *ast.Node, steps *int, depth int) fu
 	if l.isDynamicSource(node) || l.storedDynamic(node) {
 		return nil
 	}
-	container := node.Expression()
-	for container.Kind == ast.KindParenthesizedExpression {
+	var path []*ast.Node
+	container := node
+	for {
 		if !containerStep(steps, &depth) {
 			return nil
 		}
+		if container.Kind == ast.KindParenthesizedExpression {
+			container = container.Expression()
+			continue
+		}
+		if !ast.IsAccessExpression(container) {
+			break
+		}
+		path = append(path, container)
 		container = container.Expression()
 	}
-	var members map[string]*ast.Node
+	var tree *literalContainer
 	if container.Kind == ast.KindIdentifier {
 		declaration, symbol := l.containerBinding(container)
 		if declaration == nil {
 			return nil
 		}
-		members = l.closedContainer(declaration, symbol, steps, depth)
+		tree = l.closedContainer(declaration, symbol, steps, depth)
 	} else {
-		members = literalContainerMembers(container, steps, depth)
+		tree = l.containerTree(container, steps, depth)
+		if tree != nil && !tree.projectionRead(container, steps, depth) {
+			return nil
+		}
 	}
-	key, ok := literalProjectionKey(node)
-	selected := members[key]
-	if !ok || selected == nil || !containerProjectionRead(node, steps, depth) ||
-		l.isDynamicSource(selected) || l.storedDynamic(selected) {
-		return nil
+	for i := len(path) - 1; i >= 0; i-- {
+		if tree == nil || !containerStep(steps, &depth) {
+			return nil
+		}
+		key, ok := literalProjectionKey(path[i])
+		selected := tree.members[key]
+		if !ok || selected == nil {
+			return nil
+		}
+		if i == 0 {
+			if tree.children[key] != nil || !containerProjectionRead(node, steps, depth) ||
+				l.isDynamicSource(selected) || l.storedDynamic(selected) {
+				return nil
+			}
+			return p.valueSources(selected, steps, depth+1)
+		}
+		tree = tree.children[key]
 	}
-	return p.valueSources(selected, steps, depth+1)
+	return nil
 }
 
 func (l *lowerer) containerBinding(node *ast.Node) (*ast.Node, *ast.Symbol) {
@@ -63,10 +87,10 @@ func (l *lowerer) containerBinding(node *ast.Node) (*ast.Node, *ast.Symbol) {
 	return declaration, symbol
 }
 
-func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, steps *int, depth int) (members map[string]*ast.Node) {
+func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, steps *int, depth int) (members *literalContainer) {
 	flow := &l.valueFlow
 	if flow.containers == nil {
-		flow.containers = map[*ast.Node]map[string]*ast.Node{}
+		flow.containers = map[*ast.Node]*literalContainer{}
 	}
 	if known, ok := flow.containers[declaration]; ok {
 		return known
@@ -104,7 +128,7 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 		}
 		declaration, symbol = origin, source
 	}
-	data := literalContainerMembers(literal, steps, depth)
+	data := l.containerTree(literal, steps, depth)
 	if data == nil {
 		return nil
 	}
@@ -140,11 +164,7 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 				}
 				continue
 			}
-			if parent == nil || !ast.IsAccessExpression(parent) || parent.Expression() != read {
-				return false
-			}
-			key, ok := literalProjectionKey(parent)
-			if !ok || data[key] == nil || !containerProjectionRead(parent, steps, referenceDepth) {
+			if !data.projectionRead(read, steps, referenceDepth) {
 				return false
 			}
 		}

@@ -1,0 +1,187 @@
+{
+  "head_before": "c367d494113001b14a72d51894d8b9aa81b78fba",
+  "environment": {
+    "GOMAXPROCS": "4",
+    "PTS_REQUIRE_NODE": "1"
+  },
+  "build": {
+    "command": [
+      "make",
+      "build"
+    ],
+    "exit": 0,
+    "seconds": 2.9794309759745374,
+    "stderr_bytes": 0
+  },
+  "suite": {
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "-p",
+      "4",
+      "-parallel",
+      "4",
+      "-timeout",
+      "40m",
+      "./pts/...",
+      "./cmd/pts/"
+    ],
+    "exit": 0,
+    "seconds": 665.3745743519976,
+    "stderr_bytes": 0
+  },
+  "test_events": {
+    "pass": 3543,
+    "skip": 341
+  },
+  "packages": [
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/binary_trees",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/fan_out",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/fib",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/fib_int",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/file_io",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/http_hello",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/http_json",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/json",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/mandelbrot",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/nbody",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/spectral_norm",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/startup",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/string_building",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/word_count",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/word_freq",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/bench/sum_reduce",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/cgen",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/diagnostic",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/check",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/ir",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/lib",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/frontend",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/lsp",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/numeric",
+      "action": "skip"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/toolchain",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/driver",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/cmd/pts",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/lower",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/tests",
+      "action": "pass"
+    }
+  ],
+  "corpus": {
+    "pass": 263,
+    "skip": 37
+  },
+  "source_count": 20405,
+  "source_changes": [],
+  "cli_before": "ee4a59c4418c13bb0f76fbbbfb224e4bf1437ac82c8531979a12a22c178fd9ba",
+  "cli_after": "ee4a59c4418c13bb0f76fbbbfb224e4bf1437ac82c8531979a12a22c178fd9ba",
+  "reviewed_snapshot": {
+    "pts/lower/container_sources.go": "13381a907347ebe613d11bbe105e27cccad7fc9f2586a89720e08a839cb2b437",
+    "pts/lower/value_flow.go": "4051c825c98d2b3ab32d7c40b73e112bcb39db706ff10a185b9cea190f15a360",
+    "pts/lower/nested_container_sources.go": "94cd3801e358eec5ab262da2de116c1c579e631f605768033032a7252d487eb7",
+    "pts/lower/container_alias_sources_test.go": "993ee9facc187ffe104e8145c05fed88e2a9d76a69bc13202ba7cff65230edbd",
+    "pts/lower/literal_projection_sources_test.go": "d236b040269fbc0cb6f5332b93fdc4245e2ffe6fee48471cca0d21d318b76835",
+    "pts/lower/nested_container_sources_test.go": "51f20e0745f09fcdc45c718faa5f8fc9f3c44beba37df76c6d54adeee9d6023e",
+    "pts/lower/nested_container_contract_test.go": "c0f7ad684604bafcef0d6e1b5405e5c238c72b628124f9dcebc2cf6d6c3883c3",
+    "pts/driver/nested_container_flow_test.go": "7edaab04c4bca8cde0bf5852f1f2f8a433ce887dceb50947b9bdc6c84c18d747",
+    "pts/tests/run/generic_nested_container_sources.pts": "c23ee29e616bdec048e46f8fde3de539af4178d99e5404a67e895a4581eb1135"
+  },
+  "reviewed_after": {
+    "pts/lower/container_sources.go": "13381a907347ebe613d11bbe105e27cccad7fc9f2586a89720e08a839cb2b437",
+    "pts/lower/value_flow.go": "4051c825c98d2b3ab32d7c40b73e112bcb39db706ff10a185b9cea190f15a360",
+    "pts/lower/nested_container_sources.go": "94cd3801e358eec5ab262da2de116c1c579e631f605768033032a7252d487eb7",
+    "pts/lower/container_alias_sources_test.go": "993ee9facc187ffe104e8145c05fed88e2a9d76a69bc13202ba7cff65230edbd",
+    "pts/lower/literal_projection_sources_test.go": "d236b040269fbc0cb6f5332b93fdc4245e2ffe6fee48471cca0d21d318b76835",
+    "pts/lower/nested_container_sources_test.go": "51f20e0745f09fcdc45c718faa5f8fc9f3c44beba37df76c6d54adeee9d6023e",
+    "pts/lower/nested_container_contract_test.go": "c0f7ad684604bafcef0d6e1b5405e5c238c72b628124f9dcebc2cf6d6c3883c3",
+    "pts/driver/nested_container_flow_test.go": "7edaab04c4bca8cde0bf5852f1f2f8a433ce887dceb50947b9bdc6c84c18d747",
+    "pts/tests/run/generic_nested_container_sources.pts": "c23ee29e616bdec048e46f8fde3de539af4178d99e5404a67e895a4581eb1135"
+  }
+}

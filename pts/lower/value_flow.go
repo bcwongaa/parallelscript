@@ -20,7 +20,7 @@ type valueFlow struct {
 	uses          map[*ast.Symbol]*functionValueUses
 	wrappers      map[*ast.Node]bool
 	containerUses map[*ast.Symbol]*containerUses
-	containers    map[*ast.Node]map[string]*ast.Node // syntax only, shared by both proof kinds
+	containers    map[*ast.Node]*literalContainer // declaration-shared trees, never source-kind summaries
 }
 
 type sourceCache struct {

@@ -1,0 +1,130 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+const functions = { branch: [{ selected: first, other: second }] };
+const functionsAlias = functions;
+const functionsOther = functionsAlias;
+numberUse("nested function", functionsOther.branch[0].selected);
+stringUse("nested alternate", functionsAlias.branch[0].other);
+numberUse("fresh mixed", ({ branch: [{ selected: second }] }).branch[0].selected);
+
+function capture(label: string): Factory {
+  let calls = 0;
+  const source = <T,>(value: T): Box<T> => {
+    calls++;
+    return new Box(value, label + "/" + calls);
+  };
+  const root = { branch: [{ selected: source }] };
+  const alias = root;
+  return alias.branch[0].selected;
+}
+const captureRoot = { branch: { selected: capture("a"), other: capture("b") } };
+const captureAlias = captureRoot;
+numberUse("capture a", captureAlias.branch.selected);
+stringUse("capture b", captureRoot.branch.other);
+stringUse("capture a again", captureAlias.branch.selected);
+let order = "";
+function selectedEffect(): Factory { order += "selected"; return first; }
+function otherEffect(): Factory { order += "/other"; return second; }
+function siblingEffect(): Factory { order += "/sibling"; return second; }
+const effects = {
+  branch: [{ selected: selectedEffect(), other: otherEffect() }],
+  sibling: { selected: siblingEffect() }
+};
+const effectsAlias = effects;
+numberUse("effects", effectsAlias.branch[0].selected);
+console.log("evaluation order", order);
+
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const selectedReceiver: Maker = new Child("receiver a");
+const otherReceiver: Maker = new Override("receiver b");
+const receivers = { branch: [{ selected: selectedReceiver, other: otherReceiver }] };
+const receiversAlias = receivers;
+const receiversOther = receiversAlias;
+const direct: Box<number> = receiversOther.branch[0].selected.make(3);
+console.log("direct", direct.origin, direct.value + 1);
+const wrappers = {
+  branch: { selected: read(receiversOther.branch[0].selected), other: read(receiversAlias.branch[0].other) }
+};
+const wrappersAlias = wrappers;
+numberUse("captured receiver a", wrappersAlias.branch.selected);
+stringUse("captured receiver b", wrappers.branch.other);
+stringUse("captured receiver a again", wrappersAlias.branch.selected);
+const lookup = new Parent("lookup");
+const thisArg = new Child("thisArg");
+const bound = { branch: [{ selected: lookup.make.bind(thisArg) }] };
+const boundAlias = bound;
+numberUse("bind thisArg", boundAlias.branch[0].selected);
+
+const mutated = { branch: { selected: first }, sibling: { selected: first } };
+const mutatedAlias = mutated;
+mutatedAlias.branch.selected = second;
+numberUse("nested mutation", mutated.branch.selected);
+const changedArrays: { branch: Factory[][] } = { branch: [[first, second]] };
+changedArrays.branch[0].reverse();
+numberUse("nested array mutation", changedArrays.branch[0][0]);
+const beforeReceiver: Maker = new Child("before");
+const afterReceiver: Maker = new Override("after");
+const changedReceivers = { branch: { selected: beforeReceiver } };
+const changedReceiversAlias = changedReceivers;
+const before = read(changedReceiversAlias.branch.selected);
+changedReceiversAlias.branch.selected = afterReceiver;
+numberUse("capture before mutation", before);
+numberUse("capture after mutation", read(changedReceivers.branch.selected));
+const escaped = { branch: { selected: first } };
+const escapedAlias = escaped;
+const dynamic: any = escapedAlias.branch;
+dynamic.selected = second;
+numberUse("nested dynamic mutation", escaped.branch.selected);
+function replace(inner: { selected: Factory }): void { inner.selected = second; }
+const passed = { branch: { selected: first } };
+replace(passed.branch);
+numberUse("nested parameter mutation", passed.branch.selected);
+
+// expect:
+// nested function first 8
+// nested alternate second 5
+// fresh mixed second 8
+// capture a a/1 8
+// capture b b/1 5
+// capture a again a/2 5
+// effects first 8
+// evaluation order selected/other/sibling
+// direct receiver a/parent/1 4
+// captured receiver a receiver a/parent/2 8
+// captured receiver b receiver b/override/1 5
+// captured receiver a again receiver a/parent/3 5
+// bind thisArg thisArg/parent/1 8
+// nested mutation second 8
+// nested array mutation second 8
+// capture before mutation before/parent/1 8
+// capture after mutation after/override/1 8
+// nested dynamic mutation second 8
+// nested parameter mutation second 8

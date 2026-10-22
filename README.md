@@ -613,7 +613,7 @@ M7 completes the usable prototype, not correctness or production hardening. The 
 
 ## Known gaps
 
-Generic function-value instances are pruned only when bounded immutable-source analysis proves them unreachable, including returns of synchronous non-generic factories. Unknown/`any`/container origins stay conservative. Broader method/wrapper flow and remaining specialization-growth work are still open; see [the hardening plan](docs/agent/HARDENING_PLAN.md).
+Generic function-value instances are pruned only when bounded immutable-source analysis proves them unreachable, including returns of synchronous non-generic factories and static paths through non-escaping inferred literal trees such as `held.inner[0].factory`. Unknown/`any`, escaped or uncertain container origins stay conservative. Broader method/wrapper flow and remaining specialization-growth work are still open; see [the hardening plan](docs/agent/HARDENING_PLAN.md).
 
 Not built yet:
 

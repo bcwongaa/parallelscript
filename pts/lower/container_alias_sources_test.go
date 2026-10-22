@@ -21,6 +21,7 @@ func TestContainerAliasSourcesResolveOnlySelectedValues(t *testing.T) {
 				want []string
 			}{
 				{"object_chain", "const root = { value: first, other: second }; const alias = root; const other = alias; const probe = other.value; probe;", []string{"first"}},
+				{"nested_container_path", "const root = { inner: { value: first } }; const alias = root; const probe = alias.inner.value; probe;", []string{"first"}},
 				{"array_chain", "const root = [first, second]; const alias = root; const other = alias; const probe = other[1]; probe;", []string{"second"}},
 				{"root_projection", "const root = { value: first }; const alias = root; const other = alias; const probe = root.value; probe;", []string{"first"}},
 				{"parenthesized", "const root = ({ value: first }); const alias = (root); const other = ((alias)); const probe = (other).value; probe;", []string{"first"}},
@@ -174,7 +175,6 @@ func TestContainerAliasUnsupportedOriginsStayUnknown(t *testing.T) {
 		"const root = { value: first }; const alias = root; export { root }; const probe = alias.value; probe;",
 		"function selected(root: { value: Value }): void { const alias = root; const probe = alias.value; probe; } selected({ value: first });",
 		"function selected(): { value: Value } { return { value: first }; } const root = selected(); const alias = root; const probe = alias.value; probe;",
-		"const root = { inner: { value: first } }; const alias = root; const probe = alias.inner.value; probe;",
 		"const root = { value: first, get other(): Value { return second; } }; const alias = root; const probe = alias.value; probe;",
 		"const root = [first, , second]; const alias = root; const probe = alias[0]; probe;",
 		"const root: { value: Value } = { value: first }; const alias: { value: any } = root; const probe = root.value; probe;",

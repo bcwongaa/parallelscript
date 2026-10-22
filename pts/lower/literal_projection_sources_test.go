@@ -20,6 +20,7 @@ func TestLiteralProjectionSourcesResolveOnlyTheSelectedDataValue(t *testing.T) {
 				{"fresh_object", "const probe = ({ value: first, other: second }).value; probe;", []string{"first"}},
 				{"fresh_array", "const probe = [first, second][1]; probe;", []string{"second"}},
 				{"const_object", "const held = { value: first, other: second }; const probe = held.value; probe;", []string{"first"}},
+				{"nested_container_path", "const held = { inner: { value: first } }; const probe = held.inner.value; probe;", []string{"first"}},
 				{"const_object_key", "const held = { value: first, other: second }; const probe = held[\"other\"]; probe;", []string{"second"}},
 				{"const_array", "const held = [first, second]; const probe = held[0]; probe;", []string{"first"}},
 				{"object_alias", "const held = { value: first }; const alias = held; const probe = held.value; probe;", []string{"first"}},
@@ -111,7 +112,6 @@ func TestLiteralProjectionUncertainContainersHaveUnknownSources(t *testing.T) {
 				{"array_spread", "const extra = [second]; const held = [first, ...extra]; const probe = held[0]; probe;"},
 				{"dynamic_object_key", "const held = { value: first }; let key: \"value\" = \"value\"; const probe = held[key]; probe;"},
 				{"dynamic_array_key", "const held = [first, second]; let key = 0; const probe = held[key]; probe;"},
-				{"nested_container_path", "const held = { inner: { value: first } }; const probe = held.inner.value; probe;"},
 				{"container_parameter", "function selected(held: { value: Value }): void { const probe = held.value; probe; } selected({ value: first });"},
 				{"returned_container_path", "function selected(): { value: Value } { return { value: first }; } const probe = selected().value; probe;"},
 			} {
