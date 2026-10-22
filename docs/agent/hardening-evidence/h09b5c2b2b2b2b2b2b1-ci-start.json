@@ -1,0 +1,12 @@
+[
+  {"conclusion":"skipped","databaseId":39730457744,"headSha":"5397ed471e72439f62627553bc94a6aaafa3f3bb","status":"completed"},
+  {"conclusion":"","databaseId":39730457679,"headSha":"5397ed471e72439f62627553bc94a6aaafa3f3bb","status":"in_progress"},
+  {"conclusion":"cancelled","databaseId":39730151049,"headSha":"dda0478191376ae9070fba861ac1da1095f93cec","status":"completed"},
+  {"conclusion":"skipped","databaseId":39730151003,"headSha":"dda0478191376ae9070fba861ac1da1095f93cec","status":"completed"},
+  {"conclusion":"skipped","databaseId":39723973610,"headSha":"f72d0b0912bb43da4cae5ac6e161b30fee3f3cb6","status":"completed"},
+  {"conclusion":"success","databaseId":39723973593,"headSha":"f72d0b0912bb43da4cae5ac6e161b30fee3f3cb6","status":"completed"},
+  {"conclusion":"cancelled","databaseId":39723444604,"headSha":"fccb65ad6e2e598ea862aaae8dbde26b73ddf32e","status":"completed"},
+  {"conclusion":"skipped","databaseId":39723444560,"headSha":"fccb65ad6e2e598ea862aaae8dbde26b73ddf32e","status":"completed"},
+  {"conclusion":"cancelled","databaseId":39723134096,"headSha":"2fb43dcdfc70d95a0507b8546eba7fd80b459e53","status":"completed"},
+  {"conclusion":"skipped","databaseId":39723134005,"headSha":"2fb43dcdfc70d95a0507b8546eba7fd80b459e53","status":"completed"}
+]

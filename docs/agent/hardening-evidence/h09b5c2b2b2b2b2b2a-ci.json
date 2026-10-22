@@ -1,0 +1,13 @@
+{
+  "task": "H09b5c2b2b2b2b2b2a (D-213)",
+  "checked": "2026-10-22 D-214 session start",
+  "method": "One startup-only non-blocking recent-ten list; h09b5c2b2b2b2b2b2b1-ci-start.json",
+  "runs": [
+    {"commit":"f72d0b0912bb43da4cae5ac6e161b30fee3f3cb6","role":"D-213 planning/startup documentation","run_id":39723973593,"status":"completed","conclusion":"success"},
+    {"commit":"dda0478191376ae9070fba861ac1da1095f93cec","role":"D-213 implementation","run_id":39730151049,"status":"completed","conclusion":"cancelled"}
+  ],
+  "pending_at_session_start": [
+    {"commit":"5397ed471e72439f62627553bc94a6aaafa3f3bb","role":"D-213 child-only acceptance documentation","run_id":39730457679,"status":"in_progress"}
+  ],
+  "note":"Planning success certifies only its exact SHA. Cancelled implementation is not a green CI receipt; latest acceptance remains pending. No failed run; no later query or polling. Green local acceptance unchanged."
+}
