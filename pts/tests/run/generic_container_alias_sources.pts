@@ -1,0 +1,132 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+const functions = { selected: first, other: second };
+const functionsAlias = functions;
+const functionsOther = functionsAlias;
+const functionsSibling = functions;
+numberUse("object chain", functionsOther.selected);
+stringUse("object sibling", functionsSibling.other);
+const list: Factory[] = [first, second];
+const listAlias = list;
+const listOther = listAlias;
+numberUse("array chain", listOther[1]);
+
+function capture(label: string): Factory {
+  let calls = 0;
+  const source = <T,>(value: T): Box<T> => {
+    calls++;
+    return new Box(value, label + "/" + calls);
+  };
+  const root = { selected: source };
+  const alias = root;
+  const other = alias;
+  return other.selected;
+}
+const captureRoot = { selected: capture("a"), other: capture("b") };
+const captureAlias = captureRoot;
+const captureOther = captureAlias;
+numberUse("capture a", captureOther.selected);
+stringUse("capture b", captureOther.other);
+stringUse("capture a again", captureOther.selected);
+let order = "";
+function selectedEffect(): Factory { order += "selected"; return first; }
+function otherEffect(): Factory { order += "/other"; return second; }
+const effects = { selected: selectedEffect(), other: otherEffect() };
+const effectsAlias = effects;
+const effectsOther = effectsAlias;
+numberUse("effects", effectsOther.selected);
+console.log("evaluation order", order);
+
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const receivers: { selected: Maker; other: Maker } = {
+  selected: new Child("receiver a"),
+  other: new Override("receiver b")
+};
+const receiversAlias = receivers;
+const receiversOther = receiversAlias;
+const direct: Box<number> = receiversOther.selected.make(3);
+console.log("direct", direct.origin, direct.value + 1);
+const wrappers = { selected: read(receiversOther.selected), other: read(receiversAlias.other) };
+const wrappersAlias = wrappers;
+const wrappersOther = wrappersAlias;
+numberUse("captured receiver a", wrappersOther.selected);
+stringUse("captured receiver b", wrappersOther.other);
+stringUse("captured receiver a again", wrappersOther.selected);
+const lookup = new Parent("lookup");
+const thisArg = new Child("thisArg");
+const bound = { selected: lookup.make.bind(thisArg) };
+const boundAlias = bound;
+const boundOther = boundAlias;
+numberUse("bind thisArg", boundOther.selected);
+
+const mutated = { selected: first };
+const mutatedAlias = mutated;
+const mutatedOther = mutatedAlias;
+mutatedOther.selected = second;
+numberUse("function mutation", mutated.selected);
+const changedList: Factory[] = [first, second];
+const changedAlias = changedList;
+const changedOther = changedAlias;
+changedOther.reverse();
+numberUse("array mutation", changedList[0]);
+const changedReceiver: { selected: Maker } = { selected: new Child("before") };
+const changedReceiverAlias = changedReceiver;
+const changedReceiverOther = changedReceiverAlias;
+const before = read(changedReceiverOther.selected);
+changedReceiverOther.selected = new Override("after");
+numberUse("capture before mutation", before);
+numberUse("capture after mutation", read(changedReceiver.selected));
+const escaped = { selected: first };
+const escapedAlias = escaped;
+const escapedOther = escapedAlias;
+const dynamic: any = escapedOther;
+dynamic.selected = second;
+numberUse("dynamic alias mutation", escaped.selected);
+
+// expect:
+// object chain first 8
+// object sibling second 5
+// array chain second 8
+// capture a a/1 8
+// capture b b/1 5
+// capture a again a/2 5
+// effects first 8
+// evaluation order selected/other
+// direct receiver a/parent/1 4
+// captured receiver a receiver a/parent/2 8
+// captured receiver b receiver b/override/1 5
+// captured receiver a again receiver a/parent/3 5
+// bind thisArg thisArg/parent/1 8
+// function mutation second 8
+// array mutation second 8
+// capture before mutation before/parent/1 8
+// capture after mutation after/override/1 8
+// dynamic alias mutation second 8

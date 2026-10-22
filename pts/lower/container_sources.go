@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/checker"
 )
 
 type containerUses struct {
@@ -27,15 +28,8 @@ func (p sourceProof) projectionSources(node *ast.Node, steps *int, depth int) fu
 	}
 	var members map[string]*ast.Node
 	if container.Kind == ast.KindIdentifier {
-		symbol := l.readSymbol(container)
-		if symbol == nil || len(symbol.Declarations) != 1 || symbol.ValueDeclaration == nil {
-			return nil
-		}
-		declaration := symbol.ValueDeclaration
-		if declaration.Kind != ast.KindVariableDeclaration || declaration.Name().Kind != ast.KindIdentifier ||
-			declaration.Parent.Flags&ast.NodeFlagsConst == 0 || l.assignedAnywhere[symbol] ||
-			ast.GetCombinedModifierFlags(declaration)&ast.ModifierFlagsExport != 0 ||
-			l.isDynamicSource(container) || l.storedDynamic(container) {
+		declaration, symbol := l.containerBinding(container)
+		if declaration == nil {
 			return nil
 		}
 		members = l.closedContainer(declaration, symbol, steps, depth)
@@ -51,6 +45,24 @@ func (p sourceProof) projectionSources(node *ast.Node, steps *int, depth int) fu
 	return p.valueSources(selected, steps, depth+1)
 }
 
+func (l *lowerer) containerBinding(node *ast.Node) (*ast.Node, *ast.Symbol) {
+	if node == nil || node.Kind != ast.KindIdentifier {
+		return nil, nil
+	}
+	symbol := l.readSymbol(node)
+	if symbol == nil || len(symbol.Declarations) != 1 || symbol.ValueDeclaration == nil {
+		return nil, nil
+	}
+	declaration := symbol.ValueDeclaration
+	if declaration.Kind != ast.KindVariableDeclaration || declaration.Name().Kind != ast.KindIdentifier ||
+		declaration.Parent.Flags&ast.NodeFlagsConst == 0 || l.assignedAnywhere[symbol] ||
+		ast.GetCombinedModifierFlags(declaration)&ast.ModifierFlagsExport != 0 ||
+		l.isDynamicSource(node) || l.storedDynamic(node) {
+		return nil, nil
+	}
+	return declaration, symbol
+}
+
 func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, steps *int, depth int) (members map[string]*ast.Node) {
 	flow := &l.valueFlow
 	if flow.containers == nil {
@@ -59,44 +71,123 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 	if known, ok := flow.containers[declaration]; ok {
 		return known
 	}
-	defer func() { flow.containers[declaration] = members }()
-	literal := declaration.Initializer()
-	for literal != nil && literal.Kind == ast.KindParenthesizedExpression {
+	// Resolve backwards to one literal, then check the complete forward component.
+	// Publish nothing positive until unsafe siblings and every transitive use pass.
+	component := map[*ast.Node]bool{}
+	defer func() {
+		for alias := range component {
+			flow.containers[alias] = members
+		}
+	}()
+	var literal *ast.Node
+	for {
+		if component[declaration] {
+			return nil
+		}
+		component[declaration] = true
 		if !containerStep(steps, &depth) {
 			return nil
 		}
-		literal = literal.Expression()
+		literal = declaration.Initializer()
+		for literal != nil && literal.Kind == ast.KindParenthesizedExpression {
+			if !containerStep(steps, &depth) {
+				return nil
+			}
+			literal = literal.Expression()
+		}
+		if literal == nil || literal.Kind != ast.KindIdentifier {
+			break
+		}
+		origin, source := l.containerBinding(literal)
+		if origin == nil || !l.containerAliasTypes(source, symbol, steps) {
+			return nil
+		}
+		declaration, symbol = origin, source
 	}
 	data := literalContainerMembers(literal, steps, depth)
 	if data == nil {
 		return nil
 	}
-	uses := l.containerReferences(symbol)
-	if uses.overflow {
+	checked := map[*ast.Node]bool{}
+	var check func(*ast.Node, *ast.Symbol, int) bool
+	check = func(declaration *ast.Node, symbol *ast.Symbol, depth int) bool {
+		if done, seen := checked[declaration]; seen {
+			return done // a cycle is unknown, not a provisional positive
+		}
+		checked[declaration] = false
+		component[declaration] = true
+		uses := l.containerReferences(symbol)
+		if uses.overflow {
+			return false
+		}
+		for _, read := range uses.reads {
+			// Each sibling starts at the same depth; fanout is work, not recursion.
+			referenceDepth := depth
+			if !containerStep(steps, &referenceDepth) {
+				return false
+			}
+			for read.Parent != nil && read.Parent.Kind == ast.KindParenthesizedExpression {
+				if !containerStep(steps, &referenceDepth) {
+					return false
+				}
+				read = read.Parent
+			}
+			parent := read.Parent
+			if parent != nil && parent.Kind == ast.KindVariableDeclaration && parent.Initializer() == read {
+				alias, target := l.containerBinding(parent.Name())
+				if alias != parent || !l.containerAliasTypes(symbol, target, steps) || !check(alias, target, referenceDepth) {
+					return false
+				}
+				continue
+			}
+			if parent == nil || !ast.IsAccessExpression(parent) || parent.Expression() != read {
+				return false
+			}
+			key, ok := literalProjectionKey(parent)
+			if !ok || data[key] == nil || !containerProjectionRead(parent, steps, referenceDepth) {
+				return false
+			}
+		}
+		checked[declaration] = true
+		return true
+	}
+	if !check(declaration, symbol, depth) {
 		return nil
 	}
-	for _, read := range uses.reads {
-		// Each reference starts at the same depth; a wide join is work, not recursion.
-		referenceDepth := depth
-		if !containerStep(steps, &referenceDepth) {
-			return nil
-		}
-		for read.Parent != nil && read.Parent.Kind == ast.KindParenthesizedExpression {
-			if !containerStep(steps, &referenceDepth) {
-				return nil
-			}
-			read = read.Parent
-		}
-		projection := read.Parent
-		if projection == nil || !ast.IsAccessExpression(projection) || projection.Expression() != read {
-			return nil
-		}
-		key, ok := literalProjectionKey(projection)
-		if !ok || data[key] == nil || !containerProjectionRead(projection, steps, referenceDepth) {
-			return nil
+	return data
+}
+
+// An annotation may adapt functions into methods or change an array's layout.
+// Accept exact checker types, or data-only objects with identical member contracts;
+// readonly alone neither proves closure nor licenses a representation guess.
+func (l *lowerer) containerAliasTypes(source, target *ast.Symbol, steps *int) bool {
+	from, to := l.checker.GetTypeOfSymbol(source), l.checker.GetTypeOfSymbol(target)
+	if from.Flags()&checker.TypeFlagsObject == 0 || to.Flags()&checker.TypeFlagsObject == 0 {
+		return false
+	}
+	if from == to {
+		return true
+	}
+	if l.checker.IsArrayLikeType(from) || l.checker.IsArrayLikeType(to) ||
+		l.checker.TypeHasCallOrConstructSignatures(from) || l.checker.TypeHasCallOrConstructSignatures(to) ||
+		len(l.checker.GetIndexInfosOfType(from)) != 0 || len(l.checker.GetIndexInfosOfType(to)) != 0 {
+		return false
+	}
+	properties := l.checker.GetPropertiesOfType(from)
+	if len(properties) > *steps || len(properties) != len(l.checker.GetPropertiesOfType(to)) {
+		return false
+	}
+	for _, property := range properties {
+		*steps--
+		other := l.checker.GetPropertyOfType(to, property.Name)
+		if other == nil || property.Flags&ast.SymbolFlagsProperty == 0 || other.Flags&ast.SymbolFlagsProperty == 0 ||
+			(property.Flags|other.Flags)&(ast.SymbolFlagsMethod|ast.SymbolFlagsAccessor) != 0 ||
+			(property.Flags^other.Flags)&ast.SymbolFlagsOptional != 0 ||
+			l.checker.GetTypeOfSymbol(property) != l.checker.GetTypeOfSymbol(other) {
+			return false
 		}
 	}
-	return data
+	return true
 }
 
 // This kind-independent cache contains syntax only. Function and receiver source
