@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"strconv"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 )
@@ -11,7 +13,7 @@ import (
 func containerVariable(declaration *ast.Node) *ast.Node {
 	binding := declaration.Kind == ast.KindBindingElement
 	for depth := 0; declaration.Kind == ast.KindBindingElement; depth++ {
-		if depth >= maxValueFlowDepth || declaration.Parent == nil || declaration.Parent.Kind != ast.KindObjectBindingPattern {
+		if depth >= maxValueFlowDepth || declaration.Parent == nil || !ast.IsBindingPattern(declaration.Parent) {
 			return nil
 		}
 		declaration = declaration.Parent.Parent
@@ -22,7 +24,7 @@ func containerVariable(declaration *ast.Node) *ast.Node {
 	if declaration.Kind != ast.KindVariableDeclaration || declaration.Parent == nil ||
 		declaration.Parent.Flags&ast.NodeFlagsConst == 0 ||
 		(!binding && declaration.Name().Kind != ast.KindIdentifier) ||
-		(binding && declaration.Name().Kind != ast.KindObjectBindingPattern) {
+		(binding && !ast.IsBindingPattern(declaration.Name())) {
 		return nil
 	}
 	return declaration
@@ -32,38 +34,59 @@ func containerVariable(declaration *ast.Node) *ast.Node {
 // destructuring (notably bound methods), defaults, rest and computed keys retain
 // the erased path. A positive leaf cannot escape an unchecked sibling's failure.
 func (l *lowerer) containerPatternUse(pattern *ast.Node, tree *literalContainer, contract *checker.Type, fresh bool, steps *int, depth int, check func(*ast.Node, *ast.Symbol, *literalContainer, int) bool) bool {
-	if !containerStep(steps, &depth) || pattern.Kind != ast.KindObjectBindingPattern || tree.node.Kind != ast.KindObjectLiteralExpression ||
+	if !containerStep(steps, &depth) || !ast.IsBindingPattern(pattern) ||
 		(!fresh && (contract == nil || contract.Flags()&checker.TypeFlagsObject == 0)) {
 		return false
 	}
-	for _, element := range pattern.AsBindingPattern().Elements.Nodes {
+	array := pattern.Kind == ast.KindArrayBindingPattern
+	if array {
+		// Only ordinary-array contracts passed the whole literal-tree check. A
+		// binding's apparent tuple or narrowed type must not replace that contract.
+		if tree.node.Kind != ast.KindArrayLiteralExpression || !fresh && !l.checker.IsArrayType(contract) {
+			return false
+		}
+	} else if tree.node.Kind != ast.KindObjectLiteralExpression {
+		return false
+	}
+	for index, element := range pattern.AsBindingPattern().Elements.Nodes {
 		memberDepth := depth
-		if !containerStep(steps, &memberDepth) || element.Kind != ast.KindBindingElement ||
+		if !containerStep(steps, &memberDepth) || element.Kind != ast.KindBindingElement || element.Name() == nil ||
 			element.Initializer() != nil || element.AsBindingElement().DotDotDotToken != nil {
 			return false
 		}
 		name := element.Name()
-		keyNode := element.AsBindingElement().PropertyName
-		if keyNode == nil {
-			keyNode = name
+		key := strconv.Itoa(index)
+		if !array {
+			keyNode := element.AsBindingElement().PropertyName
+			if keyNode == nil {
+				keyNode = name
+			}
+			if keyNode.Kind != ast.KindIdentifier && keyNode.Kind != ast.KindStringLiteral {
+				return false
+			}
+			var ok bool
+			key, ok = literalDataKey(keyNode, true)
+			if !ok {
+				return false
+			}
 		}
-		if keyNode.Kind != ast.KindIdentifier && keyNode.Kind != ast.KindStringLiteral {
-			return false
-		}
-		key, ok := literalDataKey(keyNode, true)
 		child := tree.children[key]
-		if !ok || child == nil {
+		if child == nil {
 			return false
 		}
 		var source *checker.Type
 		if !fresh {
-			property := l.checker.GetPropertyOfType(contract, key)
-			if property == nil {
-				return false
+			if array {
+				source = l.checker.GetElementTypeOfArrayType(contract)
+			} else {
+				property := l.checker.GetPropertyOfType(contract, key)
+				if property == nil {
+					return false
+				}
+				source = l.checker.GetTypeOfSymbol(property)
 			}
-			source = l.checker.GetTypeOfSymbol(property)
 		}
-		if name.Kind == ast.KindObjectBindingPattern {
+		if ast.IsBindingPattern(name) {
 			if !l.containerPatternUse(name, child, source, fresh, steps, memberDepth, check) {
 				return false
 			}

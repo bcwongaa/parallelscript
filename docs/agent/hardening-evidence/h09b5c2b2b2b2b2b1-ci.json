@@ -1,7 +1,7 @@
 {
   "task": "H09b5c2b2b2b2b2b1 (D-212)",
   "checked": "2026-10-22 D-214 session start (backfill of D-213 observation)",
-  "method": "One startup-only non-blocking recent-ten list; receipt h09b5c2b2b2b2b2b2a-ci-start.json",
+  "method": "One startup-only non-blocking recent-ten list; receipt h09b5c2b2b2b2b2b2b1-ci-start.json",
   "runs": [
     {"commit":"a53542e52cac4922c902bb2aa20c8512fa54d6a2","role":"D-212 planning/startup documentation","run_id":39718461008,"status":"completed","conclusion":"success"},
     {"commit":"2fb43dcdfc70d95a0507b8546eba7fd80b459e53","role":"D-212 implementation","run_id":39723134096,"status":"completed","conclusion":"cancelled"}

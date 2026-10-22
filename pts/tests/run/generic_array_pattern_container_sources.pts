@@ -1,0 +1,128 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+const firstValue: Factory = first;
+const secondValue: Factory = second;
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+const root = [{ value: firstValue }, { value: secondValue }];
+const rootAlias = root;
+const [left, right] = rootAlias;
+const leftAlias = left;
+numberUse("array named", leftAlias.value);
+stringUse("array second", right.value);
+const nestedRoot = [{ branch: [{ value: secondValue }] }];
+const [{ branch: [nested] }] = nestedRoot;
+numberUse("array nested", nested.value);
+const inlineRoot = ({ children: [{ value: firstValue }] }).children;
+const [inlineChild] = inlineRoot;
+stringUse("array inline root", inlineChild.value);
+
+function capture(label: string): Factory {
+  let calls = 0;
+  const source: Factory = <T,>(value: T): Box<T> => {
+    calls++;
+    return new Box(value, label + "/" + calls);
+  };
+  const containers = [{ value: source }];
+  const [child] = containers;
+  return child.value;
+}
+const captureA = capture("a");
+const captureB = capture("b");
+numberUse("array capture a", captureA);
+stringUse("array capture b", captureB);
+stringUse("array capture a again", captureA);
+
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+const receiverA: Maker = new Child("receiver a");
+const receiverB: Maker = new Override("receiver b");
+const receivers = [{ value: receiverA }, { value: receiverB }];
+const [directA, directB] = receivers;
+const direct: Box<number> = directA.value.make(3);
+console.log("array direct", direct.origin, direct.value + 1);
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const wrappers = [{ value: read(directA.value) }, { value: read(directB.value) }];
+const [wrapperA, wrapperB] = wrappers;
+numberUse("array wrapper a", wrapperA.value);
+stringUse("array wrapper b", wrapperB.value);
+stringUse("array wrapper a again", wrapperA.value);
+const lookup = new Parent("lookup");
+const actual = new Child("actual");
+const boundRoot = [{ value: lookup.make.bind(actual) }];
+const [bound] = boundRoot;
+numberUse("array bind thisArg", bound.value);
+console.log("array lookup calls", lookup.calls);
+
+const mutableRoot = [{ value: firstValue }, { value: firstValue }];
+const [mutated, sibling] = mutableRoot;
+const before = mutated.value;
+([mutated.value] = [secondValue]);
+numberUse("array before mutation", before);
+numberUse("array selected mutation", mutated.value);
+sibling.value = secondValue;
+stringUse("array sibling mutation", mutableRoot[1].value);
+const dynamicRoot = [{ value: firstValue }];
+const [dynamicChild] = dynamicRoot;
+const dynamic: any = dynamicChild;
+dynamic.value = secondValue;
+numberUse("array dynamic mutation", dynamicChild.value);
+const unknown: any[] = [firstValue, secondValue];
+const unknownRoot = [{ value: unknown[1] as Factory }];
+const [unknownChild] = unknownRoot;
+stringUse("array unknown source", unknownChild.value);
+
+let order = "";
+function effect(label: string, value: Factory): Factory { order += label; return value; }
+const effects = [{ value: effect("first/", firstValue) }, { value: effect("second", secondValue) }];
+const [effectA, effectB] = effects;
+numberUse("array effects a", effectA.value);
+stringUse("array effects b", effectB.value);
+console.log("array evaluation order", order);
+
+// expect:
+// array named first 8
+// array second second 5
+// array nested second 8
+// array inline root first 5
+// array capture a a/1 8
+// array capture b b/1 5
+// array capture a again a/2 5
+// array direct receiver a/parent/1 4
+// array wrapper a receiver a/parent/2 8
+// array wrapper b receiver b/override/1 5
+// array wrapper a again receiver a/parent/3 5
+// array bind thisArg actual/parent/1 8
+// array lookup calls 0
+// array before mutation first 8
+// array selected mutation second 8
+// array sibling mutation second 5
+// array dynamic mutation second 8
+// array unknown source second 5
+// array effects a first 8
+// array effects b second 5
+// array evaluation order first/second

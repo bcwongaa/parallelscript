@@ -159,7 +159,7 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 	aliasUse := func(selected *literalContainer, read *ast.Node, depth int) bool {
 		parent := read.Parent
 		fresh := projected && parent == firstBinding
-		if parent.Name().Kind == ast.KindObjectBindingPattern {
+		if ast.IsBindingPattern(parent.Name()) {
 			if parent.Parent.Flags&ast.NodeFlagsConst == 0 || parent.AsVariableDeclaration().Type != nil ||
 				ast.GetCombinedModifierFlags(parent)&ast.ModifierFlagsExport != 0 {
 				return false
