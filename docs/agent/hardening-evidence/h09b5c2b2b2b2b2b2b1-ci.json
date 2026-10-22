@@ -1,0 +1,24 @@
+{
+  "task": "H09b5c2b2b2b2b2b2b1 (D-214)",
+  "date": "2026-10-22",
+  "implementation_commit": "b7b6548157a63344d82b4e9055e39bda5b84ef4e",
+  "delivery": "pushed to origin/main",
+  "ci": "pending",
+  "run_id": null,
+  "method": "No CI lookup after the startup-only recent-ten list in h09b5c2b2b2b2b2b2b1-ci-start.json. This receipt records delivery, not a CI result.",
+  "local": {
+    "build_exit": 0,
+    "suite_exit": 0,
+    "pass": 4888,
+    "skip": 341,
+    "fail": 0,
+    "tested_packages_pass": 10,
+    "corpus_comparisons_pass": 263,
+    "corpus_skip": 37,
+    "monitored_files_unchanged_during_suite": 8148,
+    "reviewed_hashes_unchanged_through_delivery": 9,
+    "cli_unchanged": true,
+    "receipt": "h09b5c2b2b2b2b2b2b1-final-summary.json"
+  },
+  "note": "Child-only acceptance follows green local gates, scoped review and implementation push under the 2026-10-20 directive. A later session may backfill exact-SHA CI. No wait/poll, parent acceptance or H09b5b refused-review replacement is implied."
+}
