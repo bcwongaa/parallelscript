@@ -50,12 +50,20 @@ func (l *lowerer) containerPatternUse(pattern *ast.Node, tree *literalContainer,
 	}
 	for index, element := range pattern.AsBindingPattern().Elements.Nodes {
 		memberDepth := depth
-		if !containerStep(steps, &memberDepth) || element.Kind != ast.KindBindingElement || element.Name() == nil ||
+		if !containerStep(steps, &memberDepth) || element.Kind != ast.KindBindingElement ||
 			element.Initializer() != nil || element.AsBindingElement().DotDotDotToken != nil {
 			return false
 		}
 		name := element.Name()
 		key := strconv.Itoa(index)
+		if name == nil {
+			// The parser represents an elision as a nameless binding element. The
+			// whole tree already passed; skip this present index without a source.
+			if !array || element.AsBindingElement().PropertyName != nil || tree.members[key] == nil {
+				return false
+			}
+			continue
+		}
 		if !array {
 			keyNode := element.AsBindingElement().PropertyName
 			if keyNode == nil {

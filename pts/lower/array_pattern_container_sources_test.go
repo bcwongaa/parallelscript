@@ -89,8 +89,8 @@ func TestArrayPatternContainerUnsafeUsesPoisonEverySibling(t *testing.T) {
 					for _, projection := range projections {
 						steps := maxValueFlowSteps
 						sources := (sourceProof{l: l, receivers: receivers}).valueSources(projection, &steps, 0)
-						if tt.use == "" {
-							assert.Assert(t, sources != nil, "the identical fixture without its late unsafe use must prove every selected subtree")
+						if tt.use == "" || tt.name == "omitted_binding" {
+							assert.Assert(t, sources != nil, "the unmodified fixture and its present-index elision prove every selected subtree")
 							assert.DeepEqual(t, returnedSourceNames(sources), inlineContainerSourceNames([]string{"first"}, receivers))
 						} else {
 							assert.Assert(t, sources == nil, "a late unsafe pattern/alias/sibling use poisons the complete root in either query order")

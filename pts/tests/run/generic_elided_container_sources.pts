@@ -1,0 +1,106 @@
+class Box<T> { constructor(public value: T, public origin: string) {} }
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+const a: Factory = first;
+const b: Factory = second;
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+const root = [{ value: a }, { value: b }, { value: a }];
+const alias = root;
+const [, middle, ,] = alias;
+const [left, , right] = root;
+const [, , ,] = root;
+numberUse("elided middle", middle.value);
+stringUse("elided left", left.value);
+numberUse("elided right", right.value);
+const nestedRoot = { rows: [[{ value: a }, { value: b }], [{ value: b }, { value: a }]] };
+const { rows: [[, nested], ,] } = nestedRoot;
+stringUse("elided nested", nested.value);
+const [, fresh] = ({ rows: [{ value: a }, { value: b }] }).rows;
+numberUse("elided fresh", fresh.value);
+function capture(label: string): Factory {
+  let calls = 0;
+  const source: Factory = <T,>(value: T): Box<T> => { calls++; return new Box(value, label + "/" + calls); };
+  const rows = [{ value: source }, { value: source }];
+  const [, child] = rows;
+  return child.value;
+}
+const capturedA = capture("a");
+const capturedB = capture("b");
+numberUse("elided capture a", capturedA);
+stringUse("elided capture b", capturedB);
+stringUse("elided capture a again", capturedA);
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> { this.calls++; return new Box(value, this.label + "/parent/" + this.calls); }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> { this.calls++; return new Box(value, this.label + "/override/" + this.calls); }
+}
+const receiverA: Maker = new Child("a");
+const receiverB: Maker = new Override("b");
+const receivers = [{ value: receiverA }, { value: receiverB }];
+const [, selectedReceiver] = receivers;
+const direct: Box<number> = selectedReceiver.value.make(3);
+console.log("elided receiver", direct.origin, direct.value + 1);
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const wrappers = [{ value: read(receiverA) }, { value: read(receiverB) }];
+const [wrapperA, ,] = wrappers;
+numberUse("elided wrapper", wrapperA.value);
+const lookup = new Parent("lookup");
+const actual = new Child("actual");
+const boundRows = [{ value: a }, { value: lookup.make.bind(actual) }];
+const [, bound] = boundRows;
+stringUse("elided bind thisArg", bound.value);
+console.log("elided lookup calls", lookup.calls);
+const changing = [{ value: a }, { value: a }];
+const [, changed] = changing;
+const snapshot = changed.value;
+([changed.value] = [b]);
+numberUse("elided before mutation", snapshot);
+numberUse("elided after mutation", changed.value);
+const dynamicRows = [{ value: a }, { value: a }];
+const [, dynamicChild] = dynamicRows;
+const dynamic: any = dynamicRows;
+dynamic[1].value = b;
+stringUse("elided dynamic mutation", dynamicChild.value);
+const unknown: any[] = [a, b];
+const unknownRows = [{ value: unknown[1] as Factory }, { value: unknown[0] as Factory }];
+const [, unknownChild] = unknownRows;
+numberUse("elided unknown", unknownChild.value);
+let order = "";
+function effect(label: string, value: Factory): Factory { order += label; return value; }
+const effects = [{ value: effect("skip/", a) }, { value: effect("select/", b) }, { value: effect("suffix", a) }];
+const [, selectedEffect, ,] = effects;
+numberUse("elided effect", selectedEffect.value);
+console.log("elided evaluation order", order);
+
+// expect:
+// elided middle second 8
+// elided left first 5
+// elided right first 8
+// elided nested second 5
+// elided fresh second 8
+// elided capture a a/1 8
+// elided capture b b/1 5
+// elided capture a again a/2 5
+// elided receiver b/override/1 4
+// elided wrapper a/parent/1 8
+// elided bind thisArg actual/parent/1 5
+// elided lookup calls 0
+// elided before mutation first 8
+// elided after mutation second 8
+// elided dynamic mutation second 5
+// elided unknown first 8
+// elided effect second 8
+// elided evaluation order skip/select/suffix

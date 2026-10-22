@@ -71,7 +71,7 @@ func TestArrayPatternContainerUnsafeUsesKeepEveryCompatibleTarget(t *testing.T) 
 					c, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
 					assert.NilError(t, err)
 					inlineContainerAssertPairs(t, c, kind, 3, func(value, demand int) bool {
-						return tt.use != "" || value == 0
+						return tt.use != "" && tt.name != "omission" || value == 0
 					})
 				})
 			}
