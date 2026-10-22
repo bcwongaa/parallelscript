@@ -1,0 +1,20 @@
+{
+  "task": "H09b5c2b2b2b2b2b2b2a",
+  "commit": "76c8eb902a2469eff200124df8d9740973a69ae3",
+  "ci": "pending",
+  "run_id": null,
+  "method": "Owner 2026-10-20 speed directive: accept on green local full suite, Node differential, scoped review and pushed implementation; never query or wait for CI after startup.",
+  "local": {
+    "build_exit": 0,
+    "suite_exit": 0,
+    "pass": 5217,
+    "skip": 341,
+    "fail": 0,
+    "corpus_pass": 263,
+    "corpus_skip": 37,
+    "monitored_files_unchanged": 8151,
+    "reviewed_files_unchanged": 7
+  },
+  "startup_receipt": "h09b5c2b2b2b2b2b2b2a-ci-start.json",
+  "note": "Implementation committed and pushed to origin/main before child-only documentation acceptance. No CI result or run ID is invented; inspect once at a later session startup. All parents and H09b5b's refused gate remain unchecked."
+}

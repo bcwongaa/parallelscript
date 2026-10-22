@@ -9,5 +9,6 @@
   "pending_at_session_start": [
     {"commit":"5397ed471e72439f62627553bc94a6aaafa3f3bb","role":"D-213 child-only acceptance documentation","run_id":39730457679,"status":"in_progress"}
   ],
-  "note":"Planning success certifies only its exact SHA. Cancelled implementation is not a green CI receipt; latest acceptance remains pending. No failed run; no later query or polling. Green local acceptance unchanged."
+  "note":"Planning success certifies only its exact SHA. Cancelled implementation is not a green CI receipt; latest acceptance remained pending at the D-214 startup. No failed run; no later query or polling in that session. Green local acceptance unchanged.",
+  "next_session_backfill": {"checked":"2026-10-22 D-215 startup only","commit":"5397ed471e72439f62627553bc94a6aaafa3f3bb","role":"D-213 acceptance documentation","run_id":39730457679,"status":"completed","conclusion":"cancelled","source":"h09b5c2b2b2b2b2b2b2a-ci-start.json","note":"Superseded, not a green receipt; no further CI query."}
 }
