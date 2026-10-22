@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-22",
+  "task": "H09b5c2b2b2b2b2b2b2a (D-215)",
+  "method": "One startup-only gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId; no later CI query, wait or polling.",
+  "runs": [
+    {"conclusion":"skipped","databaseId":39736829660,"headSha":"3b3be53a3abdc9dbe35c26aad7ba50bee4943b18","status":"completed"},
+    {"conclusion":"","databaseId":39736829591,"headSha":"3b3be53a3abdc9dbe35c26aad7ba50bee4943b18","status":"in_progress"},
+    {"conclusion":"skipped","databaseId":39736480113,"headSha":"b7b6548157a63344d82b4e9055e39bda5b84ef4e","status":"completed"},
+    {"conclusion":"cancelled","databaseId":39736480112,"headSha":"b7b6548157a63344d82b4e9055e39bda5b84ef4e","status":"completed"},
+    {"conclusion":"skipped","databaseId":39731235388,"headSha":"07dbd90fbcf34fb7318c37f97abc35ea1e84d063","status":"completed"},
+    {"conclusion":"success","databaseId":39731235285,"headSha":"07dbd90fbcf34fb7318c37f97abc35ea1e84d063","status":"completed"},
+    {"conclusion":"skipped","databaseId":39730457744,"headSha":"5397ed471e72439f62627553bc94a6aaafa3f3bb","status":"completed"},
+    {"conclusion":"cancelled","databaseId":39730457679,"headSha":"5397ed471e72439f62627553bc94a6aaafa3f3bb","status":"completed"},
+    {"conclusion":"cancelled","databaseId":39730151049,"headSha":"dda0478191376ae9070fba861ac1da1095f93cec","status":"completed"},
+    {"conclusion":"skipped","databaseId":39730151003,"headSha":"dda0478191376ae9070fba861ac1da1095f93cec","status":"completed"}
+  ],
+  "interpretation": "No failed run. D-214 planning-only SHA 07dbd90fb succeeded; D-213 implementation/acceptance and D-214 implementation cancelled, not green receipts. D-214 acceptance remains pending."
+}

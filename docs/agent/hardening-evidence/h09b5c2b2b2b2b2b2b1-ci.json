@@ -3,8 +3,9 @@
   "date": "2026-10-22",
   "implementation_commit": "b7b6548157a63344d82b4e9055e39bda5b84ef4e",
   "delivery": "pushed to origin/main",
-  "ci": "pending",
-  "run_id": null,
+  "ci": "cancelled (superseded; not a green receipt)",
+  "run_id": 39736480112,
+  "startup_backfill": "2026-10-22: planning-only SHA 07dbd90fb succeeded in run 39731235285; acceptance SHA 3b3be53a3 run 39736829591 still in_progress. See h09b5c2b2b2b2b2b2b2a-ci-start.json; no later query.",
   "method": "No CI lookup after the startup-only recent-ten list in h09b5c2b2b2b2b2b2b1-ci-start.json. This receipt records delivery, not a CI result.",
   "local": {
     "build_exit": 0,
