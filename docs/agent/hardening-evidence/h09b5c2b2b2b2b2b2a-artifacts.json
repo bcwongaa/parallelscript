@@ -1,0 +1,83 @@
+{
+  "parent_archive": {
+    "path": "h09b5c2b2b2b2b2b2a-parent-probes.tar.gz",
+    "bytes": 4966479,
+    "sha256": "760fc85b7c2994f6544e8594d6e18b927b75df8f0d2bec2c8aa4b3249831d0c1",
+    "regular_members": 535,
+    "verified_payload_hashes": 533
+  },
+  "final_stream": {
+    "path": "h09b5c2b2b2b2b2b2a-final-suite.jsonl.gz",
+    "bytes": 585028,
+    "sha256": "507395a5340ca6cc3b0fa13cfbf6a2b0e87fe2829dbaa54d9e9b4099056f1443"
+  },
+  "final_summary": {
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "-p",
+      "4",
+      "-parallel",
+      "4",
+      "-timeout",
+      "40m",
+      "./pts/...",
+      "./cmd/pts/"
+    ],
+    "build_exit": 0,
+    "suite_exit": 0,
+    "counts": {
+      "pass": 4641,
+      "skip": 341,
+      "fail": 0
+    },
+    "packages": {
+      "github.com/microsoft/typescript-go/pts/bench/binary_trees": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/fan_out": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/fib": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/fib_int": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/file_io": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/http_hello": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/http_json": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/json": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/mandelbrot": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/nbody": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/spectral_norm": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/startup": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/string_building": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/sum_reduce": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/word_count": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/word_freq": "skip",
+      "github.com/microsoft/typescript-go/pts/cgen": "pass",
+      "github.com/microsoft/typescript-go/pts/diagnostic": "pass",
+      "github.com/microsoft/typescript-go/pts/check": "pass",
+      "github.com/microsoft/typescript-go/pts/ir": "skip",
+      "github.com/microsoft/typescript-go/pts/lib": "skip",
+      "github.com/microsoft/typescript-go/pts/frontend": "pass",
+      "github.com/microsoft/typescript-go/pts/lsp": "pass",
+      "github.com/microsoft/typescript-go/pts/numeric": "skip",
+      "github.com/microsoft/typescript-go/pts/toolchain": "pass",
+      "github.com/microsoft/typescript-go/cmd/pts": "pass",
+      "github.com/microsoft/typescript-go/pts/driver": "pass",
+      "github.com/microsoft/typescript-go/pts/lower": "pass",
+      "github.com/microsoft/typescript-go/pts/tests": "pass"
+    },
+    "corpus": {
+      "pass": 263,
+      "skip": 37,
+      "fail": 0
+    },
+    "elapsed_seconds": 732.4942438010476,
+    "source_count": 10482,
+    "sources_unchanged": true,
+    "cli_unchanged": true,
+    "cli_sha256": "84243f3c0777035f8d3f5866f5fe15117db3573b8406c4c31c24ac770bd4165a",
+    "stderr_bytes": {
+      "build.stderr": 0,
+      "suite.stderr": 0
+    }
+  },
+  "reviewed_hashes_unchanged": true
+}

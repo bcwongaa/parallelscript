@@ -194,7 +194,6 @@ const probe = check_root; probe;`
 func TestExtractedContainerUnsupportedOriginsAndContractsStayUnknown(t *testing.T) {
 	t.Parallel()
 	for _, body := range []string{
-		"const root = { child: { value: first } }; const { child: extracted } = root; const probe = extracted.value; probe;",
 		"let root = { child: { value: first } }; const extracted = root.child; const probe = extracted.value; probe;",
 		"const root: any = { child: { value: first } }; const extracted = root.child; const probe = extracted.value; probe;",
 		"const root = { child: { value: first } } as { child: { value: Value } }; const extracted = root.child; const probe = extracted.value; probe;",

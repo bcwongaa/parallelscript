@@ -1,0 +1,138 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+const firstValue: Factory = first;
+const secondValue: Factory = second;
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+
+const root = { branch: { object: { selected: firstValue }, array: [firstValue, secondValue] } };
+const rootAlias = root;
+const { branch: { object: objectChild, array: arrayChild } } = rootAlias;
+const objectAlias = objectChild;
+numberUse("binding named", objectAlias.selected);
+stringUse("binding array child", arrayChild[1]);
+const { child: fresh } = { child: { selected: secondValue } };
+numberUse("binding fresh", fresh.selected);
+const { child: projected } = ({ branch: { child: { selected: firstValue } } }).branch;
+stringUse("binding projected", projected.selected);
+
+function capture(label: string): Factory {
+  let calls = 0;
+  const source: Factory = <T,>(value: T): Box<T> => {
+    calls++;
+    return new Box(value, label + "/" + calls);
+  };
+  const { branch: { child } } = { branch: { child: { selected: source } } };
+  return child.selected;
+}
+const { wrappers: captures } = { wrappers: [capture("a"), capture("b")] };
+numberUse("binding capture a", captures[0]);
+stringUse("binding capture b", captures[1]);
+stringUse("binding capture a again", captures[0]);
+
+let order = "";
+function selectedEffect(): Factory { order += "selected"; return first; }
+function otherEffect(): Factory { order += "/other"; return second; }
+function siblingEffect(): Factory { order += "/sibling"; return second; }
+const { branch: { child: effects, sibling: effectSibling } } = {
+  branch: {
+    child: { selected: selectedEffect(), other: otherEffect() },
+    sibling: { selected: siblingEffect() }
+  }
+};
+numberUse("binding effects", effects.selected);
+stringUse("binding sibling", effectSibling.selected);
+console.log("binding evaluation order", order);
+
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const firstReceiver: Maker = new Child("receiver a");
+const secondReceiver: Maker = new Override("receiver b");
+const { branch: { child: receivers } } = { branch: { child: { first: firstReceiver, second: secondReceiver } } };
+const direct: Box<number> = receivers.first.make(3);
+console.log("binding direct receiver", direct.origin, direct.value + 1);
+const { child: wrappers } = { child: { first: read(receivers.first), second: read(receivers.second) } };
+numberUse("binding captured receiver a", wrappers.first);
+stringUse("binding captured receiver b", wrappers.second);
+stringUse("binding captured receiver a again", wrappers.first);
+const lookup = new Parent("lookup");
+const thisArg = new Child("thisArg");
+const { child: bound } = { child: { selected: lookup.make.bind(thisArg) } };
+numberUse("binding bind thisArg", bound.selected);
+
+const mutationRoot = { child: { selected: firstValue }, side: { selected: firstValue } };
+const { child: mutated, side: mutationSibling } = mutationRoot;
+const beforeWrite = mutated.selected;
+({ value: mutated.selected } = { value: secondValue });
+numberUse("binding terminal before write", beforeWrite);
+numberUse("binding pattern mutation", mutated.selected);
+mutationSibling.selected = secondValue;
+stringUse("binding sibling mutation", mutationRoot.side.selected);
+const { child: dynamicChild } = { child: { selected: firstValue } };
+const dynamic: any = dynamicChild;
+dynamic.selected = secondValue;
+numberUse("binding dynamic mutation", dynamicChild.selected);
+
+let defaults = 0;
+function defaultChild(): { selected: Factory } { defaults++; return { selected: secondValue }; }
+const { child: defaulted = defaultChild() } = { child: { selected: firstValue } };
+numberUse("binding default control", defaulted.selected);
+console.log("binding default calls", defaults);
+const { child: restChild, ...rest } = { child: { selected: firstValue }, side: { selected: secondValue } };
+numberUse("binding rest child control", restChild.selected);
+stringUse("binding rest sibling control", rest.side.selected);
+const { child: terminalSiblingChild, terminal } = { child: { selected: firstValue }, terminal: 9 };
+numberUse("binding terminal sibling control", terminalSiblingChild.selected);
+console.log("binding terminal sibling", terminal);
+
+// expect:
+// binding named first 8
+// binding array child second 5
+// binding fresh second 8
+// binding projected first 5
+// binding capture a a/1 8
+// binding capture b b/1 5
+// binding capture a again a/2 5
+// binding effects first 8
+// binding sibling second 5
+// binding evaluation order selected/other/sibling
+// binding direct receiver receiver a/parent/1 4
+// binding captured receiver a receiver a/parent/2 8
+// binding captured receiver b receiver b/override/1 5
+// binding captured receiver a again receiver a/parent/3 5
+// binding bind thisArg thisArg/parent/1 8
+// binding terminal before write first 8
+// binding pattern mutation second 8
+// binding sibling mutation second 5
+// binding dynamic mutation second 8
+// binding default control first 8
+// binding default calls 0
+// binding rest child control first 8
+// binding rest sibling control second 5
+// binding terminal sibling control first 8
+// binding terminal sibling 9

@@ -1,0 +1,222 @@
+package driver_test
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/microsoft/typescript-go/pts/driver"
+	"github.com/microsoft/typescript-go/pts/lower"
+	"gotest.tools/v3/assert"
+)
+
+func TestDestructuredContainerDemandsOnlyInstantiateSelectedTerminals(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"function", "receiver", "captured_receiver", "wrapper"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			for _, origin := range []string{"named", "fresh", "root_alias", "projection", "nested_pattern", "multiple_nested_leaves", "array_child", "selected_return", "terminal_union"} {
+				t.Run(origin, func(t *testing.T) {
+					t.Parallel()
+					entry := writeSource(t, destructuredContainerFlowSource(kind, origin))
+
+					c, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+
+					assert.NilError(t, err)
+					pairs := destructuredContainerAssertPairs(t, c, kind, func(value, demand int) bool {
+						return value == demand || origin == "terminal_union" && value == 1 && demand == 0
+					})
+					want := 3
+					if origin == "terminal_union" {
+						want++
+					}
+					t.Logf("direct AllInstances: 3 destructured container sources x 3 signatures = %d pairs; want %d", pairs, want)
+					if kind == "captured_receiver" || kind == "wrapper" {
+						for wrapper := range 3 {
+							required := []int{wrapper}
+							if kind == "wrapper" && origin == "terminal_union" && wrapper == 1 {
+								required = []int{0, 1}
+							}
+							assertCapturedReceiverWrapperSignatures(t, c, fmt.Sprintf("read%d_make", wrapper), required)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestDestructuredContainerUnsafeUsesKeepEveryCompatibleTarget(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"function", "receiver", "captured_receiver", "wrapper"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			for _, tt := range []struct {
+				name string
+				use  string
+			}{
+				{"unmodified", ""},
+				{"selected_write", "other.value = second;"},
+				{"sibling_write", "sibling.value = second;"},
+				{"unselected_root_write", "root.unselected.value = second;"},
+				{"pattern_write", "({ value: other.value } = { value: second });"},
+				{"escaped_alias", "consumeContainer(other);"},
+				{"dynamic_alias", "const dynamic: any = other;"},
+				{"defaulted_binding", "const { child: defaulted = { value: first, other: first } } = root.branch;"},
+				{"rest_binding", "const { child: rebound, ...rest } = root.branch;"},
+				{"terminal_binding", "const { value } = other;"},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Parallel()
+					entry := writeSource(t, destructuredContainerUnknownFlowSource(kind, tt.use))
+
+					c, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+
+					assert.NilError(t, err)
+					pairs := destructuredContainerAssertPairs(t, c, kind, func(value, demand int) bool {
+						return tt.use != "" || value == 0
+					})
+					t.Logf("direct AllInstances: unsafe=%t pairs=%d", tt.use != "", pairs)
+				})
+			}
+		})
+	}
+}
+
+func TestDestructuredContainerSharedSitesJoinEveryTerminalCaller(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"function", "receiver", "captured_receiver"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			inventoryKind := kind
+			if kind == "captured_receiver" {
+				inventoryKind = "function"
+			}
+			var source strings.Builder
+			source.WriteString(inlineContainerFlowInventory(inventoryKind, 3))
+			valueType, resultType, terminal := "Factory", "Factory", "alias.value"
+			if kind != "function" {
+				valueType = "Maker"
+				if kind == "receiver" {
+					resultType = "Maker"
+				} else {
+					terminal += ".make"
+				}
+			}
+			for _, name := range []string{"shared", "separate"} {
+				fmt.Fprintf(&source, "function %s(value: %s): %s { const { branch: { child } } = { branch: { child: { value } } }; const alias = child; return %s; }\n", name, valueType, resultType, terminal)
+			}
+			for i := range 3 {
+				name, value := "shared", fmt.Sprintf("source%d", i)
+				if i == 2 {
+					name = "separate"
+				}
+				if kind != "function" {
+					value = fmt.Sprintf("new M%d()", i)
+				}
+				fmt.Fprintf(&source, "use%d(%s(%s));\n", i, name, value)
+			}
+			entry := writeSource(t, source.String())
+
+			c, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+
+			assert.NilError(t, err)
+			destructuredContainerAssertPairs(t, c, kind, func(value, demand int) bool {
+				return value < 2 && demand < 2 || value == 2 && demand == 2
+			})
+			if kind == "captured_receiver" {
+				assertCapturedReceiverWrapperSignatures(t, c, "shared_make", []int{0, 1})
+				assertCapturedReceiverWrapperSignatures(t, c, "separate_make", []int{2})
+			}
+		})
+	}
+}
+
+func destructuredContainerAssertPairs(t *testing.T, c, kind string, required func(int, int) bool) int {
+	t.Helper()
+	pairs := 0
+	for value := range 3 {
+		for demand := range 3 {
+			name := literalProjectionTarget(kind, value, demand)
+			present := strings.Contains(c, name)
+			if present {
+				pairs++
+			}
+			assert.Check(t, present == required(value, demand), "%s: present=%t, selected destructured child requires=%t", name, present, required(value, demand))
+			if kind != "function" {
+				assert.Check(t, strings.Contains(c, "return "+name) == required(value, demand), "%s class registration follows its required target", name)
+			}
+		}
+	}
+	return pairs
+}
+
+func destructuredContainerFlowSource(kind, origin string) string {
+	var source strings.Builder
+	source.WriteString(inlineContainerFlowInventory(kind, 3))
+	valueType := "Factory"
+	if kind == "receiver" || kind == "captured_receiver" {
+		valueType = "Maker"
+	}
+	for i := range 3 {
+		value, alternate := fmt.Sprintf("source%d", i), fmt.Sprintf("source%d", (i+1)%3)
+		if valueType == "Maker" {
+			value, alternate = fmt.Sprintf("new M%d()", i), fmt.Sprintf("new M%d()", (i+1)%3)
+		} else if kind == "wrapper" {
+			value, alternate = fmt.Sprintf("read%d()", i), fmt.Sprintf("read%d()", (i+1)%3)
+		}
+		fmt.Fprintf(&source, "const selected%d: %s = %s; const alternate%d: %s = %s;\n", i, valueType, value, i, valueType, alternate)
+		selected, other := fmt.Sprintf("selected%d", i), fmt.Sprintf("alternate%d", i)
+		if origin == "terminal_union" && i == 0 {
+			selected = "choose() ? " + selected + " : " + other
+		}
+		terminal := fmt.Sprintf("child%d.value", i)
+		switch origin {
+		case "fresh":
+			fmt.Fprintf(&source, "const { child: child%d } = { child: { value: %s, other: %s } };\n", i, selected, other)
+		case "root_alias":
+			fmt.Fprintf(&source, "const root%d = { child: { value: %s, other: %s } }; const rootAlias%d = root%d; const { child: extracted%d } = ((rootAlias%d)); const child%d = extracted%d;\n", i, selected, other, i, i, i, i, i, i)
+		case "projection":
+			fmt.Fprintf(&source, "const root%d = { branch: { child: { value: %s, other: %s } } }; const { child: child%d } = root%d.branch;\n", i, selected, other, i, i)
+		case "nested_pattern":
+			fmt.Fprintf(&source, "const root%d = { branch: { child: { value: %s, other: %s } } }; const { branch: { child: child%d } } = root%d;\n", i, selected, other, i, i)
+		case "multiple_nested_leaves":
+			fmt.Fprintf(&source, "const root%d = { branch: { child: { value: %s, other: %s }, side: [%s] } }; const { branch: { child: child%d, side: side%d } } = root%d; const ignored%d = side%d[0];\n", i, selected, other, other, i, i, i, i, i)
+		case "array_child":
+			fmt.Fprintf(&source, "const { child: child%d } = { child: [%s, %s] };\n", i, selected, other)
+			terminal = fmt.Sprintf("child%d[0]", i)
+		case "selected_return":
+			fmt.Fprintf(&source, "function select%d(): %s { const { branch: { child } } = { branch: { child: { value: %s, other: %s } } }; return child.value; }\n", i, valueType, selected, other)
+			terminal = fmt.Sprintf("select%d()", i)
+		default:
+			fmt.Fprintf(&source, "const root%d = { child: { value: %s, other: %s } }; const { child: child%d } = root%d;\n", i, selected, other, i, i)
+		}
+		if kind == "captured_receiver" {
+			terminal = fmt.Sprintf("read%d(%s)", i, terminal)
+		}
+		fmt.Fprintf(&source, "use%d(%s);\n", i, terminal)
+	}
+	return source.String()
+}
+
+func destructuredContainerUnknownFlowSource(kind, lateUse string) string {
+	var source strings.Builder
+	source.WriteString(inlineContainerFlowInventory(kind, 3))
+	switch kind {
+	case "receiver", "captured_receiver":
+		source.WriteString("type Value = Maker; const first: Value = new M0(); const second: Value = new M1();\n")
+	case "wrapper":
+		source.WriteString("type Value = Factory; const first: Value = read0(); const second: Value = read1(); const keep: any[] = [first, second, read2()];\n")
+	default:
+		source.WriteString("type Value = Factory; const first: Value = source0; const second: Value = source1; const keep: any[] = [source0, source1, source2];\n")
+	}
+	source.WriteString("const root = { branch: { child: { value: first, other: first }, side: { value: first, other: first } }, unselected: { value: first } }; const { branch: { child: extracted, side: sibling } } = root; const other = extracted;\n")
+	for i, terminal := range []string{"root.branch.child.value", "sibling.value", "other.value"} {
+		if kind == "captured_receiver" {
+			terminal = fmt.Sprintf("read%d(%s)", i, terminal)
+		}
+		fmt.Fprintf(&source, "use%d(%s);\n", i, terminal)
+	}
+	source.WriteString(lateUse + "\n")
+	return source.String()
+}

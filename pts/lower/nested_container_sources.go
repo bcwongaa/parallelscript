@@ -97,7 +97,9 @@ func (tree *literalContainer) projectionUse(read *ast.Node, steps *int, depth in
 // methods can replace a closure with an adapter; array common types can change a
 // child's layout. Raw checker contracts keep this shared cache independent of subst.
 func (l *lowerer) nestedContainerTypes(tree *literalContainer, target *checker.Type, steps *int, depth int) bool {
-	if !containerStep(steps, &depth) || l.checker.GetContextualType(tree.node, checker.ContextFlagsNone) != nil {
+	// Inferred binding-pattern pseudo-context is not a declared conversion. Actual
+	// annotations/default parameter contexts still apply with SkipBindingPatterns.
+	if !containerStep(steps, &depth) || l.checker.GetContextualType(tree.node, checker.ContextFlagsSkipBindingPatterns) != nil {
 		return false
 	}
 	own := l.checker.GetWidenedType(l.checker.GetTypeAtLocation(tree.node))

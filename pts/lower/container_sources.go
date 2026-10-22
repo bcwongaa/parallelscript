@@ -78,9 +78,10 @@ func (l *lowerer) containerBinding(node *ast.Node) (*ast.Node, *ast.Symbol) {
 		return nil, nil
 	}
 	declaration := symbol.ValueDeclaration
-	if declaration.Kind != ast.KindVariableDeclaration || declaration.Name().Kind != ast.KindIdentifier ||
-		declaration.Parent.Flags&ast.NodeFlagsConst == 0 || l.assignedAnywhere[symbol] ||
-		ast.GetCombinedModifierFlags(declaration)&ast.ModifierFlagsExport != 0 ||
+	owner := containerVariable(declaration)
+	if owner == nil || l.assignedAnywhere[symbol] ||
+		ast.GetCombinedModifierFlags(owner)&ast.ModifierFlagsExport != 0 ||
+		declaration.Kind == ast.KindBindingElement && owner.AsVariableDeclaration().Type != nil ||
 		l.isDynamicSource(node) || l.storedDynamic(node) {
 		return nil, nil
 	}
@@ -108,7 +109,7 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 			flow.containers[alias] = tree
 		}
 	}()
-	var literal *ast.Node
+	var literal, firstBinding *ast.Node
 	projected := false
 	for {
 		if _, seen := component[declaration]; seen {
@@ -118,8 +119,12 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 		if !containerStep(steps, &depth) {
 			return nil
 		}
-		literal = declaration.Initializer()
-		projected = false
+		firstBinding = containerVariable(declaration)
+		if firstBinding == nil {
+			return nil
+		}
+		literal = firstBinding.Initializer()
+		projected = declaration.Kind == ast.KindBindingElement
 		for literal != nil {
 			if literal.Kind == ast.KindParenthesizedExpression {
 				if !containerStep(steps, &depth) {
@@ -153,12 +158,20 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 	var check func(*ast.Node, *ast.Symbol, *literalContainer, int) bool
 	aliasUse := func(selected *literalContainer, read *ast.Node, depth int) bool {
 		parent := read.Parent
+		fresh := projected && parent == firstBinding
+		if parent.Name().Kind == ast.KindObjectBindingPattern {
+			if parent.Parent.Flags&ast.NodeFlagsConst == 0 || parent.AsVariableDeclaration().Type != nil ||
+				ast.GetCombinedModifierFlags(parent)&ast.ModifierFlagsExport != 0 {
+				return false
+			}
+			return l.containerPatternUse(parent.Name(), selected, l.containerReadType(read, steps, depth), fresh, steps, depth, check)
+		}
 		alias, target := l.containerBinding(parent.Name())
 		if alias != parent {
 			return false
 		}
 		contract := l.checker.GetTypeOfSymbol(target)
-		if projected && parent == declaration {
+		if fresh {
 			// Normalize freshness only along this first edge's finite literal tree.
 			if !l.nestedContainerTypes(selected, contract, steps, depth) {
 				return false
@@ -369,8 +382,7 @@ func (l *lowerer) containerReferences(symbol *ast.Symbol) *containerUses {
 				s := l.readSymbol(node)
 				if s != nil && s.ValueDeclaration != nil {
 					declaration := s.ValueDeclaration
-					if declaration.Kind == ast.KindVariableDeclaration && declaration.Name().Kind == ast.KindIdentifier &&
-						declaration.Parent.Flags&ast.NodeFlagsConst != 0 && node != declaration.Name() {
+					if containerVariable(declaration) != nil && declaration.Name().Kind == ast.KindIdentifier && node != declaration.Name() {
 						uses := flow.containerUses[s]
 						if uses == nil {
 							uses = &containerUses{}

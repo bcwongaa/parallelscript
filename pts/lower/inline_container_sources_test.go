@@ -223,7 +223,6 @@ func TestInlineContainerUnsupportedRootsAndUnselectedMembersStayUnknown(t *testi
 		"const extracted = ({ child: choose() ? { value: first } : { value: second } }).child; const probe = extracted.value; probe;",
 		"function select(): { child: { value: Value } } { return { child: { value: first } }; } const extracted = select().child; const probe = extracted.value; probe;",
 		"function select(root: { child: { value: Value } }): void { const extracted = root.child; const probe = extracted.value; probe; } select({ child: { value: first } });",
-		"const { child: extracted } = { child: { value: first } }; const probe = extracted.value; probe;",
 		"const extracted = ({ child: { value: first }, invalid: { get value(): Value { return second; } } }).child; const probe = extracted.value; probe;",
 		"const extracted = ({ child: { value: first }, invalid: { value(): void {} } }).child; const probe = extracted.value; probe;",
 		"const extracted = ({ child: { value: first }, invalid: [first, , second] }).child; const probe = extracted.value; probe;",
