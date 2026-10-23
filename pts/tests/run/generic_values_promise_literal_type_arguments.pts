@@ -1,0 +1,31 @@
+// H09b5d RED (C177, nested literal type arguments, a generic value): f<Promise<"a">> and
+// f<Promise<"b">>: the second kept the erased copy: `Expected Box<string>, got Box<string |
+// number>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends Promise<"a"> ? number : string>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return new Box(v.value);
+}
+function use(f: <T>(x: T, v: R<T>) => R<T>): void {
+  attempt("Promise<'a'>:", () => {
+    const r = f<Promise<"a">>(Promise.resolve("a" as const), new Box(3));
+    return String(r.value + 1);
+  });
+  attempt("Promise<'b'>:", () => {
+    const r = f<Promise<"b">>(Promise.resolve("b" as const), new Box("s"));
+    return String(r.value + "!");
+  });
+}
+use(pick);
+// expect:
+// Promise<'a'>: 4
+// Promise<'b'>: s!

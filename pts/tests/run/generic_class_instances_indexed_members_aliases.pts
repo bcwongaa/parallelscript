@@ -1,0 +1,27 @@
+// H09b5d review round 1 (k02), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// k01 with an interface and a type alias of one shape, and two object literals.
+class Store<T> {
+  constructor(public data: T) {}
+  get<K extends keyof T>(k: K): T[K] {
+    return this.data[k];
+  }
+}
+interface Point {
+  x: number;
+  y: number;
+}
+type Pt = { x: number; y: number };
+function sum(s: Store<Point>): number {
+  return s.get("x") + s.get("y");
+}
+const c = new Store<Point>({ x: 5, y: 6 });
+const b = new Store<Pt>({ x: 3, y: 4 });
+console.log(sum(c), sum(b));
+const d = new Store({ x: 7, y: 8 });
+const e = new Store({ x: 9, y: 10 });
+const ds: Store<{ x: number; y: number }>[] = [d, e];
+console.log(ds.length, d.get("y") + e.get("y"));
+// expect:
+// 11 7
+// 2 18

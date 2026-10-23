@@ -39,7 +39,7 @@ type demand struct {
 	identity       string             // its instantiated checker types (demandIdentity), for narrowing only
 	subst          *substitution      // the instance being lowered where the call is, if any
 	want           *ir.FuncType       // the instance's function type, after `this`: the resolved signature's
-	key            string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
+	key            string             // its types' (ir.Instance.Key, instanceKey)
 	chained        bool               // the outermost call of a `?.` chain, whose type is the chain's (C179)
 	node           *ast.Node
 	// The last fallback doesn't make it (DeclaredInstances, narrowable): a constant key's
@@ -137,10 +137,12 @@ func (l *lowerer) demandAt(call *ast.CallExpression, erasedParams []ir.Type) *de
 			return nil
 		}
 	}
-	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode(), chained: chained, narrowable: resolved.HasRestParameter() || want.Result == ir.Value}
-	if want.Result == ir.Value {
-		d.key = l.instanceKey(resolved, call.AsNode()) // its values are made for its type arguments (D-190)
-	}
+	// Its key tells it from calls of other checker types whose signatures are the same IR
+	// types, whose instances differ where the function computes types from its type
+	// parameters, in its body too (C177), and whose dynamic results the instance makes for
+	// its type arguments (D-190).
+	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode(), chained: chained, narrowable: resolved.HasRestParameter() || want.Result == ir.Value,
+		key: l.instanceKey(resolved, call.AsNode())}
 	return d
 }
 
@@ -182,16 +184,17 @@ func (l *lowerer) fromErasedFor(d *demand, value ir.Expr, node *ast.Node) ir.Exp
 	return l.dynamicConversion(value, d.want.Result, node)
 }
 
-// instanceKey is the key (ir.Instance.Key) of the entries a call with a dynamic result
-// finds, resolved: the same for calls through the same function type whose type
-// arguments, parameters and result are the same types (keyPart, brands included, as an
-// instance's type arguments are told apart: typeArgumentsIdentity), else another one. The
-// value's instance depends on all of them: a type argument can reach it from outside the
-// call's own (a type alias's, `Loader<U>`, or an enclosing instance's, `outer<U>`),
-// through the result or a parameter whose IR type is or holds a dynamic value
-// (`Promise<U>`). The key names the first such call's result type, for reading the IR.
+// instanceKey is the key (ir.Instance.Key) of the entries a call finds, resolved: the
+// same for calls through the same function type whose type arguments, parameters and
+// result are the same types (keyPart, brands included, as an instance's type arguments
+// are told apart: typeArgumentsIdentity), else another one. The value's instance depends
+// on all of them: a type argument can reach it from outside the call's own (a type
+// alias's, `Loader<U>`, or an enclosing instance's, `outer<U>`), through the result or a
+// parameter whose IR type is or holds a dynamic value (`Promise<U>`), and its code may
+// compute types from them where its signature's IR types don't show it (C177). The key
+// names the first such call's result type, for reading the IR.
 func (l *lowerer) instanceKey(resolved *checker.Signature, node *ast.Node) string {
-	identity := &keyIdentity{budget: maxKeyParts, brands: true}
+	identity := &keyIdentity{typeWalk: typeWalk{budget: maxKeyParts}, brands: true}
 	fmt.Fprintf(identity, "%p", resolved.Declaration())
 	for _, t := range l.checker.PtsTypeArgumentsOfSignature(resolved) {
 		l.keyPart(identity, t, node)
@@ -210,36 +213,49 @@ func (l *lowerer) instanceKey(resolved *checker.Signature, node *ast.Node) strin
 	return key
 }
 
-// maxKeyDepth and maxKeyParts bound keyPart's walk of a type: the levels it goes down
-// (a generic type alias can make a new type at each), and the types it writes by their
-// parts; past them, a type is written by its IR type.
+// maxKeyDepth and maxKeyParts bound keyPart's and memberPart's walks of a type: the
+// levels they go down (a generic type alias can make a new type at each), and the types
+// they write by their parts; past them, a type is written by its IR type, or as one.
 const (
 	maxKeyDepth = 6
 	maxKeyParts = 256
 )
 
-// keyIdentity is the identity keyPart writes.
-type keyIdentity struct {
-	strings.Builder
+// typeWalk is where a walk of a type (keyPart, memberPart) is.
+type typeWalk struct {
 	path    []*checker.Type   // the types being written, outermost first
 	budget  int               // the types it may still write by their parts
 	binders [][]*checker.Type // the type parameters of the signatures being written, outermost first
-	brands  bool              // whether a branded primitive is written with its brand (typeArgument), not as its primitive
+}
+
+// keyIdentity is the identity keyPart writes.
+type keyIdentity struct {
+	strings.Builder
+	typeWalk
+	brands bool // a branded primitive is written with its brand (typeArgument), not as its primitive
+	// It is an instance's type argument's (typeArgumentsIdentity): an object type is
+	// written by its members alone, and what is past the bounds as one, so that it makes no
+	// IR type (whose making could make a class instance whose code doesn't lower) and
+	// polymorphic recursion through dynamic values (`f<T>` calling `f<Promise<T>>`) meets
+	// an identity it made before.
+	typeArguments bool
 }
 
 // keyPart writes t's identity for instanceKey and typeArgumentsIdentity: the same for
 // types of the same IR types and literals (and brands, where identity.brands), but for
 // dynamic values, which `Promise<number>` and `any` both are, and anything holding them,
 // and never the same for other IR types. So it writes a literal type by itself, a
-// branded primitive by its primitive and its brand's properties, a union's or an intersection's members, a type
-// reference's (`Promise<Box<T>>`, `Pair<K, V>`, an array) target and type arguments,
-// without making a class instance for it, a class or a library interface by its IR type,
-// another object type (a literal's, an interface's, a mapped type's, a function type's)
-// by its IR type and its properties, index signatures and signatures, whose own type
-// parameters by their places, and anything else by its IR type, or if that is a dynamic
-// value or it has none (reported at node, then taken back), by its checker type. A type
-// inside itself is written by how far out it is, and past maxKeyDepth or maxKeyParts a
-// type by its IR type alone, so a dynamic value deeper than that isn't told apart.
+// branded primitive by its primitive and its brand's properties, a union's or an
+// intersection's members, a type reference's (`Promise<Box<T>>`, `Pair<K, V>`, an array)
+// target and type arguments, without making a class instance for it, a class or a
+// library interface by its IR type, another object type (a literal's, an interface's, a
+// mapped type's, a function type's) by its IR type (but for identity.typeArguments) and
+// its properties, index signatures and signatures, whose own type parameters by their
+// places, and anything else by its IR type, or if that is a dynamic value or it has none
+// (reported at node, then taken back), by its checker type. A type inside itself is
+// written by how far out it is, and past maxKeyDepth or maxKeyParts a type by its IR type
+// alone (for identity.typeArguments, as one), so a dynamic value deeper than that isn't
+// told apart.
 func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node) {
 	if identity.brands {
 		t = l.typeArgument(t)
@@ -256,7 +272,11 @@ func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node
 			return
 		}
 	}
-	if len(identity.path) > maxKeyDepth || identity.budget == 0 {
+	switch {
+	case (len(identity.path) > maxKeyDepth || identity.budget == 0) && identity.typeArguments:
+		identity.WriteString(",?")
+		return
+	case len(identity.path) > maxKeyDepth || identity.budget == 0:
 		l.irTypeKeyPart(identity, t, node) // the same for fresh literals of one shape
 		return
 	}
@@ -315,14 +335,20 @@ func (l *lowerer) isNominal(t *checker.Type) bool {
 // objectKeyParts writes an object type's IR type, properties, index signatures and call
 // and construct signatures for keyPart: the IR type tells apart what the members don't
 // (a method and a function-valued property; the prelude's Timeout, a dynamic value, and
-// a structural twin, a shape).
+// a structural twin, a shape). For an instance's type argument, which makes no IR type,
+// a method is marked as one instead.
 func (l *lowerer) objectKeyParts(identity *keyIdentity, t *checker.Type, node *ast.Node) {
-	l.irTypeKeyPart(identity, t, node)
+	if !identity.typeArguments {
+		l.irTypeKeyPart(identity, t, node)
+	}
 	identity.WriteString(",{")
 	for _, property := range l.checker.GetPropertiesOfType(t) {
 		identity.WriteString(property.Name)
 		if property.Flags&ast.SymbolFlagsOptional != 0 {
 			identity.WriteString("?")
+		}
+		if property.Flags&ast.SymbolFlagsMethod != 0 && identity.typeArguments {
+			identity.WriteString("()")
 		}
 		l.keyPart(identity, l.checker.GetTypeOfSymbol(property), node)
 	}
@@ -350,21 +376,29 @@ func (l *lowerer) objectKeyParts(identity *keyIdentity, t *checker.Type, node *a
 // irTypeKeyPart writes t by its IR type for keyPart, or by its checker type if that is a
 // dynamic value or it has none (the report taken back, with the trial's mark).
 func (l *lowerer) irTypeKeyPart(identity *keyIdentity, t *checker.Type, node *ast.Node) {
-	reported := l.reportedSoFar()
-	foreign := l.trial != nil && l.trial.foreign
-	irType := l.irType(t, node)
-	switch {
+	switch irType := l.irTypeOrNone(t, node); {
 	case irType == nil:
-		l.restoreReported(reported)
-		if l.trial != nil {
-			l.trial.foreign = foreign // the report that marked it is taken back
-		}
 		fmt.Fprintf(identity, ",t%d", t.Id())
 	case irType == ir.Value:
 		fmt.Fprintf(identity, ",v%d", t.Id())
 	default:
 		fmt.Fprintf(identity, ",%p", irType)
 	}
+}
+
+// irTypeOrNone is t's IR type (at node), or nil if it has none, its report taken back with
+// the trial's mark.
+func (l *lowerer) irTypeOrNone(t *checker.Type, node *ast.Node) ir.Type {
+	reported := l.reportedSoFar()
+	foreign := l.trial != nil && l.trial.foreign
+	irType := l.irType(t, node)
+	if irType == nil {
+		l.restoreReported(reported)
+		if l.trial != nil {
+			l.trial.foreign = foreign // the report that marked it is taken back
+		}
+	}
+	return irType
 }
 
 // instanceCall lowers a demand's call of x, the closure or (for a method named name) the

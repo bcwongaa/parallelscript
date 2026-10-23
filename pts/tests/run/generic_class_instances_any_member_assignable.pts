@@ -1,0 +1,15 @@
+// skip: known issue (H09b5d, C261): instances whose computed members convert one way share one class, typed for the first; the other's values throw
+// H09b5d RED (C177, classes; design risk): H<1>'s member is any and H<number>'s number; HEAD shares
+// one class, typed for H<number>, so `new H<1>("s")` threw `Expected number, got string`. tsc
+// allows H<1> where H<number> goes, so split classes would have to convert there.
+class H<T> {
+  constructor(public v: T extends 1 ? any : number) {}
+}
+const one = new H<1>("s");
+const h: H<number> = one;
+console.log(typeof h.v, String(h.v), h === one);
+const n = new H<number>(5);
+console.log(n.v + 1);
+// expect:
+// string s true
+// 6

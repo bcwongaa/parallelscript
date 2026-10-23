@@ -1,0 +1,30 @@
+// H09b5d RED (C177, classes; what a split class must keep): Holder<{ kind: "a" }> and
+// Sub<{ kind: "b" }>, whose field k is Box<number> or Box<string>, were one class: PTS1001 `using
+// a Box as a Box`. Split, they must still be instances of Holder, share Holder's statics, run
+// their generic method and print as Node prints them.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+class Holder<T> {
+  static made = 0;
+  constructor(public x: T, public k: Box<K<T>>) {
+    Holder.made++;
+  }
+  map<U>(f: (k: K<T>) => U): Box<U> {
+    return new Box(f(this.k.value));
+  }
+}
+class Sub<T> extends Holder<T> {}
+const a = new Holder<{ kind: "a" }>({ kind: "a" }, new Box(3));
+const b = new Sub<{ kind: "b" }>({ kind: "b" }, new Box("s"));
+console.log(a instanceof Holder, b instanceof Holder, b instanceof Sub, Holder.made);
+console.log(a.map((n) => n + 1).value, b.map((s) => s + "!").value);
+console.log(a, b);
+const all: unknown[] = [a, b];
+console.log(all.filter((h) => h instanceof Holder).length);
+// expect:
+// true true true 2
+// 4 s!
+// Holder { x: { kind: 'a' }, k: Box { value: 3 } } Sub { x: { kind: 'b' }, k: Box { value: 's' } }
+// 2

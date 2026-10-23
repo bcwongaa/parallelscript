@@ -1,0 +1,28 @@
+// H09b5d RED (C172, maxDynamicVariants): after four Promise<k> calls, the any and unknown calls
+// (right: the erased copy is any's) and Promise<5>'s (wrong: `Expected Box<1>, got Box<any>`) kept
+// the erased copy.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function use(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<void> {
+  const show = (label: string, v: unknown): void => console.log(label, typeof v, String(v));
+  try { show("1", (await f(Promise.resolve(1 as const))).value); } catch (e: any) { console.log("1 threw", e.message); }
+  try { show("2", (await f(Promise.resolve(2 as const))).value); } catch (e: any) { console.log("2 threw", e.message); }
+  try { show("3", (await f(Promise.resolve(3 as const))).value); } catch (e: any) { console.log("3 threw", e.message); }
+  try { show("4", (await f(Promise.resolve(4 as const))).value); } catch (e: any) { console.log("4 threw", e.message); }
+  try { show("any", (await f<any>("s")).value); } catch (e: any) { console.log("any threw", e.message); }
+  try { show("unknown", (await f<unknown>(true)).value); } catch (e: any) { console.log("unknown threw", e.message); }
+  try { show("5", (await f(Promise.resolve(5 as const))).value); } catch (e: any) { console.log("5 threw", e.message); }
+}
+use(unwrap);
+// expect:
+// 1 number 1
+// 2 number 2
+// 3 number 3
+// 4 number 4
+// any string s
+// unknown boolean true
+// 5 number 5

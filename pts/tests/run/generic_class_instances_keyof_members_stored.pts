@@ -1,0 +1,23 @@
+// skip: known issue (H09b5d, C262): Tagged<"circle"> and Tagged<"square"> are two classes, and Tagged<keyof Shapes> shares one of them, so the other stored there is PTS1001 `using a Tagged as a Tagged`
+// H09b5d RED (C177, classes; design risk): as generic_class_instances_keyof_members, and both
+// stored where Tagged<keyof Shapes> goes, as tsc allows. HEAD: the same PTS1001. A fix that splits
+// classes by their members' IR types makes Tagged<"circle">, Tagged<"square"> and
+// Tagged<keyof Shapes> three classes, and must still convert them where tsc allows it.
+interface Shapes {
+  circle: { r: number };
+  square: { side: number };
+}
+class Tagged<K extends keyof Shapes> {
+  constructor(public kind: K, public data: Shapes[K]) {}
+}
+const c = new Tagged("circle", { r: 1 });
+const s = new Tagged("square", { side: 2 });
+const all: Tagged<keyof Shapes>[] = [c, s];
+for (const t of all) {
+  console.log(t.kind, JSON.stringify(t.data), t instanceof Tagged);
+}
+console.log(all[0] === c);
+// expect:
+// circle {"r":1} true
+// square {"side":2} true
+// true

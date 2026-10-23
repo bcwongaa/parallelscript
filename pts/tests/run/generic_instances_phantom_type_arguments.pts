@@ -1,0 +1,16 @@
+// H09b5d review round 1 (ph02), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// ph01 with the phantom only in a typed call's type arguments (the second call of one IR
+// type makes the identity of both).
+class Weird<T> {
+  constructor(public value: T) {}
+  isOne(): boolean {
+    return this.value == 1;
+  }
+}
+function keep<T>(x: unknown): string {
+  return "kept";
+}
+console.log(keep<Promise<{ w: Weird<string> }>>(0), keep<Promise<number>>(0), new Weird(1).isOne());
+// expect:
+// kept kept true

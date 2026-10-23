@@ -1,0 +1,35 @@
+// H09b5d review round 1 (s03): PTS1001 or a TypeError on the base; it runs as Node does now.
+// s01 without .constructor and getPrototypeOf (PTS1001 on both): statics, instanceof, inheritance of split instances.
+// Two instances of a generic class split by a computed member (Awaited<T>): statics are the
+// class's (shared), instanceof and the constructor are the same, inheritance from both.
+class Task<T> {
+  static made = 0;
+  static label(): string {
+    return "Task x" + Task.made;
+  }
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {
+    Task.made++;
+  }
+  settle(v: Awaited<T>): this {
+    this.result = v;
+    return this;
+  }
+}
+class NumTask extends Task<Promise<number>> {}
+class StrTask<T> extends Task<Promise<T>> {
+  extra(): string {
+    return "extra " + String(this.result);
+  }
+}
+const a = new Task(Promise.resolve(1)).settle(1);
+const b = new Task(Promise.resolve("s")).settle("s");
+const c = new NumTask(Promise.resolve(2)).settle(2);
+const d = new StrTask<string>(Promise.resolve("d")).settle("d");
+console.log(Task.made, Task.label(), a instanceof Task, b instanceof Task, c instanceof Task, d instanceof StrTask);
+console.log(a.result, b.result, c.result, d.extra());
+console.log(a, b);
+// expect:
+// 4 Task x4 true true true true
+// 1 s 2 extra d
+// Task { p: Promise { 1 }, result: 1 } Task { p: Promise { 's' }, result: 's' }

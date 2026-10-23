@@ -1,0 +1,38 @@
+// skip: known issue (H09b5d, C260): a generic class whose methods compute types from its type parameters only in their bodies keeps one class for type arguments of one IR type; the second instance throws
+// H09b5d RED (C177, body only, a generic class): Holder<{ kind: "a" }> and Holder<{ kind: "b" }>
+// are one class (IR arguments; no member's IR type differs), whose pick parses the text as
+// K<T> = number for both: the second threw `Expected number, got string`. Splitting classes only
+// where their members' IR types differ doesn't fix this.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(text: string): Out<T> {
+    const k = JSON.parse(text) as K<T>;
+    return new Out(this.x, typeof k + " " + String(k));
+  }
+}
+attempt("{ kind: 'a' }:", () => {
+  const r = new Holder<{ kind: "a" }>({ kind: "a" as const }).pick(JSON.stringify(3));
+  return String(r.note);
+});
+attempt("{ kind: 'b' }:", () => {
+  const r = new Holder<{ kind: "b" }>({ kind: "b" as const }).pick(JSON.stringify("s"));
+  return String(r.note);
+});
+// expect:
+// { kind: 'a' }: number 3
+// { kind: 'b' }: string s

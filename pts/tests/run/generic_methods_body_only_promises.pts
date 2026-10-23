@@ -1,0 +1,36 @@
+// H09b5d RED (C177, body only): a class's generic method called directly for Promise<number> and
+// Promise<string>: one IR signature, so one instance, whose `const k: K<T>` is a number: the second
+// call threw `Expected number, got string`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type K<T> = Awaited<T>;
+class Picker {
+  pick<T>(x: T, text: string): Out<T> {
+    const k: K<T> = JSON.parse(text);
+    return new Out(x, typeof k + " " + String(k));
+  }
+}
+const picker = new Picker();
+attempt("Promise<number>:", () => {
+  const r = picker.pick<Promise<number>>(Promise.resolve(1), JSON.stringify(3));
+  return String(r.note);
+});
+attempt("Promise<string>:", () => {
+  const r = picker.pick<Promise<string>>(Promise.resolve("s"), JSON.stringify("s"));
+  return String(r.note);
+});
+// expect:
+// Promise<number>: number 3
+// Promise<string>: string s

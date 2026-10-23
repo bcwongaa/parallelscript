@@ -1,0 +1,19 @@
+// H09b5d guard (brands): a branded string union as a type argument, beside a plain literal, and
+// Box<Dir> where Box<string> goes.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Dir = ("up" | "down") & { readonly __brand: "dir" };
+function flip<T extends string>(x: T): Box<T> {
+  return new Box(x);
+}
+const d = "up" as Dir;
+console.log(flip(d).value, flip("left").value);
+const ds: Dir[] = ["up" as Dir, "down" as Dir];
+console.log(ds.map((x) => flip(x).value.toUpperCase()).join(","));
+const boxed: Box<string> = flip(d);
+console.log(boxed.value.length);
+// expect:
+// up left
+// UP,DOWN
+// 2

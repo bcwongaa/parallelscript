@@ -1,0 +1,32 @@
+// H09b5d guard (brands): a generic value and a dispatched generic method called for Id and number,
+// and Holder<Id> where Holder<number> goes.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function wrap<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function use(f: <T>(x: T) => Box<T>): void {
+  console.log(f<Id>(5 as Id).value + 1, f<number>(6).value + 1, f(7 as Id).value);
+}
+use(wrap);
+abstract class Maker {
+  abstract make<T>(x: T): Box<T>;
+}
+class BoxMaker extends Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const maker: Maker = new BoxMaker();
+console.log(maker.make<Id>(3 as Id).value, maker.make(4).value);
+class Holder<T> {
+  constructor(public x: T) {}
+}
+const h: Holder<number> = new Holder<Id>(9 as Id);
+console.log(h.x + 1);
+// expect:
+// 6 7 7
+// 3 4
+// 10

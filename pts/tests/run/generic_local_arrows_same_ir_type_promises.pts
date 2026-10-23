@@ -1,0 +1,32 @@
+// H09b5d RED (C177, a function-local generic arrow called by name): Promise<number> and
+// Promise<string> share an instance; the second kept the erased copy: `Expected Box<string>, got
+// Box<any>`. Each call alone matches Node.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends Promise<infer U> ? U : T>;
+function main(): void {
+  const pick = <T,>(x: T, v: R<T>): R<T> => {
+    return new Box(v.value);
+  };
+  attempt("Promise<number>:", () => {
+    const r = pick<Promise<number>>(Promise.resolve(1), new Box(2));
+    return String(r.value + 1);
+  });
+  attempt("Promise<string>:", () => {
+    const r = pick<Promise<string>>(Promise.resolve("s"), new Box("t"));
+    return String(r.value + "!");
+  });
+}
+main();
+// expect:
+// Promise<number>: 3
+// Promise<string>: t!

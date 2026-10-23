@@ -1,0 +1,19 @@
+// H09b5d review round 1 (c05), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// A generic function's erased copy (called through any) makes a Task<any>, which a typed
+// Task<Promise<number>> takes with a check: the base's one class (IR value) passed it.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function wrap<T>(p: T): Task<T> {
+  return new Task(p);
+}
+const g: any = wrap;
+const t: Task<Promise<number>> = g(Promise.resolve(1));
+console.log(t.result, t instanceof Task);
+const direct = wrap(Promise.resolve(2));
+console.log(direct.result);
+// expect:
+// undefined true
+// undefined

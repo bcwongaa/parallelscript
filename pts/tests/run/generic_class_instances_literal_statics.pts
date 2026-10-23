@@ -1,0 +1,18 @@
+// H09b5d guard (classes): Counter<1>, Counter<number>, Counter<"a"> and Counter<string> share
+// their statics (D-089).
+class Counter<T> {
+  static count = 0;
+  static label(): string {
+    return "Counter" + Counter.count;
+  }
+  constructor(public v: T) {
+    Counter.count++;
+  }
+}
+new Counter(1 as const);
+new Counter<number>(2);
+new Counter("a" as const);
+new Counter<string>("b");
+console.log(Counter.count, Counter.label());
+// expect:
+// 4 Counter4

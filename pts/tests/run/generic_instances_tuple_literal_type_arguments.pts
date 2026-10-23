@@ -1,0 +1,28 @@
+// H09b5d RED (C177, nested literal type arguments): pick<["a"]> and pick<["b"]> are one IR type
+// ([string]) and literals[] only holds top-level literal types: one instance, PTS1001 `using a Box
+// as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends ["a"] ? number : string>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return new Box(v.value);
+}
+attempt("['a']:", () => {
+  const r = pick<["a"]>(["a"], new Box(3));
+  return String(r.value + 1);
+});
+attempt("['b']:", () => {
+  const r = pick<["b"]>(["b"], new Box("s"));
+  return String(r.value + "!");
+});
+// expect:
+// ['a']: 4
+// ['b']: s!

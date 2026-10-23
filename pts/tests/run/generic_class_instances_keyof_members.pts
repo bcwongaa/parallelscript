@@ -1,0 +1,15 @@
+// H09b5d RED (C177, classes): Tagged<"circle"> and Tagged<"square"> (IR string) were one class,
+// made for the first, whose data is Shapes["circle"]: `new Tagged("square", { side: 2 })` was
+// PTS1001 `using a object2 as a {r: number}`. A realistic keyof pattern.
+interface Shapes {
+  circle: { r: number };
+  square: { side: number };
+}
+class Tagged<K extends keyof Shapes> {
+  constructor(public kind: K, public data: Shapes[K]) {}
+}
+const c = new Tagged("circle", { r: 1 });
+const s = new Tagged("square", { side: 2 });
+console.log(c.kind, c.data.r, s.kind, s.data.side);
+// expect:
+// circle 1 square 2

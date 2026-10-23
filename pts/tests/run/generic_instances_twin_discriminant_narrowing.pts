@@ -1,0 +1,26 @@
+// H09b5d guard (body only): twins A and B (one IR shape) narrowed by their discriminant in a
+// generic function: the branch dead for one type argument has no trap for twins (D-195).
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type A = { kind: "a"; n: number };
+type B = { kind: "b"; n: number };
+function describe<T extends A | B>(x: T): Out<T> {
+  if (x.kind === "b") {
+    const y: B = x;
+    return new Out(x, "b " + y.n);
+  }
+  return new Out(x, "a " + x.n);
+}
+attempt("A:", () => describe<A>({ kind: "a", n: 1 }).note);
+attempt("B:", () => describe<B>({ kind: "b", n: 2 }).note);
+// expect:
+// A: a 1
+// B: b 2

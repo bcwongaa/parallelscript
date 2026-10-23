@@ -1,0 +1,28 @@
+// H09b5d guard (classes): Box<1> where Box<number> goes (assignment, parameter, array element)
+// and Box<"a"> where Box<string> goes, the same object after it.
+class Box<T> {
+  constructor(public value: T) {}
+  get(): T {
+    return this.value;
+  }
+}
+const one = new Box(1 as const);
+const b: Box<number> = one;
+console.log(b.get() + 1, b === one);
+const s = new Box("a" as const);
+const bs: Box<string> = s;
+console.log(bs.get() + "!");
+function take(x: Box<number>): number {
+  return x.value * 2;
+}
+console.log(take(one), take(new Box<2>(2)));
+const list: Box<number>[] = [one, new Box(3), new Box<4>(4)];
+console.log(list.map((x) => x.value).join(","));
+b.value = 7;
+console.log(one.value, one);
+// expect:
+// 2 true
+// a!
+// 2 4
+// 1,3,4
+// 7 Box { value: 7 }

@@ -1,0 +1,30 @@
+// H09b5d RED (C177, classes): Holder<"a" | "b"> and Holder<"c" | "d"> (literal unions, which
+// functions tell apart) are one class: PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends "a" | "b" ? number : string>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return new Box(v.value);
+  }
+}
+attempt("'a' | 'b':", () => {
+  const r = new Holder<"a" | "b">("a" as "a" | "b").pick(new Box(3));
+  return String(r.value + 1);
+});
+attempt("'c' | 'd':", () => {
+  const r = new Holder<"c" | "d">("c" as "c" | "d").pick(new Box("s"));
+  return String(r.value + "!");
+});
+// expect:
+// 'a' | 'b': 4
+// 'c' | 'd': s!

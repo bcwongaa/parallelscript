@@ -1,0 +1,30 @@
+// H09b5d RED (C177, an inline generic arrow given as a generic value): the second twin kept the
+// erased copy: `Expected Box<string>, got Box<string | number>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends { kind: "a" } ? number : string>;
+function use(f: <T>(x: T, v: R<T>) => R<T>): void {
+  attempt("{ kind: 'a' }:", () => {
+    const r = f<{ kind: "a" }>({ kind: "a" as const }, new Box(3));
+    return String(r.value + 1);
+  });
+  attempt("{ kind: 'b' }:", () => {
+    const r = f<{ kind: "b" }>({ kind: "b" as const }, new Box("s"));
+    return String(r.value + "!");
+  });
+}
+use(<T,>(x: T, v: R<T>): R<T> => {
+  return new Box(v.value);
+});
+// expect:
+// { kind: 'a' }: 4
+// { kind: 'b' }: s!

@@ -1,0 +1,17 @@
+// H09b5d review round 1 (c02), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// Task<any> (JSON.parse's any) where a Task<Promise<number>> goes: TypeScript allows it.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function run(t: Task<Promise<number>>): string {
+  return "run " + String(t.result);
+}
+const raw = new Task(JSON.parse("1"));
+console.log(run(raw));
+const t2 = new Task<Promise<number>>(Promise.resolve(3));
+console.log(run(t2));
+// expect:
+// run undefined
+// run undefined

@@ -1,0 +1,20 @@
+// H09b5d RED (C177, classes): Holder<Promise<number>> and Holder<Promise<string>> were one class
+// whose field k is Box<number>: PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Holder<T> {
+  constructor(public x: T, public k: Box<Awaited<T>>) {}
+}
+attempt("number:", () => String(new Holder<Promise<number>>(Promise.resolve(1), new Box(3)).k.value + 1));
+attempt("string:", () => String(new Holder<Promise<string>>(Promise.resolve("s"), new Box("s")).k.value + "!"));
+// expect:
+// number: 4
+// string: s!

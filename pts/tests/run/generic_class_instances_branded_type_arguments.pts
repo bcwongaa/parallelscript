@@ -1,0 +1,21 @@
+// H09b5d RED (C177, brands, classes): Holder<Id> and Holder<number> are one class, made for number:
+// the Id one's Box<string> field was PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Id = number & { readonly __brand: "id" };
+class Holder<T> {
+  constructor(public x: T, public k: Box<T extends Id ? string : number>) {}
+}
+attempt("Id:", () => String(new Holder<Id>(5 as Id, new Box("s")).k.value + "!"));
+attempt("number:", () => String(new Holder<number>(5, new Box(3)).k.value + 1));
+// expect:
+// Id: s!
+// number: 4

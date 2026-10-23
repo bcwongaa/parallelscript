@@ -1,0 +1,23 @@
+// H09b5d RED (C177, a generic generator called directly): gen<{ kind: "a" }> and
+// gen<{ kind: "b" }> share the first's instance, whose v is a number: PTS1001 `converting string
+// to number`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+function* gen<T>(x: T, v: K<T>): Generator<Box<K<T>>> {
+  yield new Box(v);
+}
+for (const b of gen<{ kind: "a" }>({ kind: "a" }, 3)) {
+  console.log("a", b.value + 1);
+}
+try {
+  for (const b of gen<{ kind: "b" }>({ kind: "b" }, "s")) {
+    console.log("b", b.value + "!");
+  }
+} catch (e: any) {
+  console.log("b threw", e.message);
+}
+// expect:
+// a 4
+// b s!

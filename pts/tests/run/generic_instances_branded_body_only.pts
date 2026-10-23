@@ -1,0 +1,20 @@
+// H09b5d RED (C177, brands, body only): describe<Id>'s instance is number's (instantiate unbrands
+// Id), so its local Lookup<T> is { count: number }: `Expected {count: number}, got Object`.
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Lookup<T> = T extends Id ? { name: string } : { count: number };
+function describe<T>(x: T, raw: string): string {
+  const v: Lookup<T> = JSON.parse(raw);
+  return JSON.stringify(v);
+}
+attempt("Id:", () => describe<Id>(5 as Id, '{"name":"five"}'));
+attempt("number:", () => describe<number>(5, '{"count":5}'));
+// expect:
+// Id: {"name":"five"}
+// number: {"count":5}

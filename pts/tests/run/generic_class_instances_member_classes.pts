@@ -1,0 +1,23 @@
+// H09b5d review round 1 (u03): PTS1001 or a TypeError on the base; it runs as Node does now.
+// R<T> picks one of two structurally identical classes: memberPart writes both by their
+// members, so Holder<1> and Holder<number> are one class whose pick takes an A.
+class A {
+  constructor(public n: number) {}
+  name(): string { return "A"; }
+}
+class B {
+  constructor(public n: number) {}
+  name(): string { return "B"; }
+}
+type R<T> = T extends 1 ? A : B;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return v;
+  }
+}
+console.log(new Holder<1>(1).pick(new A(1)).name());
+console.log(new Holder<number>(2).pick(new B(2)).name());
+// expect:
+// A
+// B

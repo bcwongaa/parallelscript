@@ -1,0 +1,28 @@
+// H09b5d review round 1 (k01), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// A generic class with a method computing T[K] for its own K: the instantiated T[K] isn't
+// resolved for the instance, so memberPart writes its type id, which differs per type
+// argument even where the type arguments are one shape.
+class Store<T> {
+  constructor(public data: T) {}
+  get<K extends keyof T>(k: K): T[K] {
+    return this.data[k];
+  }
+}
+interface Point {
+  x: number;
+  y: number;
+}
+type Pt = { x: number; y: number };
+function sum(s: Store<Point>): number {
+  return s.get("x") + s.get("y");
+}
+const a = new Store({ x: 1, y: 2 });
+const b = new Store<Pt>({ x: 3, y: 4 });
+const c = new Store<Point>({ x: 5, y: 6 });
+console.log(sum(a), sum(b), sum(c));
+const all: Store<Point>[] = [a, b, c];
+console.log(all.length, a.get("x"));
+// expect:
+// 3 7 11
+// 3 1

@@ -1,0 +1,34 @@
+// H09b5d RED (C177, body only, an object literal's generic method through its own type): both
+// twins found one entry and instance: the second call threw `Expected number, got string`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+const picker = {
+  pick<T>(x: T, text: string): Out<T> {
+    const k = JSON.parse(text) as K<T>;
+    return new Out(x, typeof k + " " + String(k));
+  },
+};
+attempt("{ kind: 'a' }:", () => {
+  const r = picker.pick<{ kind: "a" }>({ kind: "a" as const }, JSON.stringify(3));
+  return String(r.note);
+});
+attempt("{ kind: 'b' }:", () => {
+  const r = picker.pick<{ kind: "b" }>({ kind: "b" as const }, JSON.stringify("s"));
+  return String(r.note);
+});
+// expect:
+// { kind: 'a' }: number 3
+// { kind: 'b' }: string s

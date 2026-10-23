@@ -1,0 +1,28 @@
+// H09b5d review round 1 (m01): PTS1001 or a TypeError on the base; it runs as Node does now.
+// Computed member types only in a #private field, an accessor and a constructor parameter:
+// Cell<Promise<number>> and Cell<Promise<string>> need two layouts.
+class Cell<T> {
+  #last: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+  set last(v: Awaited<T> | undefined) {
+    this.#last = v;
+  }
+  get last(): Awaited<T> | undefined {
+    return this.#last;
+  }
+}
+class Ctor<T> {
+  saved: unknown;
+  constructor(public p: T, first: Awaited<T>) {
+    this.saved = first;
+  }
+}
+const a = new Cell(Promise.resolve(1));
+a.last = 1;
+const b = new Cell(Promise.resolve("s"));
+b.last = "s";
+console.log(a.last, b.last);
+console.log(new Ctor(Promise.resolve(2), 2).saved, new Ctor(Promise.resolve("t"), "t").saved);
+// expect:
+// 1 s
+// 2 t

@@ -1008,33 +1008,46 @@ func wrap_string.inner(y: string) string closure [] {
 
 func TestInstancesForTypeArgumentsOfOneIRTypeAreToldApartWhereTheirTypesDiffer(t *testing.T) {
 	t.Parallel()
-	// C177: Promise<number> and Promise<string> are both dynamic values, but what the
-	// instances make for them differs (Box<Awaited<T>>); a function has an instance for each
-	// (and none past four was the erased copy), a call for the same types shares one. A
-	// generic class has two only where its members' types differ (Holder's R<T>), so
-	// Box<1>, which converts to Box<number>, is Box<number>'s class.
+	// C177: Promise<number> and Promise<string> are both dynamic values. A function that
+	// computes types from its type parameters (pick's R<T>) has an instance for each, a
+	// call for the same types sharing one; one that computes none (same) has one for both.
+	// A generic class has two only where members it computes differ for them and neither
+	// converts to the other (Holder's pick), so Box<1>, which converts to Box<number>, and
+	// Task<Promise<number>>, which converts to Task<unknown>, share their classes.
 	got := lowerValid(t, `class Box<T> {
   constructor(public value: T) {}
 }
-type R<T> = Box<T extends 1 ? string : number>;
-class Holder<T> {
-  constructor(public x: T) {}
-  pick(v: R<T>): R<T> {
-    return v;
-  }
+type R<T> = Box<T extends Promise<infer U> ? U : T>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return v;
 }
 function same<T>(x: T): T {
   return x;
 }
+type S<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: S<T>): S<T> {
+    return v;
+  }
+}
+class Task<T> {
+  constructor(public result: Awaited<T> | undefined) {}
+}
+pick(Promise.resolve(1), new Box(1));
+pick<Promise<number>>(Promise.resolve(2), new Box(2));
+pick(Promise.resolve("s"), new Box("t"));
 same(Promise.resolve(1));
-same<Promise<number>>(Promise.resolve(2));
 same(Promise.resolve("s"));
 const one: Box<number> = new Box<1>(1);
-console.log(one.value, new Holder<1>(1).pick(new Box("s")).value, new Holder<number>(2).pick(new Box(3)).value);
+const task: Task<unknown> = new Task<Promise<number>>(3);
+console.log(one.value, new Holder<1>(1).pick(new Box("s")).value, new Holder<number>(2).pick(new Box(3)).value, task.result);
 `)
-	assert.Equal(t, strings.Count(got, "\nfunc same_value("), 2, got)
+	assert.Equal(t, strings.Count(got, "\nfunc pick_value("), 2, got)
+	assert.Equal(t, strings.Count(got, "\nfunc same_value("), 1, got)
 	assert.Equal(t, strings.Count(got, "class Box { value: number }"), 1, got)
 	assert.Equal(t, strings.Count(got, "class Holder {"), 2, got)
+	assert.Equal(t, strings.Count(got, "class Task {"), 1, got)
 }
 
 func TestParametersWithDefaultsTakeAFlagThatSaysWhetherTheCallPassedThem(t *testing.T) {
@@ -1191,7 +1204,7 @@ func main() void {
   13: console.log(box(run("k")))
 }
 func use(f: (value) => value) number {
-  5: return (let callee = f in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
+  5: return (let callee = f in (let argument1 = 1 in instance [Box<number>#1] (callee, argument1) else Box(call callee(box(argument1))))).value
 }
 func run.arrow(x: value) value closure [k] {
   9: console.log(box(k))
@@ -1242,7 +1255,7 @@ func main() void {
   16: console.log(box(run()))
 }
 func use(f: (value) => value) number {
-  5: return (let callee = f in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
+  5: return (let callee = f in (let argument1 = 1 in instance [Box<number>#1] (callee, argument1) else Box(call callee(box(argument1))))).value
 }
 func run.arrow(x: value) value closure [] {
   9: if (!nullish(x)) {
@@ -1401,7 +1414,7 @@ func main() void {
     20: let index: number = 0
     20: #1: for (index < array.length(array)); (index = (index + 1)) {
       20: let m: {make(value): value} = array.elementChecked(array, index)
-      21: console.log(box((let callee = m in (let argument1 = 1 in instance make(callee, argument1) else Box(interface make(callee, box(argument1))))).value))
+      21: console.log(box((let callee = m in (let argument1 = 1 in instance [Box<number>#1] make(callee, argument1) else Box(interface make(callee, box(argument1))))).value))
     }
   }
 }
@@ -1467,8 +1480,8 @@ func main() void {
 func ClassMaker.constructor(this: ClassMaker) void {
 }
 func run(m: {make(value): value}, maybe: undefined | {make(value): value}) void {
-  13: console.log(box((let object = m in (K, (let callee = object in (let argument1 = 1 in instance make(callee, argument1) else Box(interface make(callee, box(argument1))))))).value))
-  14: console.log(box((let object = maybe in (nullish(object) ? (number | undefined)(undefined) : (number | undefined)((let callee = {make(value): value}(object) in (let argument1 = 2 in instance make(callee, argument1) else Box(interface make(callee, box(argument1))))).value)))))
+  13: console.log(box((let object = m in (K, (let callee = object in (let argument1 = 1 in instance [Box<number>#1] make(callee, argument1) else Box(interface make(callee, box(argument1))))))).value))
+  14: console.log(box((let object = maybe in (nullish(object) ? (number | undefined)(undefined) : (number | undefined)((let callee = {make(value): value}(object) in (let argument1 = 2 in instance [Box<number>#1] make(callee, argument1) else Box(interface make(callee, box(argument1))))).value)))))
 }
 func ClassMaker.make_dynamic(this: ClassMaker, x: value) value {
   9: return box(new Box(x))
@@ -1525,13 +1538,13 @@ func arrow(x: value) value closure [] {
 func ClassMaker.constructor(this: ClassMaker) void {
 }
 func use(factory: (value) => value) number {
-  13: return (let callee = factory in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
+  13: return (let callee = factory in (let argument1 = 1 in instance [Box<number>#1] (callee, argument1) else Box(call callee(box(argument1))))).value
 }
 func run.make(arg1: value) value closure [receiver] {
   16: return interface make(receiver, arg1)
 }
 func run.adapter(arg1: number) Box closure [adapted] {
-  17: return (let argument1 = arg1 in instance (adapted, argument1) else Box(call adapted(box(argument1))))
+  17: return (let argument1 = arg1 in instance [Box<number>#2] (adapted, argument1) else Box(call adapted(box(argument1))))
 }
 func run(m: {make(value): value}, f: (value) => value) void {
   16: console.log(box(use((let receiver = m in closure run.make))))
@@ -1548,7 +1561,7 @@ func Box.constructor(this: Box, value: number) void {
   2: (this.value = value)
 }
 func run.make.instance(arg1: number) Box closure [receiver] of run.make {
-  16: return instance make(receiver, arg1) else Box(interface make(receiver, box(arg1)))
+  16: return instance [Box<number>#1] make(receiver, arg1) else Box(interface make(receiver, box(arg1)))
 }
 func arrow_number(x: number) Box closure [] of arrow {
   20: return new Box(x)

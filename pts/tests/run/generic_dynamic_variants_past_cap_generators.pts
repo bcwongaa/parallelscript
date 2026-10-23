@@ -1,0 +1,29 @@
+// H09b5d RED (C172, maxDynamicVariants, a generic generator value): Promise<1> ... Promise<8> as
+// the type argument: the 5th to 8th threw `Expected Box<1>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Unwrap<T> = T extends Promise<infer U> ? U : T;
+function* gen<T>(x: T, u: Unwrap<T>): Generator<Box<Unwrap<T>>> {
+  yield new Box(u);
+}
+function use(f: <T>(x: T, u: Unwrap<T>) => Generator<Box<Unwrap<T>>>): void {
+  try { for (const b of f(Promise.resolve(1 as const), 1)) console.log("1", b.value + 1); } catch (e: any) { console.log("1 threw", e.message); }
+  try { for (const b of f(Promise.resolve(2 as const), 2)) console.log("2", b.value + 1); } catch (e: any) { console.log("2 threw", e.message); }
+  try { for (const b of f(Promise.resolve(3 as const), 3)) console.log("3", b.value + 1); } catch (e: any) { console.log("3 threw", e.message); }
+  try { for (const b of f(Promise.resolve(4 as const), 4)) console.log("4", b.value + 1); } catch (e: any) { console.log("4 threw", e.message); }
+  try { for (const b of f(Promise.resolve(5 as const), 5)) console.log("5", b.value + 1); } catch (e: any) { console.log("5 threw", e.message); }
+  try { for (const b of f(Promise.resolve(6 as const), 6)) console.log("6", b.value + 1); } catch (e: any) { console.log("6 threw", e.message); }
+  try { for (const b of f(Promise.resolve(7 as const), 7)) console.log("7", b.value + 1); } catch (e: any) { console.log("7 threw", e.message); }
+  try { for (const b of f(Promise.resolve(8 as const), 8)) console.log("8", b.value + 1); } catch (e: any) { console.log("8 threw", e.message); }
+}
+use(gen);
+// expect:
+// 1 2
+// 2 3
+// 3 4
+// 4 5
+// 5 6
+// 6 7
+// 7 8
+// 8 9

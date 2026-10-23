@@ -1,0 +1,27 @@
+// H09b5d guard (literal type arguments): pick<"a" | "b"> and pick<"c" | "d"> are told apart
+// by D-089's literals.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends "a" | "b" ? number : string>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return new Box(v.value);
+}
+attempt("'a' | 'b':", () => {
+  const r = pick<"a" | "b">("a" as "a" | "b", new Box(3));
+  return String(r.value + 1);
+});
+attempt("'c' | 'd':", () => {
+  const r = pick<"c" | "d">("c" as "c" | "d", new Box("s"));
+  return String(r.value + "!");
+});
+// expect:
+// 'a' | 'b': 4
+// 'c' | 'd': s!

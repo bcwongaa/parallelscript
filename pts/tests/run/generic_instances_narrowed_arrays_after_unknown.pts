@@ -1,0 +1,24 @@
+// H09b5d guard (split risk): probe<unknown> then probe<Promise<number>> (one IR type) of a body
+// that returns x.length after Array.isArray(x). HEAD shares unknown's instance and prints Node's
+// output. An instance of its own for Promise<number> (the parent's candidate, both reproducer
+// prototypes) narrows x to Promise<number> & any[] and is PTS1001 `x.length`, as
+// probe<Promise<number>> alone already is on HEAD (D-195/D-197's gap for dynamic type arguments).
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function probe<T>(x: T): number {
+  if (Array.isArray(x)) {
+    return x.length;
+  }
+  return 0;
+}
+attempt("unknown:", () => String(probe<unknown>([1, 2] as unknown)));
+attempt("Promise<number>:", () => String(probe<Promise<number>>(Promise.resolve(1))));
+// expect:
+// unknown: 2
+// Promise<number>: 0

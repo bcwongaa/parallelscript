@@ -1,0 +1,17 @@
+// H09b5d RED (C177, direct calls with a dynamic result): unwrap<unknown>(true) after
+// unwrap(Promise<number>) shared its instance: `Expected number, got boolean`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function main(): Promise<void> {
+  const show = (label: string, v: unknown): void => console.log(label, typeof v, String(v));
+  try { show("number", (await unwrap(Promise.resolve(1))).value); } catch (e: any) { console.log("number threw", e.message); }
+  try { show("unknown", (await unwrap<unknown>(true)).value); } catch (e: any) { console.log("unknown threw", e.message); }
+}
+main();
+// expect:
+// number number 1
+// unknown boolean true

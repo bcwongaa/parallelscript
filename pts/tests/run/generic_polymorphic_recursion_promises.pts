@@ -1,0 +1,14 @@
+// H09b5d review round 1 (r01), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// Polymorphic recursion through a dynamic wrapper: f<T> calls f<Promise<T>>. The base shared
+// Promise<X>'s instances (IR value); keyPart's identity tells each nesting apart.
+function nest<T>(x: T, n: number): T[] {
+  if (n === 0) return [x];
+  const inner = nest<Promise<T>>(Promise.resolve(x) as Promise<T>, n - 1);
+  return [x, ...(inner.length > 0 ? [] : [])];
+}
+console.log(nest(1, 3).length);
+console.log(nest("a", 100).length);
+// expect:
+// 1
+// 1

@@ -1,0 +1,18 @@
+// H09b5d review round 1 (c01), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// A generic class with a computed member (Awaited<T>): Task<Promise<number>> widens to
+// Task<unknown>, which TypeScript allows (covariant members). Split into two classes?
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+const t = new Task(Promise.resolve(1));
+const u: Task<unknown> = t;
+console.log(u.result, u === t);
+function show(x: Task<unknown>): string {
+  return String(x.result);
+}
+console.log(show(t), show(new Task<unknown>(2)));
+// expect:
+// undefined true
+// undefined undefined

@@ -1,0 +1,25 @@
+// H09b5d review round 1 (m02): PTS1001 or a TypeError on the base; it runs as Node does now.
+// The computed type is only in the superclass's type argument (extends Base<Awaited<T>>),
+// and a superclass whose members are phantom in U (Base2<U> uses U only in a method body).
+class Base<U> {
+  constructor(public v: U) {}
+}
+class Sub<T> extends Base<Awaited<T>> {
+  constructor(public p: T, v: Awaited<T>) {
+    super(v);
+  }
+}
+const a = new Sub(Promise.resolve(1), 1);
+const b = new Sub(Promise.resolve("s"), "s");
+console.log(a.v, b.v, a instanceof Base, b instanceof Sub);
+class Base2<U> {
+  describe(x: unknown): string {
+    const y = x as U;
+    return typeof y;
+  }
+}
+class Sub2<T> extends Base2<Awaited<T>> {}
+console.log(new Sub2<Promise<number>>().describe(1), new Sub2<Promise<string>>().describe("s"));
+// expect:
+// 1 s true true
+// number string

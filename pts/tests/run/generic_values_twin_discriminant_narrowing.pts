@@ -1,0 +1,29 @@
+// H09b5d guard (body only): as generic_instances_twin_discriminant_narrowing, through a value,
+// B first.
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type A = { kind: "a"; n: number };
+type B = { kind: "b"; n: number };
+function describe<T extends A | B>(x: T): Out<T> {
+  if (x.kind === "b") {
+    const y: B = x;
+    return new Out(x, "b " + y.n);
+  }
+  return new Out(x, "a " + x.n);
+}
+function use(f: <T extends A | B>(x: T) => Out<T>): void {
+  attempt("B:", () => f<B>({ kind: "b", n: 2 }).note);
+  attempt("A:", () => f<A>({ kind: "a", n: 1 }).note);
+}
+use(describe);
+// expect:
+// B: b 2
+// A: a 1

@@ -1,0 +1,26 @@
+// skip: known issue (H09b5d, C264, pre-existing): a dispatched generic method returning Box<Awaited<U>> throws `Expected Box<number>, got Box<any>` even for one type argument
+// H09b5d review round 1 (u05b).
+// u05's dispatched override alone, for one type argument (control).
+class Box<T> {
+  constructor(public value: T) {}
+}
+abstract class Base {
+  abstract pick<U>(p: U, v: Box<Awaited<U>>): Box<Awaited<U>>;
+}
+class Impl extends Base {
+  pick<U>(p: U, v: Box<Awaited<U>>): Box<Awaited<U>> {
+    return new Box(v.value);
+  }
+}
+class Impl2 extends Base {
+  pick<U>(p: U, v: Box<Awaited<U>>): Box<Awaited<U>> {
+    return v;
+  }
+}
+const bs: Base[] = [new Impl(), new Impl2()];
+for (const b of bs) {
+  console.log(b.pick<Promise<number>>(Promise.resolve(2), new Box(2)).value);
+}
+// expect:
+// 2
+// 2

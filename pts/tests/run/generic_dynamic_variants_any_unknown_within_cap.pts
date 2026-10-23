@@ -1,0 +1,21 @@
+// H09b5d guard (dynamic results): any and unknown keep instances of their own (a Box<any> holding
+// a string or a boolean) beside Promise<number> and Promise<1>, four variants.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function use(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<void> {
+  const show = (label: string, v: unknown): void => console.log(label, typeof v, String(v));
+  try { show("number", (await f(Promise.resolve(1))).value); } catch (e: any) { console.log("number threw", e.message); }
+  try { show("any", (await f<any>("s")).value); } catch (e: any) { console.log("any threw", e.message); }
+  try { show("unknown", (await f<unknown>(true)).value); } catch (e: any) { console.log("unknown threw", e.message); }
+  try { show("1", (await f(Promise.resolve(1 as const))).value); } catch (e: any) { console.log("1 threw", e.message); }
+}
+use(unwrap);
+// expect:
+// number number 1
+// any string s
+// unknown boolean true
+// 1 number 1

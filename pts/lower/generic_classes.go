@@ -46,7 +46,6 @@ type genericClass struct {
 type classInstance struct {
 	generic   *genericClass
 	arguments []ir.Type
-	identity  string    // its members' types (classMembersIdentity)
 	class     *ir.Class // nil if it failed, which was reported
 	subst     *substitution
 	members   *classMembers
@@ -169,24 +168,11 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 			return nil
 		}
 	}
-	identity := ""
 	for _, existing := range generic.instances {
-		if !slices.Equal(existing.arguments, arguments) {
-			continue
+		if slices.Equal(existing.arguments, arguments) && (slices.Equal(existing.subst.arguments, concrete) || l.sharesClass(generic, existing.subst.arguments, concrete)) {
+			l.use(existing.subst)
+			return existing.class
 		}
-		if !slices.Equal(existing.subst.arguments, concrete) {
-			if identity == "" {
-				identity = l.classMembersIdentity(generic, concrete)
-			}
-			if existing.identity != identity {
-				continue
-			}
-		}
-		l.use(existing.subst)
-		return existing.class
-	}
-	if identity == "" {
-		identity = l.classMembersIdentity(generic, concrete)
 	}
 	limit, recursive := l.instanceLimitAt(generic.node, true)
 	if limit != withinLimits {
@@ -197,7 +183,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 		l.countInstance(generic.node, true)
 	}
 	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
-	inst := &classInstance{generic: generic, arguments: arguments, identity: identity, class: class, members: newClassMembers(),
+	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),
 		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}}
 	generic.instances = append(generic.instances, inst)
 	l.use(inst.subst)
@@ -217,18 +203,110 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 	return class
 }
 
-// classMembersIdentity is what tells apart instances of a generic class for type arguments
-// of the same IR types (concrete, C177): the types of the members such an instance
-// declares (its properties' and methods', and its constructors' parameters') that the
-// class computes from its type parameters (computesTypes: `R<T> = Box<T extends 1 ?
-// string : number>`, `T["kind"]`, `Awaited<T>`), as their IR types tell them apart
-// (memberPart), without making the classes they name. Its other members' IR types are
-// those of its type arguments', so they don't tell instances apart. So Holder<1> and
-// Holder<number>, whose `pick(v: R<T>): R<T>` takes and returns a Box<string> and a
-// Box<number>, are two classes, while Box<1> and Box<number>, or Box<Json> and
-// Box<unknown>, are one, which the program may convert between as TypeScript does.
-// Remembered by type arguments.
-func (l *lowerer) classMembersIdentity(generic *genericClass, concrete []*checker.Type) string {
+// sharesClass reports whether generic's instance for type arguments (concrete) of the IR
+// types of another's (made) is that one's class (C177). It is unless the class computes
+// types from its type parameters (classMembersIdentity) that differ for them: its
+// superclass, which a program converts instances to (`Sub2<T> extends Base2<Awaited<T>>`),
+// or a member's type where TypeScript converts neither instance's to the other's (a
+// method's parameters both ways, as it compares methods), so no program reads both
+// through one, or where they name other classes (classesIn), whose objects the IR doesn't
+// convert between: Holder<1> and Holder<number>, whose `pick(v: R<T>): R<T>` takes and
+// returns a Box<string> and a Box<number>, are two classes, as are those whose `R<T>`
+// picks one of two classes of the same members, while Task<Promise<number>> and
+// Task<unknown>, whose `Awaited<T>` members are a number and unknown, are one, as are
+// Box<1> and Box<number>, whose members compute nothing. (tsc relates whole instance types
+// by their type arguments' variance, which a conditional type doesn't constrain: it takes
+// Holder<1> for a Holder<number>.)
+func (l *lowerer) sharesClass(generic *genericClass, made, concrete []*checker.Type) bool {
+	mine, theirs := l.classMembersIdentity(generic, concrete), l.classMembersIdentity(generic, made)
+	if mine.superclass != theirs.superclass {
+		return false
+	}
+	for i, member := range mine.members {
+		if member.part == theirs.members[i].part {
+			continue
+		}
+		a, b := l.checker.PtsInstantiateType(member.t, generic.parameters, concrete), l.checker.PtsInstantiateType(member.t, generic.parameters, made)
+		if !l.checker.IsTypeAssignableTo(a, b) && !l.checker.IsTypeAssignableTo(b, a) || !slices.Equal(l.classesIn(a, nil), l.classesIn(b, nil)) {
+			return false
+		}
+	}
+	return true
+}
+
+// classesIn appends to classes the program's classes and generic classes that t names, in
+// the order it names them first, as far as maxKeyParts types go.
+func (l *lowerer) classesIn(t *checker.Type, classes []*ast.Symbol) []*ast.Symbol {
+	seen := map[*checker.Type]bool{}
+	var visit func(t *checker.Type)
+	visit = func(t *checker.Type) {
+		if seen[t] || len(seen) > maxKeyParts {
+			return
+		}
+		seen[t] = true
+		if t.Flags()&(checker.TypeFlagsUnion|checker.TypeFlagsIntersection) != 0 {
+			for _, member := range t.Types() {
+				visit(member)
+			}
+			return
+		}
+		if t.Flags()&checker.TypeFlagsObject == 0 {
+			return
+		}
+		if symbol := t.Symbol(); symbol != nil && !slices.Contains(classes, symbol) {
+			_, class := l.classes[symbol]
+			_, generic := l.genericClasses[symbol]
+			if class || generic {
+				classes = append(classes, symbol)
+			}
+		}
+		if t.ObjectFlags()&checker.ObjectFlagsReference != 0 && t.ObjectFlags()&checker.ObjectFlagsAnonymous == 0 {
+			for _, argument := range l.checker.GetTypeArguments(t) {
+				visit(argument)
+			}
+			return
+		}
+		for _, property := range l.checker.GetPropertiesOfType(t) {
+			visit(l.checker.GetTypeOfSymbol(property))
+		}
+		for _, kind := range []checker.SignatureKind{checker.SignatureKindCall, checker.SignatureKindConstruct} {
+			for _, signature := range l.checker.GetSignaturesOfType(t, kind) {
+				for _, parameter := range signature.Parameters() {
+					visit(l.checker.GetTypeOfSymbol(parameter))
+				}
+				visit(l.checker.GetReturnTypeOfSignature(signature))
+			}
+		}
+	}
+	visit(t)
+	return classes
+}
+
+// classIdentity is what classMembersIdentity writes for a generic class's instance.
+type classIdentity struct {
+	superclass string         // its superclass, if the class computes its type arguments
+	members    []computedType // its members whose types the class computes
+}
+
+// computedType is a member (or a constructor's parameter) of a generic class whose type
+// the class computes from its type parameters: its declared type, and its part of
+// classMembersIdentity for an instance.
+type computedType struct {
+	name string
+	t    *checker.Type
+	part string
+}
+
+// classMembersIdentity is what may tell apart instances of a generic class for type
+// arguments (concrete) of the same IR types: its superclass, where the class computes its
+// type arguments, and the types of the members the class declares (its properties' and
+// methods', and its constructors' parameters') that it computes from its type parameters
+// (computesTypes: `R<T> = Box<T extends 1 ? string : number>`, `T["kind"]`, `Awaited<T>`),
+// as their IR types tell them apart (memberPart), without making the classes they name.
+// Types that a class builds from its type parameters (`T[]`, `Box<T>`, `{ v: T }`) have IR
+// types made of its type arguments' IR types, which are the same. Remembered by type
+// arguments.
+func (l *lowerer) classMembersIdentity(generic *genericClass, concrete []*checker.Type) classIdentity {
 	key := fmt.Sprintf("%p", generic)
 	for _, t := range concrete {
 		key += fmt.Sprintf(",%d", t.Id())
@@ -237,37 +315,46 @@ func (l *lowerer) classMembersIdentity(generic *genericClass, concrete []*checke
 		return identity
 	}
 	symbol := l.declaredSymbol(generic.node)
-	var members []string
-	var computed []*checker.Type
-	for _, property := range l.checker.GetPropertiesOfType(l.checker.GetDeclaredTypeOfSymbol(symbol)) {
+	declared := l.checker.GetDeclaredTypeOfSymbol(symbol)
+	var superclasses, members []computedType
+	for _, base := range l.checker.GetBaseTypes(declared) {
+		if l.computesTypes(base, map[*checker.Type]bool{}) {
+			superclasses = append(superclasses, computedType{name: "extends", t: base})
+		}
+	}
+	for _, property := range l.checker.GetPropertiesOfType(declared) {
 		if t := l.checker.GetTypeOfSymbol(property); l.computesTypes(t, map[*checker.Type]bool{}) {
-			members, computed = append(members, property.Name), append(computed, t)
+			members = append(members, computedType{name: property.Name, t: t})
 		}
 	}
 	for _, signature := range l.checker.GetSignaturesOfType(l.checker.GetTypeOfSymbol(symbol), checker.SignatureKindConstruct) {
 		for i, parameter := range signature.Parameters() {
 			if t := l.checker.GetTypeOfSymbol(parameter); l.computesTypes(t, map[*checker.Type]bool{}) {
-				members, computed = append(members, fmt.Sprintf("new(%d)", i)), append(computed, t)
+				members = append(members, computedType{name: fmt.Sprintf("new(%d)", i), t: t})
 			}
 		}
 	}
 	outer := l.subst
 	l.subst = &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true}
 	defer func() { l.subst = outer }()
-	w := &memberWalk{budget: maxKeyParts}
-	var identity strings.Builder
-	for i, t := range computed {
-		identity.WriteString(members[i] + ":" + l.memberPart(w, t) + ";")
+	walk := &typeWalk{budget: maxKeyParts}
+	identity := classIdentity{members: members}
+	for _, base := range superclasses {
+		identity.superclass += l.memberPart(walk, base.t) + ";"
 	}
-	l.classIdentities[key] = identity.String()
-	return identity.String()
+	for i := range members {
+		members[i].part = l.memberPart(walk, members[i].t)
+	}
+	l.classIdentities[key] = identity
+	return identity
 }
 
 // computesTypes reports whether t, a type in a generic declaration, is or holds a type
 // that tsc computes from type parameters, whose IR type for type arguments is not made of
 // their IR types alone: a conditional type (`T extends 1 ? string : number`, `Awaited<T>`,
-// `ReturnType<F>`), an indexed access (`T["kind"]`), `keyof T`, a mapped type, a template
-// literal type, or an intersection with a type parameter, which may reduce.
+// `ReturnType<F>`), an indexed access (`T["kind"]`), `keyof T`, a mapped type or a
+// template literal type. An intersection with a type parameter (`T & any[]`, which a
+// narrowing makes) is an instance's as narrowedInstance and D-195 say.
 func (l *lowerer) computesTypes(t *checker.Type, seen map[*checker.Type]bool) bool {
 	if seen[t] || len(seen) > maxKeyParts {
 		return false
@@ -276,8 +363,6 @@ func (l *lowerer) computesTypes(t *checker.Type, seen map[*checker.Type]bool) bo
 	flags := t.Flags()
 	switch {
 	case flags&(checker.TypeFlagsConditional|checker.TypeFlagsIndexedAccess|checker.TypeFlagsIndex|checker.TypeFlagsSubstitution|checker.TypeFlagsTemplateLiteral|checker.TypeFlagsStringMapping) != 0:
-		return true
-	case flags&checker.TypeFlagsIntersection != 0 && slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return member.Flags()&checker.TypeFlagsTypeParameter != 0 }):
 		return true
 	case flags&(checker.TypeFlagsUnion|checker.TypeFlagsIntersection) != 0:
 		return slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return l.computesTypes(member, seen) })
@@ -313,23 +398,16 @@ func (l *lowerer) computesTypes(t *checker.Type, seen map[*checker.Type]bool) bo
 	return false
 }
 
-// memberWalk is what memberPart has written so far.
-type memberWalk struct {
-	path    []*checker.Type   // the types being written, outermost first
-	budget  int               // the types it may still write by their parts
-	binders [][]*checker.Type // the type parameters of the signatures being written, outermost first
-}
-
 // memberPart is t's part of classMembersIdentity: the same for types whose IR types are
 // the same, as far as it goes. It is keyPart's walk, but a dynamic value (any, unknown, a
 // promise, an iterator, an iterable) is one whatever it holds, as its IR type is; a union
-// is the set of its members' parts, so `true | false` is a boolean and `"a" | "b"` a string
-// (one part is that part), and a type that isn't
-// an object, a union or an intersection is its IR type (a literal type its primitive's);
-// an object type is its type reference's target and type arguments, or its members, not
-// an IR type, whose making could make the class being told apart. A type parameter that
-// isn't the instance's (a method's own) is its place among its signature's, or itself.
-func (l *lowerer) memberPart(w *memberWalk, t *checker.Type) string {
+// is the set of its members' parts, so `true | false` is a boolean and `"a" | "b"` a
+// string (one part is that part); a type that isn't an object, a union or an intersection
+// is its IR type (a literal type its primitive's); an object type is its type reference's
+// target and type arguments, or its members, not an IR type, whose making could make the
+// class being told apart. A type parameter that isn't the instance's (a method's own) is
+// its place among its signature's, or itself.
+func (l *lowerer) memberPart(w *typeWalk, t *checker.Type) string {
 	t = l.instantiate(t)
 	if i := slices.Index(w.path, t); i >= 0 {
 		return fmt.Sprintf("^%d", len(w.path)-i)
@@ -399,16 +477,10 @@ func (l *lowerer) memberPart(w *memberWalk, t *checker.Type) string {
 	case t.Flags()&(checker.TypeFlagsTypeParameter|checker.TypeFlagsIndex|checker.TypeFlagsIndexedAccess|checker.TypeFlagsConditional|checker.TypeFlagsSubstitution|checker.TypeFlagsTemplateLiteral|checker.TypeFlagsStringMapping) != 0:
 		return fmt.Sprintf("t%d", t.Id()) // what isn't resolved for the instance: its own
 	}
-	reported := l.reportedSoFar()
-	foreign := l.trial != nil && l.trial.foreign
-	if irType := l.irType(t, l.subst.declaration); irType != nil {
+	if irType := l.irTypeOrNone(t, l.subst.declaration); irType != nil {
 		return irType.String()
 	}
-	l.restoreReported(reported) // no IR type: the same as itself only
-	if l.trial != nil {
-		l.trial.foreign = foreign
-	}
-	return fmt.Sprintf("t%d", t.Id())
+	return fmt.Sprintf("t%d", t.Id()) // no IR type: the same as itself only
 }
 
 // declareInstanceSuperclass links a generic class's instance to its superclass: the

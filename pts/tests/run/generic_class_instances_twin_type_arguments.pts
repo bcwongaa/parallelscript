@@ -1,0 +1,21 @@
+// H09b5d RED (C177, classes): Holder<{ kind: "a" }> and Holder<{ kind: "b" }> were one class whose
+// field k is Box<number>: the second `new Holder` was PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+class Holder<T> {
+  constructor(public x: T, public k: Box<K<T>>) {}
+}
+attempt("a:", () => String(new Holder<{ kind: "a" }>({ kind: "a" }, new Box(3)).k.value + 1));
+attempt("b:", () => String(new Holder<{ kind: "b" }>({ kind: "b" }, new Box("s")).k.value + "!"));
+// expect:
+// a: 4
+// b: s!

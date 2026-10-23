@@ -1,0 +1,44 @@
+// H09b5d guard (brands): brands nested in type arguments (Box<Id>, Id[], Map<Id, V>, Set<Id>,
+// Record<string, Id>) share their primitive's instances and classes: Box<Id> where Box<number>
+// goes is the same object.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function wrap<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function first<T>(xs: T[]): T {
+  return xs[0];
+}
+const id = 5 as Id;
+const b: Box<Id> = wrap(id);
+const bn: Box<number> = wrap(7);
+const widened: Box<number> = b;
+console.log(b.value + 1, bn.value + 1, widened === b);
+const ids: Id[] = [1 as Id, 2 as Id];
+console.log(first(ids) + first([10, 20]));
+const m = new Map<Id, string>([[id, "five"]]);
+function get<K, V>(m: Map<K, V>, k: K): V | undefined {
+  return m.get(k);
+}
+console.log(get(m, id), get(new Map([[1, "one"]]), 1));
+const s = new Set<Id>([id]);
+function has<T>(s: Set<T>, x: T): boolean {
+  return s.has(x);
+}
+console.log(has(s, id), has(new Set([1]), 2));
+const r: Record<string, Id> = { a: id };
+function val<T>(r: Record<string, T>, k: string): T {
+  return r[k];
+}
+console.log(val(r, "a") + 0, val({ b: 3 }, "b"));
+const boxes: Box<Id>[] = [wrap(1 as Id), wrap(2 as Id)];
+console.log(boxes.map((x) => x.value * 2).join(","));
+// expect:
+// 6 8 true
+// 11
+// five one
+// true false
+// 5 3
+// 2,4

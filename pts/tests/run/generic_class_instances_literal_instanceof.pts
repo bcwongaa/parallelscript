@@ -1,0 +1,22 @@
+// H09b5d guard (classes): instanceof across Box<1>, Box<number>, Box<"a"> and Box<string>.
+class Box<T> {
+  constructor(public value: T) {}
+}
+const xs: unknown[] = [new Box(1 as const), new Box(2), new Box("a" as const), new Box("b"), { value: 1 }];
+for (const x of xs) {
+  console.log(x instanceof Box);
+}
+function isOne(b: Box<number> | Box<string>): boolean {
+  return b instanceof Box && b.value === 1;
+}
+console.log(isOne(new Box(1 as const)), isOne(new Box("x" as const)));
+const nb: Box<number> = new Box(1 as const);
+console.log(nb instanceof Box, nb.value + 1);
+// expect:
+// true
+// true
+// true
+// true
+// false
+// true false
+// true 2

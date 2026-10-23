@@ -36,7 +36,20 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 	switch node.Kind {
 	case ast.KindIdentifier:
 		symbol := l.checker.GetSymbolAtLocation(node)
-		return symbol != nil && l.checker.GetTypeOfSymbol(symbol).Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0
+		if symbol == nil {
+			return false
+		}
+		declared := l.checker.GetTypeOfSymbol(symbol)
+		if declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
+			return true
+		}
+		// In an instance, a variable of a type parameter's type holds its type argument's
+		// values, dynamic ones where its IR type is (`x: T` for unknown or a Promise<number>).
+		if l.subst == nil || !l.subst.instance {
+			return false
+		}
+		instantiated := l.typeOfSymbol(symbol)
+		return instantiated != declared && l.isDynamicIRType(instantiated, node)
 	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
 		return l.isDynamicSource(node.Expression()) || l.isNarrowedDynamic(node.Expression()) // `u[1]` of a narrowed `u: unknown`
 	case ast.KindBinaryExpression:

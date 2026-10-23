@@ -1,0 +1,31 @@
+// H09b5d guard (body only): a switch over three twins' discriminant, through a nested generic call.
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type A = { kind: "a"; n: number };
+type B = { kind: "b"; n: number };
+type C = { kind: "c"; n: number };
+function area<T extends A | B | C>(x: T): string {
+  switch (x.kind) {
+    case "a":
+      return "a" + x.n;
+    case "b":
+      return "b" + x.n * 2;
+    default:
+      return "c" + x.n * 3;
+  }
+}
+function wrapped<T extends A | B | C>(x: T): string[] {
+  return [area<T>(x)];
+}
+attempt("A:", () => wrapped<A>({ kind: "a", n: 1 }).join());
+attempt("B:", () => wrapped<B>({ kind: "b", n: 2 }).join());
+attempt("C:", () => wrapped<C>({ kind: "c", n: 3 }).join());
+// expect:
+// A: a1
+// B: b4
+// C: c9

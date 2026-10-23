@@ -1,0 +1,30 @@
+// H09b5d guard (body only): as generic_instances_twin_discriminant_narrowing, in a generic
+// class's method.
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type A = { kind: "a"; n: number };
+type B = { kind: "b"; n: number };
+class Holder<T extends A | B> {
+  constructor(public x: T) {}
+  describe(): Out<T> {
+    const x = this.x;
+    if (x.kind === "b") {
+      const y: B = x;
+      return new Out(x, "b " + y.n);
+    }
+    return new Out(x, "a " + x.n);
+  }
+}
+attempt("A:", () => new Holder<A>({ kind: "a", n: 1 }).describe().note);
+attempt("B:", () => new Holder<B>({ kind: "b", n: 2 }).describe().note);
+// expect:
+// A: a 1
+// B: b 2

@@ -292,10 +292,8 @@ func (l *lowerer) instantiatingAdapterSkipping(value ir.Expr, to *ir.FuncType, s
 	if to == nil {
 		to = want
 	}
-	d := &demand{source: node, erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true, allOnly: true}
-	if want.Result == ir.Value {
-		d.key = l.instanceKey(instantiated, node) // its values are made for its type arguments (D-190)
-	}
+	d := &demand{source: node, erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true, allOnly: true,
+		key: l.instanceKey(instantiated, node)} // as demandAt's
 	wrapped := l.newLocal("adapted", from)
 	fn := &ir.Func{Name: l.closureName("adapter", node), Module: l.function.Module, Pos: l.pos(node), Result: to.Result,
 		Closure: true, Outer: l.function, Adapts: true, Captures: []*ir.Local{wrapped}}

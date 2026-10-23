@@ -1,0 +1,17 @@
+// H09b5d review round 1 (c08), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// NonNullable<T> (T & {}) in a member: Cell<Promise<number>> widened to Cell<unknown>,
+// Cell<any> (JSON.parse) where a Cell<unknown> goes.
+class Cell<T> {
+  constructor(public value: T) {}
+  must(): NonNullable<T> {
+    if (this.value === null || this.value === undefined) throw new Error("empty");
+    return this.value as NonNullable<T>;
+  }
+}
+function show(c: Cell<unknown>): string {
+  return "cell " + String(c.value);
+}
+console.log(show(new Cell(Promise.resolve(1))), show(new Cell(JSON.parse("2"))), show(new Cell<unknown>(3)));
+// expect:
+// cell [object Promise] cell 2 cell 3

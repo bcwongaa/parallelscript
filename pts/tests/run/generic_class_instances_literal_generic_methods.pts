@@ -1,0 +1,19 @@
+// H09b5d guard (classes): generic methods of Tagged<"circle"> and Tagged<string>, one class, also
+// through a Tagged<string>[].
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Tagged<K extends string> {
+  constructor(public kind: K) {}
+  map<U>(f: (k: K) => U): Box<U> {
+    return new Box(f(this.kind));
+  }
+}
+const a = new Tagged("circle");
+const b: Tagged<string> = new Tagged("sq");
+console.log(a.map((k) => k.length).value, b.map((k) => k + "!").value);
+const ts: Tagged<string>[] = [a, b];
+console.log(ts.map((t) => t.map((k) => k.toUpperCase()).value).join(","));
+// expect:
+// 6 sq!
+// CIRCLE,SQ

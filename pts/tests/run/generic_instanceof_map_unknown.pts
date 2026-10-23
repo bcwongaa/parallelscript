@@ -1,0 +1,30 @@
+// C265 (H09b5d): `x instanceof Map` in a generic function narrows an `x: T` to a Map. For
+// T = unknown (or a Promise, whose own instance H09b5d's C177 fix made, with unknown's
+// narrowing) the instance holds x as a dynamic value, but its map reads took it for a typed
+// map: PTS9001 (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), and
+// PTS1001 for a Promise on the base. Such a variable is stored dynamic, as an unknown one
+// in plain code is, so its narrowed members are read as a dynamic value's.
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function probe<T>(x: T): string {
+  if (x instanceof Map) {
+    const before = x.size;
+    x.set(5, 9);
+    return [before, x.get(1), x.has(5), [...x.keys()].length].join(" ");
+  }
+  return "not a map";
+}
+attempt("unknown:", () => probe<unknown>(new Map<unknown, unknown>([[1, 2]]) as unknown));
+attempt("any:", () => probe<any>(new Map<unknown, unknown>([[1, 3]])));
+attempt("promise:", () => probe<Promise<number>>(Promise.resolve(1)));
+attempt("map:", () => probe<Map<number, number>>(new Map([[1, 4]])));
+// expect:
+// unknown: 1 2 true 2
+// any: 1 3 true 2
+// promise: not a map
+// map: 1 4 true 2

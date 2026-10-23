@@ -1,0 +1,17 @@
+// H09b5d review round 1 (m03): PTS1001 or a TypeError on the base; it runs as Node does now.
+// A generic class whose superclass's type argument is computed from T (Base2<Awaited<T>>),
+// with no member of its own whose type is: Sub2<Promise<number>> and Sub2<Promise<string>>
+// are one class whose superclass is the first's Base2<number>.
+class Base2<U> {
+  describe(x: unknown): string {
+    const y = x as U;
+    return typeof y;
+  }
+}
+class Sub2<T> extends Base2<Awaited<T>> {}
+console.log(new Sub2<Promise<number>>().describe(1), new Sub2<Promise<string>>().describe("s"));
+const direct: Base2<string> = new Sub2<Promise<string>>();
+console.log(direct.describe("t"));
+// expect:
+// number string
+// string

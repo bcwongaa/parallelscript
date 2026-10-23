@@ -1,0 +1,25 @@
+// H09b5d review round 1 (r04), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// r01 with a class result (Box<T>, whose instances for Promise<...> are one class): past the
+// depth the erased copy's Box<any> converts with a check.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function nest<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    nest<Promise<T>>(Promise.resolve(x) as Promise<T>, n - 1);
+  }
+  return new Box(x);
+}
+console.log(nest(1, 3).value, nest("a", 100).value);
+type Pair<T> = { v: T; n: number };
+function pairs<T>(x: T, n: number): Pair<T> {
+  if (n > 0) {
+    pairs<Promise<T>>(Promise.resolve(x) as Promise<T>, n - 1);
+  }
+  return { v: x, n };
+}
+console.log(pairs(1, 3).n, pairs("a", 100).n);
+// expect:
+// 1 a
+// 3 100

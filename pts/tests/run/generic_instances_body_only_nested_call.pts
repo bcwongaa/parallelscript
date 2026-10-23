@@ -1,0 +1,36 @@
+// H09b5d RED (C177, body only): pick's own IR signature is the same for the twins, but the nested
+// call inner<T> it makes has another (K<T> = number or string): the shared instance calls
+// inner<{ kind: "a" }> for both, so the second call threw `Expected number, got string`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+function inner<T>(x: T, v: K<T>): Box<K<T>> {
+  return new Box(v);
+}
+function pick<T>(x: T, text: string): Out<T> {
+  const b = inner<T>(x, JSON.parse(text));
+  return new Out(x, typeof b.value + " " + String(b.value));
+}
+attempt("{ kind: 'a' }:", () => {
+  const r = pick<{ kind: "a" }>({ kind: "a" as const }, JSON.stringify(3));
+  return String(r.note);
+});
+attempt("{ kind: 'b' }:", () => {
+  const r = pick<{ kind: "b" }>({ kind: "b" as const }, JSON.stringify("s"));
+  return String(r.note);
+});
+// expect:
+// { kind: 'a' }: number 3
+// { kind: 'b' }: string s

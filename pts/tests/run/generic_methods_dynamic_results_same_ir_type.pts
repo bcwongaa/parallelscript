@@ -1,0 +1,19 @@
+// H09b5d RED (C177, a class's generic async method called directly): Promise<number> then
+// Promise<string> share an instance: `Expected number, got string`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Unwrapper {
+  async unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+    return new Box(await x);
+  }
+}
+const u = new Unwrapper();
+async function main(): Promise<void> {
+  try { console.log("number", (await u.unwrap(Promise.resolve(1))).value + 1); } catch (e: any) { console.log("number threw", e.message); }
+  try { console.log("string", (await u.unwrap(Promise.resolve("s"))).value + "!"); } catch (e: any) { console.log("string threw", e.message); }
+}
+main();
+// expect:
+// number 2
+// string s!

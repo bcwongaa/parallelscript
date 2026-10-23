@@ -1,0 +1,23 @@
+// H09b5d review round 1 (c09), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// Holder<true> where a Holder<boolean> goes (R<boolean> distributes to a union holding
+// R<true>): TypeScript allows it; the instances are split now.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type R<T> = T extends true ? Box<string> : Box<number>;
+class Holder<T> {
+  constructor(public x: T, public last: R<T> | undefined) {}
+  pick(v: R<T>): R<T> {
+    this.last = v;
+    return v;
+  }
+}
+function flag(h: Holder<boolean>): string {
+  return "flag " + h.x;
+}
+const t = new Holder<true>(true, undefined);
+t.pick(new Box("s"));
+console.log(flag(t), flag(new Holder<boolean>(false, undefined)), t.last?.value);
+// expect:
+// flag true flag false s

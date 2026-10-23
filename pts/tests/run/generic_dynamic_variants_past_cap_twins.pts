@@ -1,0 +1,28 @@
+// H09b5d RED (C172, maxDynamicVariants): Promise<{ kind: "k1" }> ... Promise<{ kind: "k8" }>
+// through a value: the 5th to 8th threw `Expected Box<{ kind: "k1"; }>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function use(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<void> {
+  try { console.log("1", (await f(Promise.resolve({ kind: "k1" as const }))).value.kind + "!"); } catch (e: any) { console.log("1 threw", e.message); }
+  try { console.log("2", (await f(Promise.resolve({ kind: "k2" as const }))).value.kind + "!"); } catch (e: any) { console.log("2 threw", e.message); }
+  try { console.log("3", (await f(Promise.resolve({ kind: "k3" as const }))).value.kind + "!"); } catch (e: any) { console.log("3 threw", e.message); }
+  try { console.log("4", (await f(Promise.resolve({ kind: "k4" as const }))).value.kind + "!"); } catch (e: any) { console.log("4 threw", e.message); }
+  try { console.log("5", (await f(Promise.resolve({ kind: "k5" as const }))).value.kind + "!"); } catch (e: any) { console.log("5 threw", e.message); }
+  try { console.log("6", (await f(Promise.resolve({ kind: "k6" as const }))).value.kind + "!"); } catch (e: any) { console.log("6 threw", e.message); }
+  try { console.log("7", (await f(Promise.resolve({ kind: "k7" as const }))).value.kind + "!"); } catch (e: any) { console.log("7 threw", e.message); }
+  try { console.log("8", (await f(Promise.resolve({ kind: "k8" as const }))).value.kind + "!"); } catch (e: any) { console.log("8 threw", e.message); }
+}
+use(unwrap);
+// expect:
+// 1 k1!
+// 2 k2!
+// 3 k3!
+// 4 k4!
+// 5 k5!
+// 6 k6!
+// 7 k7!
+// 8 k8!

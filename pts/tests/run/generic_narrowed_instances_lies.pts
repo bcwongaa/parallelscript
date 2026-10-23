@@ -1,0 +1,38 @@
+// H09b5d review round 1 (n01): PTS1001 or a TypeError on the base; it runs as Node does now.
+// narrowedInstance's unknown narrowing for a dynamic type argument: values that lie about
+// their type reach the branch (as Node runs them), and narrowings other than Array.isArray.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function arrays<T>(x: T): string {
+  if (Array.isArray(x)) {
+    return "array " + x.length + " " + JSON.stringify(x);
+  }
+  return "other";
+}
+function nums<T>(x: T): string {
+  if (typeof x === "number") {
+    return "num " + (x + 1);
+  }
+  if (typeof x === "function") {
+    return "fn " + typeof x;
+  }
+  if (typeof x === "object" && x !== null && "k" in x) {
+    return "k " + String(x.k);
+  }
+  return "other";
+}
+function boxes<T>(x: T): string {
+  if (x instanceof Box) {
+    return "box " + String(x.value);
+  }
+  return "other";
+}
+const lie = [1, 2] as unknown as Promise<number>;
+console.log(arrays<Promise<number>>(lie), arrays<Promise<number>>(Promise.resolve(1)));
+console.log(nums<Promise<number>>(5 as unknown as Promise<number>), nums<Promise<number>>((() => 1) as unknown as Promise<number>), nums<Promise<number>>({ k: 3 } as unknown as Promise<number>), nums<Promise<number>>(Promise.resolve(1)));
+console.log(boxes<Promise<number>>(new Box("b") as unknown as Promise<number>), boxes<Promise<number>>(Promise.resolve(1)));
+// expect:
+// array 2 [1,2] other
+// num 6 fn function k 3 other
+// box b other

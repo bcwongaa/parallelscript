@@ -1,0 +1,38 @@
+// H09b5d RED (C177, body only, a generic value): f<{ kind: "a" }> and f<{ kind: "b" }> look up
+// their instance by the IR signature alone (Instance.Key is only for dynamic results), which is the
+// same, so the second demand found the first's entry and its body: `Expected number, got string`.
+// Keying instances by checker identity in genericInstanceFor alone doesn't fix this; the
+// descriptor's entries must be told apart too.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+function pick<T>(x: T, text: string): Out<T> {
+  const k = JSON.parse(text) as K<T>;
+  return new Out(x, typeof k + " " + String(k));
+}
+function use(f: <T>(x: T, text: string) => Out<T>): void {
+  attempt("{ kind: 'a' }:", () => {
+    const r = f<{ kind: "a" }>({ kind: "a" as const }, JSON.stringify(3));
+    return String(r.note);
+  });
+  attempt("{ kind: 'b' }:", () => {
+    const r = f<{ kind: "b" }>({ kind: "b" as const }, JSON.stringify("s"));
+    return String(r.note);
+  });
+}
+use(pick);
+// expect:
+// { kind: 'a' }: number 3
+// { kind: 'b' }: string s

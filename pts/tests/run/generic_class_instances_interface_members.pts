@@ -1,0 +1,16 @@
+// skip: known issue (H09b5d, C263): a member typed by a generic interface that computes from T (`w: Wrap<T>`) doesn't tell instances apart: Holder<1> and Holder<number> share one class
+// H09b5d review round 1 (u01).
+// A generic class whose member's type is a generic interface computing a type from T
+// (Wrap<T>'s v): Holder<1> and Holder<number> need two layouts, but computesTypes sees a
+// reference to Wrap with argument T and doesn't split.
+interface Wrap<T> {
+  v: T extends 1 ? string : number;
+}
+class Holder<T> {
+  constructor(public x: T, public w: Wrap<T>) {}
+}
+const a = new Holder<1>(1, { v: "s" });
+const b = new Holder<number>(2, { v: 3 });
+console.log(a.w.v, b.w.v, typeof b.w.v);
+// expect:
+// s 3 number

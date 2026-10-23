@@ -1,0 +1,33 @@
+// H09b5d RED (C177, an object literal's generic method through an interface): the second twin kept
+// the erased copy: `Expected Box<string>, got Box<string | number>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends { kind: "a" } ? number : string>;
+interface Picks {
+  pick<T>(x: T, v: R<T>): R<T>;
+}
+const picker: Picks = {
+  pick<T>(x: T, v: R<T>): R<T> {
+    return new Box(v.value);
+  },
+};
+attempt("{ kind: 'a' }:", () => {
+  const r = picker.pick<{ kind: "a" }>({ kind: "a" as const }, new Box(3));
+  return String(r.value + 1);
+});
+attempt("{ kind: 'b' }:", () => {
+  const r = picker.pick<{ kind: "b" }>({ kind: "b" as const }, new Box("s"));
+  return String(r.value + "!");
+});
+// expect:
+// { kind: 'a' }: 4
+// { kind: 'b' }: s!

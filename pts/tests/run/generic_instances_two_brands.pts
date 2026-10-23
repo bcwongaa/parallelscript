@@ -1,0 +1,23 @@
+// H09b5d RED (C177, brands): UserId and OrderId, two brands of number, are both number's instance,
+// whose R<T> is Box<boolean>: PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type UserId = number & { readonly __brand: "user" };
+type OrderId = number & { readonly __brand: "order" };
+type R<T> = Box<T extends UserId ? string : boolean>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return new Box(v.value);
+}
+attempt("UserId:", () => String(pick<UserId>(1 as UserId, new Box("u")).value + "!"));
+attempt("OrderId:", () => String(pick<OrderId>(2 as OrderId, new Box(true)).value === true));
+// expect:
+// UserId: u!
+// OrderId: true

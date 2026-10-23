@@ -1,0 +1,41 @@
+// H09b5d review round 1 (k03), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// k02's controls: no method-own type parameter (keyof T and T[keyof T] resolve for the
+// instance), and a typed event emitter (Events[K] under a method's own K).
+class Plain<T> {
+  constructor(public data: T) {}
+  get(k: keyof T): T[keyof T] {
+    return this.data[k];
+  }
+}
+interface Point {
+  x: number;
+  y: number;
+}
+function sumPlain(s: Plain<Point>): number {
+  return Number(s.get("x")) + Number(s.get("y"));
+}
+console.log(sumPlain(new Plain({ x: 1, y: 2 })));
+class Emitter<Events> {
+  handlers: ((name: string, e: unknown) => void)[] = [];
+  on<K extends keyof Events>(k: K, f: (e: Events[K]) => void): void {
+    this.handlers.push((name, e) => {
+      if (name === k) f(e as Events[K]);
+    });
+  }
+  emit<K extends keyof Events & string>(k: K, e: Events[K]): void {
+    for (const h of this.handlers) h(k, e);
+  }
+}
+interface AppEvents {
+  ready: number;
+}
+function wire(em: Emitter<AppEvents>): void {
+  em.on("ready", (n) => console.log("ready", n));
+}
+const em = new Emitter<{ ready: number }>();
+wire(em);
+em.emit("ready", 42);
+// expect:
+// 3
+// ready 42

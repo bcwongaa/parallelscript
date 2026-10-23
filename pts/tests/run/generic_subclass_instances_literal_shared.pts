@@ -1,0 +1,19 @@
+// H09b5d guard (classes): Sub<1> and Sub<number> (members of the same IR types) go where
+// Holder<number> goes.
+class Holder<T> {
+  constructor(public x: T) {}
+  show(): string {
+    return "x=" + String(this.x);
+  }
+}
+class Sub<T> extends Holder<T> {
+  twice(): string {
+    return this.show() + this.show();
+  }
+}
+const a = new Sub(1 as const);
+const b = new Sub<number>(2);
+const hs: Holder<number>[] = [a, b];
+console.log(hs.map((h) => h.show()).join(" "), a.twice(), b instanceof Holder, a instanceof Sub);
+// expect:
+// x=1 x=2 x=1x=1 true true

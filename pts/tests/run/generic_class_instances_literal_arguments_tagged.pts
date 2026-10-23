@@ -1,0 +1,26 @@
+// H09b5d guard (classes): Tagged<"circle"> (inferred), whose members' IR types are
+// Tagged<string>'s, goes where Tagged<string> goes, is tested with instanceof and printed. A fix
+// that tells classes apart by literal type arguments must keep this one class.
+class Tagged<K extends string> {
+  constructor(public kind: K) {}
+  describe(): string {
+    return "tag " + this.kind;
+  }
+}
+const all: Tagged<string>[] = [];
+all.push(new Tagged("circle"));
+all.push(new Tagged("square"));
+const t: Tagged<string> = new Tagged("tri");
+all.push(t);
+for (const x of all) {
+  console.log(x.describe(), x instanceof Tagged);
+}
+const c = new Tagged("circle");
+console.log(c.kind.length, all.length, all.includes(t));
+console.log(c);
+// expect:
+// tag circle true
+// tag square true
+// tag tri true
+// 6 3 true
+// Tagged { kind: 'circle' }

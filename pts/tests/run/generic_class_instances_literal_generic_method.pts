@@ -1,0 +1,30 @@
+// H09b5d RED (C177, classes): a generic method of Holder<1> and Holder<number> whose signature
+// differs by the class's literal type argument: one class, so PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick<U>(u: U, v: R<T>): [U, R<T>] {
+    return [u, new Box(v.value)];
+  }
+}
+attempt("1:", () => {
+  const [u, r] = new Holder<1>(1).pick(true, new Box("s"));
+  return String(u) + " " + (r.value + "!");
+});
+attempt("number:", () => {
+  const [u, r] = new Holder<number>(5).pick(false, new Box(7));
+  return String(u) + " " + (r.value + 1);
+});
+// expect:
+// 1: true s!
+// number: false 8

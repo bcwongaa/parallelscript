@@ -1,0 +1,18 @@
+// H09b5d RED (C177, direct calls with a dynamic result): unwrap(Promise<number>) then
+// unwrap(Promise<string>): a direct call isn't `dynamic` (genericInstanceFor), so the second shared
+// the first's instance, whose Box<number> took the string at run time: `Expected number, got
+// string`. No PTS1001 catches it: the result is a dynamic value.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function main(): Promise<void> {
+  try { console.log("number", (await unwrap(Promise.resolve(1))).value + 1); } catch (e: any) { console.log("number threw", e.message); }
+  try { console.log("string", (await unwrap(Promise.resolve("s"))).value + "!"); } catch (e: any) { console.log("string threw", e.message); }
+}
+main();
+// expect:
+// number 2
+// string s!

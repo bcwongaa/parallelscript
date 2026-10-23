@@ -1,0 +1,30 @@
+// H09b5d RED (C177, classes): Sub<1> and Sub<number>, generic subclasses of Holder<T> whose
+// inherited pick's R<T> differs, were one class (and Holder<1>, Holder<number> one superclass):
+// PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return new Box(v.value);
+  }
+}
+class Sub<T> extends Holder<T> {
+  again(v: R<T>): R<T> {
+    return this.pick(v);
+  }
+}
+attempt("1:", () => String(new Sub<1>(1).again(new Box("s")).value + "!"));
+attempt("number:", () => String(new Sub<number>(5).again(new Box(7)).value + 1));
+// expect:
+// 1: s!
+// number: 8

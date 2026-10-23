@@ -1,0 +1,33 @@
+// H09b5d RED (C177, body only): pick<Promise<number>> and pick<Promise<string>> (IR value) have one
+// IR signature; the shared instance's local `const k: K<T>` is a number, so the second call threw
+// `Expected number, got string`. Each call alone matches Node.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+class Out<T> {
+  constructor(public x: T, public note: string) {}
+}
+type K<T> = Awaited<T>;
+function pick<T>(x: T, text: string): Out<T> {
+  const k: K<T> = JSON.parse(text);
+  return new Out(x, typeof k + " " + String(k));
+}
+attempt("Promise<number>:", () => {
+  const r = pick<Promise<number>>(Promise.resolve(1), JSON.stringify(3));
+  return String(r.note);
+});
+attempt("Promise<string>:", () => {
+  const r = pick<Promise<string>>(Promise.resolve("s"), JSON.stringify("s"));
+  return String(r.note);
+});
+// expect:
+// Promise<number>: number 3
+// Promise<string>: string s

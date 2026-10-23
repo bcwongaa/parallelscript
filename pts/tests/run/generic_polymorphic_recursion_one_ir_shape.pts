@@ -1,0 +1,16 @@
+// H09b5d guard (growth): step<T> calls itself for a new literal kind each level (template literal
+// types), one IR shape.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Tag<T> = T extends { kind: infer K } ? K : never;
+function step<T extends { kind: string; n: number }>(x: T, n: number): Box<number> {
+  if (n === 0) {
+    return new Box(x.n);
+  }
+  const next: { kind: `${Tag<T>}x`; n: number } = { kind: `${x.kind}x` as `${Tag<T>}x`, n: x.n + 1 };
+  return step(next, n - 1);
+}
+console.log(step({ kind: "a" as const, n: 0 }, 10).value);
+// expect:
+// 10

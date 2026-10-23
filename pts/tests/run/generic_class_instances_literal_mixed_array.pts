@@ -1,0 +1,14 @@
+// H09b5d guard (classes): Holder<1>, Holder<2> and Holder<number> in one Holder<number>[], read,
+// stringified and printed.
+class Holder<T> {
+  constructor(public x: T) {}
+  get(): T {
+    return this.x;
+  }
+}
+const hs: Holder<number>[] = [new Holder(1 as const), new Holder<2>(2), new Holder(3)];
+console.log(hs.map((h) => h.get() * 10).join(","), JSON.stringify(hs));
+console.log(hs[0]);
+// expect:
+// 10,20,30 [{"x":1},{"x":2},{"x":3}]
+// Holder { x: 1 }

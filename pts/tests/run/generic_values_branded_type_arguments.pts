@@ -1,0 +1,24 @@
+// H09b5d RED (C177, brands, a generic value): f<Id> alone: the instance is made for number
+// (instantiate unbrands Id), whose R<T> is Box<number>, which doesn't fit the call's Box<string>,
+// so it kept the erased copy: `Expected Box<string>, got Box<string | number>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends Id ? string : number>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return new Box(v.value);
+}
+function use(f: <T>(x: T, v: R<T>) => R<T>): void {
+  attempt("Id:", () => String(f<Id>(5 as Id, new Box("s")).value + "!"));
+}
+use(pick);
+// expect:
+// Id: s!

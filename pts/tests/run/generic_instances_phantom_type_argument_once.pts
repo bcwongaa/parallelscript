@@ -1,0 +1,15 @@
+// H09b5d review round 1 (ph03), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// ph02 with one call: the identity is computed for every new instance.
+class Weird<T> {
+  constructor(public value: T) {}
+  isOne(): boolean {
+    return this.value == 1;
+  }
+}
+function keep<T>(x: unknown): string {
+  return "kept";
+}
+console.log(keep<Promise<{ w: Weird<string> }>>(0), new Weird(1).isOne());
+// expect:
+// kept true

@@ -1,0 +1,19 @@
+// H09b5d guard (growth): nest<T> calls nest<Promise<T>>, value at every level: one instance on
+// HEAD; a checker-structure key makes one per level up to keyPart's depth, and must still compile
+// and run 20 deep.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function nest<T>(x: T, n: number): Promise<Box<Awaited<T>>> {
+  if (n === 0) {
+    return new Box(await x);
+  }
+  const inner = await nest<Promise<T>>(Promise.resolve(x), n - 1);
+  return new Box(inner.value);
+}
+async function main(): Promise<void> {
+  console.log((await nest(Promise.resolve(5), 20)).value + 1);
+}
+main();
+// expect:
+// 6

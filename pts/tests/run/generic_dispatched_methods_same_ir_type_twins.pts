@@ -1,0 +1,36 @@
+// H09b5d RED (C177, a dispatched generic method): the twins' demands have other IR signatures
+// (Box<number>, Box<string>), but genericInstanceFor returns the first's instance for the second,
+// which doesn't fit, so the second call kept the erased copy: `Expected Box<string>, got
+// Box<string | number>`. Each call alone matches Node.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends { kind: "a" } ? number : string>;
+abstract class Base {
+  abstract pick<T>(x: T, v: R<T>): R<T>;
+}
+class Picker extends Base {
+  pick<T>(x: T, v: R<T>): R<T> {
+    return new Box(v.value);
+  }
+}
+const picker: Base = new Picker();
+attempt("{ kind: 'a' }:", () => {
+  const r = picker.pick<{ kind: "a" }>({ kind: "a" as const }, new Box(3));
+  return String(r.value + 1);
+});
+attempt("{ kind: 'b' }:", () => {
+  const r = picker.pick<{ kind: "b" }>({ kind: "b" as const }, new Box("s"));
+  return String(r.value + "!");
+});
+// expect:
+// { kind: 'a' }: 4
+// { kind: 'b' }: s!

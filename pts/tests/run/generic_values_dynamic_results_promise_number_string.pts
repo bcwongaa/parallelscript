@@ -1,0 +1,16 @@
+// H09b5d guard (dynamic results): a generic value called for Promise<number> and Promise<string>,
+// told apart by madeFor (D-190).
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function use(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<void> {
+  try { console.log("number", (await f(Promise.resolve(1))).value + 1); } catch (e: any) { console.log("number threw", e.message); }
+  try { console.log("string", (await f(Promise.resolve("s"))).value + "!"); } catch (e: any) { console.log("string threw", e.message); }
+}
+use(unwrap);
+// expect:
+// number 2
+// string s!

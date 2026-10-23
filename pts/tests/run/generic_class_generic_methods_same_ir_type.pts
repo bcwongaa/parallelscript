@@ -1,0 +1,18 @@
+// H09b5d review round 1 (u04): PTS1001 or a TypeError on the base; it runs as Node does now.
+// A generic method of a generic class called for type arguments of one IR type.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Holder<T> {
+  constructor(public x: T) {}
+  pick<U>(p: U, v: Box<Awaited<U>>): Box<Awaited<U>> {
+    return v;
+  }
+}
+const h = new Holder(1);
+console.log(h.pick<Promise<number>>(Promise.resolve(1), new Box(1)).value, h.pick<Promise<string>>(Promise.resolve("s"), new Box("s")).value);
+const k = new Holder("k");
+console.log(k.pick<Promise<boolean>>(Promise.resolve(true), new Box(true)).value);
+// expect:
+// 1 s
+// true

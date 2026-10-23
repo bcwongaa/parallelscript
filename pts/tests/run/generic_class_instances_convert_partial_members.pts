@@ -1,0 +1,15 @@
+// H09b5d review round 1 (c06), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// A class with a mapped member (Partial<T>): Store<any> where Store<unknown> goes.
+class Store<T> {
+  patch: Partial<T> | undefined = undefined;
+  constructor(public value: T) {}
+}
+function describe(s: Store<unknown>): string {
+  return "store " + JSON.stringify(s.value);
+}
+console.log(describe(new Store(JSON.parse('{"a":1}'))));
+console.log(describe(new Store<unknown>(2)));
+// expect:
+// store {"a":1}
+// store 2

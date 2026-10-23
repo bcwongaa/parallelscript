@@ -1,0 +1,26 @@
+// H09b5d RED (C172, maxDynamicVariants): Promise<number>, any, unknown and Promise<1> use up the
+// four variants, so Promise<2> threw `Expected Box<number>, got Box<any>`: any and unknown count
+// against the cap.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function use(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<void> {
+  const show = (label: string, v: unknown): void => console.log(label, typeof v, String(v));
+  try { show("number", (await f(Promise.resolve(1))).value); } catch (e: any) { console.log("number threw", e.message); }
+  try { show("any", (await f<any>("s")).value); } catch (e: any) { console.log("any threw", e.message); }
+  try { show("unknown", (await f<unknown>(true)).value); } catch (e: any) { console.log("unknown threw", e.message); }
+  try { show("1", (await f(Promise.resolve(1 as const))).value); } catch (e: any) { console.log("1 threw", e.message); }
+  try { show("2", (await f(Promise.resolve(2 as const))).value); } catch (e: any) { console.log("2 threw", e.message); }
+  try { show("any2", (await f<any>(Promise.resolve([1]))).value); } catch (e: any) { console.log("any2 threw", e.message); }
+}
+use(unwrap);
+// expect:
+// number number 1
+// any string s
+// unknown boolean true
+// 1 number 1
+// 2 number 2
+// any2 object 1

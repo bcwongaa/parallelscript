@@ -1,0 +1,20 @@
+// H09b5d review round 1 (c03), a guard: the base ran it as Node does, and the first fix, which split the
+// instances, stopped it.
+// Holder<any> where a Holder<unknown> goes: R<any> is Box<string | number>, R<unknown> Box<number>.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return v;
+  }
+}
+const h: Holder<unknown> = new Holder<any>(1);
+console.log(h.x);
+const g: Holder<unknown> = new Holder<unknown>(2);
+console.log(g.x, g.pick(new Box(4)).value);
+// expect:
+// 1
+// 2 4

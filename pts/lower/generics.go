@@ -288,8 +288,9 @@ func (l *lowerer) calledOnlyName(node *ast.Node) *ast.Symbol {
 type instance struct {
 	generic   *genericFunc
 	arguments []ir.Type
-	identity  string   // its type arguments' typeArgumentsIdentity
-	fn        *ir.Func // nil if it failed, which was reported
+	literals  []*checker.Type // the type arguments that are literal types
+	identity  string          // its type arguments' typeArgumentsIdentity, where its declaration computes types from them
+	fn        *ir.Func        // nil if it failed, which was reported
 	subst     *substitution
 }
 
@@ -340,17 +341,33 @@ func instanceChain(subst *substitution, declaration *ast.Node) (depth int, root 
 // branded primitive is its primitive, also in a union (unbranded, C221), and an
 // intersection of array types one of them or any (withoutArrayIntersection).
 func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
+	t, erased := l.substituted(t)
+	if erased {
+		return t
+	}
+	return l.normalized(t)
+}
+
+// substituted is t with the type parameters of the instance being lowered, if any,
+// replaced (in an intersection that narrows one, as narrowedInstance says), or any, and
+// erased, if it mentions an erased one.
+func (l *lowerer) substituted(t *checker.Type) (_ *checker.Type, erased bool) {
 	switch {
 	case l.subst == nil:
 	case l.mentionsErased(t):
-		return l.checker.GetAnyType()
+		return l.checker.GetAnyType(), true
 	case len(l.subst.parameters) > 0:
 		if narrowed := l.narrowedInstance(t); narrowed != nil {
-			t = narrowed
-		} else {
-			t = l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
+			return narrowed, false
 		}
+		return l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments), false
 	}
+	return t, false
+}
+
+// normalized is t, a type with no type parameters of the instance being lowered, as
+// instantiate gives it.
+func (l *lowerer) normalized(t *checker.Type) *checker.Type {
 	if instance := l.readonlyInstance(t); instance != nil {
 		return instance // Readonly<Point>, which Object.freeze gives, is a Point (D-157)
 	}
@@ -371,21 +388,11 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 // primitive (`T extends Id ? string : number`), and instantiate makes it the primitive
 // wherever an IR type is made of it (C177).
 func (l *lowerer) typeArgument(t *checker.Type) *checker.Type {
-	switch {
-	case l.subst == nil:
-	case l.mentionsErased(t):
-		return l.checker.GetAnyType()
-	case len(l.subst.parameters) > 0:
-		if narrowed := l.narrowedInstance(t); narrowed != nil {
-			t = narrowed
-		} else {
-			t = l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
-		}
-	}
-	if l.unbranded(t) != nil {
+	t, erased := l.substituted(t)
+	if erased || l.unbranded(t) != nil {
 		return t
 	}
-	return l.instantiate(t)
+	return l.normalized(t)
 }
 
 // narrowedInstance is t, an intersection of one of the instance's type parameters with other
@@ -1179,11 +1186,14 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 
 // genericInstanceFor is genericInstance, or past an instance limit nil and which limit,
 // unreported: the caller decides (D-198), and the call keeps the erased copy. Instances are
-// told apart by their type arguments' IR types and, where those are the same, by their
-// checker types (typeArgumentsIdentity): `Promise<number>` and `Promise<string>` are both
-// dynamic values, but an instance's `Box<Awaited<T>>` is a Box<number> for one and a
-// Box<string> for the other, as `T extends { kind: "a" } ? …` tells `{ kind: "a" }` from
-// `{ kind: "b" }`, one shape, and a branded Id from its number (C177).
+// told apart by their type arguments' IR types and literal types (`pick(o, "a")` and
+// `pick(o, "b")` return different types, D-089), and where the declaration computes types
+// from its type parameters (computesFromTypeParameters), by their checker types too
+// (typeArgumentsIdentity): `Promise<number>` and `Promise<string>` are both dynamic values,
+// but an instance's `Box<Awaited<T>>` is a Box<number> for one and a Box<string> for the
+// other, as `T extends { kind: "a" } ? …` tells `{ kind: "a" }` from `{ kind: "b" }`, one
+// shape, and `T extends Id ? …` a branded Id from its number (C177). Where it computes
+// none, an instance's types are made of its type arguments' IR types alone.
 func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node) (*ir.Func, instanceLimit) {
 	if t := l.trial; t != nil {
 		t.making++ // what it reports is the trial's (D-190)
@@ -1191,20 +1201,25 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	}
 	arguments := make([]ir.Type, len(typeArguments))
 	concrete := make([]*checker.Type, len(typeArguments))
+	literals := make([]*checker.Type, len(typeArguments))
 	for i, t := range typeArguments {
 		concrete[i] = l.typeArgument(t)
 		if arguments[i] = l.irType(concrete[i], node); arguments[i] == nil {
 			return nil, withinLimits
 		}
+		if literal := l.normalized(concrete[i]); isLiteralType(literal) {
+			literals[i] = literal
+		}
 	}
-	identity := ""
+	computes := l.computesFromTypeParameters(generic)
+	identity, identified := "", false
 	for _, existing := range generic.instances {
-		if !slices.Equal(existing.arguments, arguments) {
+		if !slices.Equal(existing.arguments, arguments) || !slices.Equal(existing.literals, literals) {
 			continue
 		}
-		if !slices.Equal(existing.subst.arguments[len(existing.subst.arguments)-len(concrete):], concrete) { // after an enclosing instance's
-			if identity == "" {
-				identity = l.typeArgumentsIdentity(concrete, node)
+		if computes && !slices.Equal(existing.subst.arguments[len(existing.subst.arguments)-len(concrete):], concrete) { // after an enclosing instance's
+			if !identified {
+				identity, identified = l.typeArgumentsIdentity(concrete, node), true
 			}
 			if existing.identity != identity {
 				continue
@@ -1220,7 +1235,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	if limit != withinLimits {
 		return nil, limit
 	}
-	if identity == "" {
+	if computes && !identified {
 		identity = l.typeArgumentsIdentity(concrete, node)
 	}
 	if recursive {
@@ -1231,7 +1246,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
 	}
-	inst := &instance{generic: generic, arguments: arguments, identity: identity, subst: subst}
+	inst := &instance{generic: generic, arguments: arguments, literals: literals, identity: identity, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	if t := l.trial; t != nil && t.root == nil {
 		t.root = subst
@@ -1248,15 +1263,61 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 }
 
 // typeArgumentsIdentity is what tells apart instances for type arguments (concrete) of the
-// same IR types: their keyParts, brands included, which are the same for types of the
-// same IR types, literals and brands but for dynamic values, as instanceKey's (C177). A
-// literal type is itself (`pick(o, "a")` and `pick(o, "b")` return different types, D-089).
+// same IR types and literal types where their declaration computes types from them: their
+// keyParts, each with its own budget, brands included and making no IR type
+// (keyIdentity.typeArguments), the same for types of the same structure, literals and
+// brands, and for dynamic values of the same checker types (C177).
 func (l *lowerer) typeArgumentsIdentity(concrete []*checker.Type, node *ast.Node) string {
-	identity := &keyIdentity{budget: maxKeyParts, brands: true}
-	for _, t := range concrete {
+	parts := make([]string, len(concrete))
+	for i, t := range concrete {
+		identity := &keyIdentity{typeWalk: typeWalk{budget: maxKeyParts}, brands: true, typeArguments: true}
 		l.keyPart(identity, t, node)
+		parts[i] = identity.String()
 	}
-	return identity.String()
+	return strings.Join(parts, "|")
+}
+
+// computesFromTypeParameters reports whether generic's declaration computes types from its
+// type parameters (computesTypes, `Box<Awaited<T>>`, `T extends Id ? string : number`):
+// in its signature, the types of the expressions and type nodes in its body, or the type
+// arguments of the calls there. Where it computes none, its types are made of its type
+// parameters by unions, references, arrays, object and function types, whose IR types are
+// made of the type arguments' IR types; narrowings to intersections with them are an
+// instance's as D-195 says, for every type argument of their IR types.
+func (l *lowerer) computesFromTypeParameters(generic *genericFunc) bool {
+	if computes, ok := l.computingDecls[generic.node]; ok {
+		return computes
+	}
+	anys := make([]*checker.Type, len(generic.parameters))
+	for i := range anys {
+		anys[i] = l.checker.GetAnyType()
+	}
+	computes := func(t *checker.Type) bool {
+		return t != nil && l.computesTypes(t, map[*checker.Type]bool{}) && l.checker.PtsInstantiateType(t, generic.parameters, anys) != t
+	}
+	signature := l.checker.GetSignatureFromDeclaration(generic.node)
+	found := computes(l.checker.GetReturnTypeOfSignature(signature)) || slices.ContainsFunc(signature.Parameters(), func(parameter *ast.Symbol) bool {
+		return computes(l.checker.GetTypeOfSymbol(parameter))
+	})
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		switch {
+		case found:
+		case ast.IsTypeNode(node):
+			found = computes(l.checker.GetTypeFromTypeNode(node))
+		case ast.IsExpressionNode(node):
+			found = computes(l.checker.GetTypeAtLocation(node))
+			if !found && (node.Kind == ast.KindCallExpression || node.Kind == ast.KindNewExpression) {
+				if resolved := l.checker.GetResolvedSignature(node); resolved != nil {
+					found = slices.ContainsFunc(l.checker.PtsTypeArgumentsOfSignature(resolved), computes)
+				}
+			}
+		}
+		return found || node.ForEachChild(visit)
+	}
+	generic.node.ForEachChild(visit)
+	l.computingDecls[generic.node] = found
+	return found
 }
 
 // isLiteralType reports whether t is a literal type or a union of them.
