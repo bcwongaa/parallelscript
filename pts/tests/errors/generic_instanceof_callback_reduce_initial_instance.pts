@@ -1,0 +1,27 @@
+// H10a review round 6 (R6-F2): reduce's accumulator is the initial value, here the instance's own array, so a reducer given by reference that writes its `any[]` accumulator would write to a copy; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function collect(acc: any[], x: any): any[] {
+  acc.push(x);
+  return acc;
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.items.reduce(collect, c.tags);
+}
+const m = new MapLRU<string, number>("k", 7);
+run(m);
+console.log(m.tags);

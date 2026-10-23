@@ -1,0 +1,26 @@
+// H10a review round 6 (R6-F1): a member whose rows are the instance's (`c.matrix`) passed to a generic helper that only reads the array would be a copy of its rows too, so a write to a row it returns would be lost; PTS1001, not a silent copy.
+// error: using a number[][] as a value[][] where it may be changed or kept
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function firstOf<T>(xs: T[]): T {
+  return xs[0];
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) firstOf(c.matrix).push(2);
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+console.log(m.matrix);

@@ -1,0 +1,56 @@
+// H10a review round 6 and session 6's reproducer (N2, N3, N9, N15, R6-F2): casts of an
+// instanceof narrowing's dynamic values keep the instance's objects (`as any[]`, `as unknown
+// as any[]`, a `readonly any[]` or `unknown` callback parameter cast before a write); an
+// annotated rest parameter of an inline callback; reduce's accumulator when the initial value
+// is the instance's own array; inline callbacks given to methods of an `unknown` narrowed to
+// the class. Writes reach the instance, as in Node; errors/generic_instanceof_sink_as_any.pts
+// (round 3's PTS1001 for `const a = c.items as any[]; a.push(1)`) is the first line here.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  each(f: (rows: V[][]) => void): void {
+    f(this.matrix);
+  }
+}
+function check(name: string, f: (c: Cache<string, number>) => void, seen: (c: MapLRU<string, number>) => unknown): void {
+  const m = new MapLRU<string, number>("k", 0);
+  f(m);
+  console.log(name, seen(m));
+}
+check("as any[]", (c) => { if (c instanceof MapLRU) { const a = c.items as any[]; a.push(1); } }, (m) => m.items.length);
+check("local as any[]", (c) => { if (c instanceof MapLRU) { const it = c.items; (it as any[]).push(2); } }, (m) => m.items);
+check("as unknown as any[]", (c) => { if (c instanceof MapLRU) (c.items as unknown as any[]).push(3); }, (m) => m.items);
+check("readonly parameter cast", (c) => { if (c instanceof MapLRU) c.items.forEach((_x, _i, arr: readonly any[]) => { (arr as any[]).push(4); }); }, (m) => m.items);
+check("unknown parameter cast", (c) => { if (c instanceof MapLRU) c.matrix.forEach((row: unknown) => { (row as any[]).push(5); }); }, (m) => m.matrix);
+check("rest parameter", (c) => { if (c instanceof MapLRU) c.items.forEach((...args: any[]) => console.log(" args", args.length, args[0])); }, (m) => m.items.length);
+check("reduce into the instance", (c) => { if (c instanceof MapLRU) c.items.reduce((acc: any[], x) => { acc.push(x + 1); return acc; }, c.tags); }, (m) => m.tags);
+check("reduce into a row", (c) => { if (c instanceof MapLRU) c.matrix.reduce((acc: any[], row) => { acc.push(row.length); return acc; }, c.matrix[1]); }, (m) => m.matrix);
+function viaUnknown(u: unknown): void {
+  if (!(u instanceof MapLRU)) return;
+  u.each((rows) => rows[0].push(6));
+  u.each((rows: any[][]) => rows[1].push(7));
+}
+const n = new MapLRU<string, number>("k", 0);
+viaUnknown(n);
+console.log("unknown source", n.matrix);
+// expect:
+// as any[] 2
+// local as any[] [ 0, 2 ]
+// as unknown as any[] [ 0, 3 ]
+// readonly parameter cast [ 0, 4 ]
+// unknown parameter cast [ [ 5 ], [ 5 ] ]
+//  args 3 0
+// rest parameter 1
+// reduce into the instance [ 1 ]
+// reduce into a row [ [], [ 0, 1 ] ]
+// unknown source [ [ 6 ], [ 7 ] ]

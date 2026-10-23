@@ -1,5 +1,5 @@
 // H10a session 6 (parent probe a1): a function declaration given by reference to a method of an instance an uninferred narrowing holds as a dynamic value, which hands it the instance's array; PTS1001, not a silent copy.
-// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
 class Box<T> {
   items: T[] = [];
   constructor(v: T) {

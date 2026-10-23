@@ -256,6 +256,9 @@ func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, bu
 	args = append(args, &ir.StringConst{Value: scanner.GetTextOfNode(callee)})
 	for i, argument := range call.Arguments.Nodes {
 		if argument.Kind == ast.KindSpreadElement {
+			if l.copiesSpreadCallbacks(callee, argument) {
+				return nil
+			}
 			items := l.dynamicSpread(argument)
 			if items == nil {
 				return nil

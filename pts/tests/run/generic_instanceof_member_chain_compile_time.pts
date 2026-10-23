@@ -1,0 +1,32 @@
+// H10a review round 6 (R6-F5) and session 6's reproducer (N1): a 32-deep member chain in a
+// program with a generic class and an instanceof narrowing compiles in linear time; the checks
+// of members inside dynamic values asked each object of the chain twice, so compile time
+// doubled with each level (26 s at depth 22).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class N {
+  a: N = this;
+  v = 7;
+  list: number[] = [];
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  node = new N();
+  items: V[] = [];
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+const n = new N();
+n.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.list.push(n.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.v);
+function run(c: Cache<string, number>): number {
+  if (c instanceof MapLRU) {
+    c.items.push(c.node.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.v);
+    return c.items.length + c.node.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.v;
+  }
+  return 0;
+}
+console.log(n.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.list, run(new MapLRU<string, number>("k", 1)));
+// expect:
+// [ 7 ] 8

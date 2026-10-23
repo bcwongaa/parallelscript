@@ -1,0 +1,27 @@
+// H10a review round 6 (R6-F6): a function given by reference to a Map member's `set` is kept for code that calls it later with the instance's own arrays (`m.handlers.get(k)!(m.matrix)`), which it would get as copies; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[][] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function addRow(rows: any[][]): void {
+  rows.push([9]);
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.handlers.set("x", addRow);
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+m.handlers.get("x")!(m.matrix);
+console.log(m.matrix.length);

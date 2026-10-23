@@ -1,5 +1,5 @@
 // H10a review round 5 (R5-F2's rest, the reviewer's probe t04_callback_references.pts): an object's method given by reference to an array method of a member tsc types any[] gets the instance's array as a copy; PTS1001, not a silent copy.
-// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
 interface Cache<K, V> {
   get(key: K): V | undefined;
 }

@@ -432,3 +432,48 @@ All runs used `/tmp/h10/pts-fix5`, `pts-fix4` and `pts-base` (with `PTS_HOME` se
 1. Fix or reject R5-F2 and R5-F3.
 2. Narrow R5-F1 to the parameters the array methods hand their receiver's objects: elements of array-typed elements, and `arr`.
 3. Add D-218 known-gap lines for anything left deliberately. At that point every remaining divergence is a recorded known gap or H10b's, and I'd call it READY.
+
+## Round 6: `842c97cf3`
+
+NOT READY
+
+# H10a review, round 6: commit `842c97cf3` (fix6) against `3d96ccc53`/`9053861f6` (fix5)
+
+(A fresh `reviewer` for round 6: the earlier one's context ended with the previous session. Its probes: [h10a-review6-probes.tar.gz](h10a-review6-probes.tar.gz).)
+
+Every claim and finding below was run by me, with `PTS_HOME=/tmp/h10/s6/base` and `/tmp/h10/s6/base/pts-bin/pts` (fix5) and `/tmp/h10/s6/snap1/pts-bin/pts` (fix6), and `/tmp/h10/pts-base` (base); Node on a `.mts` copy; `// threads:` programs at 1, 2 and 4. Probes `/tmp/h10/s6/review6/p/`, minimal repros `p/min/`. (The parent's working tree had uncommitted lowering changes while I worked; my results are for the snap1 binary.)
+
+The C283 and C284 rules work for the forms the tests use. Two blocking problems: silent lost writes remain (F1–F3), and regressions against fix5 (F4, F6, and exponential compile time F5).
+
+### R6-F1 (High, silent; base threw; not a regression vs fix5): the "only reads" copy exemptions are shallow, but the copy is deep
+`forEachOf(c.matrix, (row) => row.push(1))` (a generic `forEachOf<T>(xs: T[], f)`), `firstOf(c.matrix).push(2)`, `c.matrix.forEach(addToFirst)` with `addToFirst(_row: any, _i: number, all: any[][]) { all[0].push(3); }`: Node `[ [ 1, 2, 3, 3 ], [ 1 ] ]`, fix5 and fix6 `[ [], [] ]`, base TypeError. `isReadOnlyArgument` and the new `onlyReadsParameter` rely on `onlyReads`/`isArrayRead`, which accept `xs[0]`, `xs.forEach(f)`, `all[0]`, but converting `number[][]` to `value[][]` copies the inner arrays too (R5-F3's class). Typed code reports PTS1001 for the same by-reference callback (`v27b`); `firstPush(mm: number[][])` with `rows: any[][]` loses writes in typed code on the base too (`v27c`, pre-existing D-094, outside this slice). Fix: the only-read exemption only where the copied type's elements are primitive in the instance.
+
+### R6-F2 (High, silent; base threw): reduce whose initial value is the instance's own object
+`c.items.reduce((acc: any[], x) => { acc.push(x); return acc; }, c.tags)`, `c.items.reduce(collect, c.tags)`, `c.matrix.reduce((acc: any[], row) => …, c.matrix[1])`: Node `[ 7, 7 ] [ [], [ 0, 1 ] ]`, fix5 and fix6 `[] [ [], [] ]`. `arrayCallbackObjectParameters` assumes an initial value is the callback's own.
+
+### R6-F3 (High, silent; base threw): C284 is incomplete for spreads, iterators and lib copies
+`[...c.matrix][0].push(1)`, `[...c.matrix, []][1].push(2)`, `for (const [, row] of c.matrix.entries()) row.push(3)`, `for (const row of new Set(c.matrix)) row.push(4)`, `Array.from(c.store.values())[0].push(5)`, `[...c.store][0][1].push(6)`, `new Map(c.store).get("k")!.push(7)`, `c.store.values().next().value!.push(8)`: Node `[ [ 1, 3, 4 ], [ 2, 3, 4 ] ] [ 5, 6, 7, 8 ]`, fix5 and fix6 `[ [], [] ] []`. The copy is per element inside the container's conversion. Spread arguments: `c.matrix.forEach(...args)` with `const args = [pushRow] as const` skips `copiesCallbackArgument` (Node `[ [ 9 ], [ 9 ] ]`, fix5 and fix6 `[ [], [] ]`, base PTS1001: worse than the base). Working on fix6: `[...c.items]`, rest patterns, `slice`, `concat`, `splice`, `pop`, `values()` for…of.
+
+### R6-F4 (Medium, regression vs fix5, unrecorded): new PTS1001s for nested objects and method results that are only read, fresh, or never reached
+`function firstRow(c): any[] { if (c instanceof MapLRU) return c.matrix[0]; return []; }`, `return c.items.filter((x) => x > 0)` in an `any[]` function, `c.items.filter((x) => x > 0).par.map((x) => x * 2).length`: Node and fix5 `[ 1 ] [] [ 3 ] 1`, fix6 three PTS1001s; an unreached branch alone is PTS1001 too (`r6f4b`). Others: an annotated local, `{ row: c.matrix[0] }`, `[c.matrix[0], …]`, a field, `kept.push(…)`, `store.set(k, …)`, `yield`, an arrow body; `const e: any[] = c.items.filter(…)` and `return c.items.slice()` (fresh arrays, which D-094 copies); `c.matrix[0].par.map(…)`, `c.meta.tags.par.filter(…)`, `c.items.filter(…).par.map(…)`. Where the object is the instance's and is kept or changed, R3-F3's trade-off (fix5 lost the writes there): needs a known-gap line and an error test; fresh method results and nested arrays of primitives should be exempted, as `holdsPrimitiveElements` does for members.
+
+### R6-F5 (Medium, compile time in every program that declares a generic class): exponential in member-chain depth
+`class Box<T>` plus `class N { a: N = this; v = 7 }` and `n.a.a…a.v`: depth 20 fix5 0.30 s, fix6 5.7 s; depth 22 fix5 0.26 s, fix6 26.0 s, base 0.49 s; inside a narrowing the same. `isNarrowedDynamic` → `isInstanceofNestedObject` → `holdsInstanceofDynamicValue` walks `isMemberOfNarrowedInstance` → `storedDynamic(object)` → `isNarrowedDynamic` and also recurses into `instanceofDynamicSource(node.Expression())`: two branches per level. Fix: memoize, or the cheap type test first.
+
+### R6-F6 (Low-Medium, regression vs fix5 and the base; partly recorded): functions given to methods that only store them are PTS1001
+`o.on("x", handler)` (a user method that stores it) and `o.handlers.set("y", handler)` for an `o: object` holding an `Emitter<any>`: Node, fix5 and base `[ 2, 3 ] [ 1, 2, 0, 0 ]`, fix6 two PTS1001s. Lib collection methods that never call their argument (`Map.set`, `Set.add`) are knowable and should be skipped. The message, which names "the object an instanceof narrowing holds" at a function argument, is misleading.
+
+### R6-F7 (Low, pre-existing D-179 class, unrecorded for these forms)
+`c.matrix.forEach(pushRow as any)`, `g: any = pushRow`, `fns[0]` from an `any[]`: Node 1, fix5/fix6 0 (typed code without instanceof too). `(row: object) => (row as any[]).push(1)`: fix6 0, Node 1 (control without instanceof loses it on the base too). For an `unknown` holding a `Grid<any>`/`Box<unknown>`, `const r: number[] = u.matrix[0]; r === u.matrix[0]` is now `false` where Node says `true` and base and fix5 reported PTS1001 (`v06`, `v06b`); the writes were already lost on the base (`v06c`). These belong next to D-218's `s04b` line.
+
+### Notes (pre-existing on fix5, checked TypeErrors)
+`c.make(() => ({ list: [3] }))` throws `Expected {list: number[]}, got Object` (`v09`); `c.pending.then(…)` on a Promise member throws `c.pending.then is not a function` (`v24`); converting an any-instance's `value[]` to `number[]` loses writes in typed code too (`v07`).
+
+### What holds (verified)
+C283 inline callbacks (untyped and annotated, defaults, patterns, tuples, `readonly`, unions, nested; `some`, `every`, `flatMap`, `findLast`, `sort`, async; reduce with an own initial value, `reduceRight` without; Map and Set `forEach`'s third parameter; own methods and uninferred narrowings' methods; generic instances, generators, async functions); C283 results (`c.pick((all) => all[1])` keeps the object, fix5 lost it); by-reference functions report PTS1001 in every call form; C284 for typed targets, reads, nested `Set`/`Record`/`Map`/generic members, optional chains, `===`, `indexOf`/`includes`, aliasing by assignment, `parallel grow(c.matrix[1])`, `.par` callbacks reading captured nested objects at 1/2/4 threads; read-only `unknown`/`any`/`catch` sources; the 128 probes of rounds 1–5 change only `s03b` and `t04`; the matrix 622 / 130 / 25.
+
+### Test quality
+The 11 error tests compile on fix5 and give one PTS1001 each on fix6; the 5 run tests' expectations equal Node's, 4 fail on fix5 (`callback_references` is a guard). Gaps: nested objects at copying sinks, `.par` over nested arrays and method results, reduce with an instance initial value, spreads/iterators/lib copies, shallow only-reads, compile time on long chains.
+
+### What READY would take
+1. F1: only-read exemptions only for primitive-element copies. 2. F2: count reduce's accumulator when the initial value holds an instanceof dynamic value. 3. F3: guard or keep as values the element conversions of spreads, `Array.from`, `Set`/`Map` constructors and iterator results, and check spread arguments; or record them, with justification. 4. F5: memoize and re-time. 5. F4, F6: exempt fresh results, nested arrays of primitives (with `.par`) and lib methods that only store their argument; record the rest as R3-F3's trade-off with one error test. 6. F7: a known-gap line next to `s04b`.

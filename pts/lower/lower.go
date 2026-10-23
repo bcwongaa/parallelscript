@@ -391,6 +391,7 @@ type lowerer struct {
 	instanceofInstances map[instanceofKey]instanceofResult // what references narrowed by instanceof hold (instanceofNarrowing)
 	instanceofLocals    map[instanceofLocal]bool           // variables that hold dynamic values of instanceof narrowings (isInstanceofDynamicLocal)
 	anyMentions         map[*checker.Type]bool             // mentionsAny's answers
+	narrowingAnswers    narrowingAnswers                   // isNarrowedDynamic's and instanceofDynamicSource's answers within one question
 	chainDepth          int                                // how many optional chains are being lowered past their tests
 	mapsInProgress      map[*checker.Type]bool             // the map and set types whose key and value types are being mapped
 	this                map[*ir.Func]*ir.Local             // the `this` parameter of each constructor and method
@@ -1081,7 +1082,7 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
 	case isDynamicArray(value.Type()) && isArray(target):
 		return l.dynamicConversion(box(value), target, node) // an any[] (`new Array(n).fill(0)`, `Array.from(…, () => [])`) copied and checked, as dynamic data is (D-071)
-	case (isArray(value.Type()) || isTuple(value.Type())) && isArray(target) && (l.isNewArray(node) || l.isReadOnlyArgument(node)):
+	case (isArray(value.Type()) || isTuple(value.Type())) && isArray(target) && (l.isNewArray(node) || l.isReadOnlyArgument(node)) && !l.copiesInstanceElements(target, node):
 		if isTuple(value.Type()) {
 			return l.tupleAsArray(value, target.(*ir.Array), node)
 		}
@@ -2372,6 +2373,13 @@ func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
 
 // as lowers `x as T`: between numeric types it converts the value.
 func (l *lowerer) as(node *ast.Node) ir.Expr {
+	if l.isInstanceofNestedObject(node) {
+		// `(arr as any[]).push(x)` for an arr an instanceof narrowing gives: the instance's object,
+		// which a conversion to tsc's type would copy (H10a)
+		if x := l.expression(node.Expression()); x == nil || x.Type() == ir.Value {
+			return x
+		}
+	}
 	if l.isDynamicSource(node) { // `x as any` and `x as unknown`: any value is one
 		if x := l.valueExpression(node.Expression()); x != nil {
 			return box(x)

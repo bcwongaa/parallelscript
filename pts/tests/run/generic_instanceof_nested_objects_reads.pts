@@ -1,0 +1,49 @@
+// H10a review round 6 (R6-F4) and session 6's reproducer (N4, N5): objects inside an
+// instanceof narrowing's dynamic member that are only read, fresh, or concatenated: a fresh
+// method result into an `any[]` local or return, `concat` of a nested array onto a typed one,
+// and read-only `.par` views over nested arrays of primitives and over fresh results.
+// threads: 1 2 4
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [];
+  meta: { tags: V[] } = { tags: [] };
+  rec: Record<string, V[]> = { a: [] };
+  constructor(public key: K, public val: V) {
+    const row: V[] = [];
+    for (let i = 0; i < 50; i++) row.push(val);
+    this.matrix.push(row);
+    this.items.push(val, val);
+    this.meta.tags.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function positives(c: Cache<string, number>): any[] {
+  if (c instanceof MapLRU) return c.items.filter((x) => x > 0);
+  return [];
+}
+function copyOf(c: Cache<string, number>): any[] {
+  if (c instanceof MapLRU) return c.items.slice();
+  return [];
+}
+function reads(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const e: any[] = c.items.filter((x) => x > 0);
+  const a: number[] = [5];
+  console.log(e.length, a.concat(c.rec.a), a.concat(c.matrix[0]).length, a.concat(c.meta.tags));
+  const doubled = c.matrix[0].par.map((x) => x * 2);
+  const kept = c.meta.tags.par.filter((x) => x > 0);
+  const fresh = c.items.filter((x) => x > 0).par.map((x) => x * 2);
+  console.log(doubled.length, doubled[49], kept, fresh);
+}
+const m = new MapLRU<string, number>("k", 3);
+console.log(positives(m), copyOf(m));
+reads(m);
+// expect:
+// [ 3, 3 ] [ 3, 3 ]
+// 2 [ 5 ] 51 [ 5, 3 ]
+// 50 6 [ 3 ] [ 6, 6 ]

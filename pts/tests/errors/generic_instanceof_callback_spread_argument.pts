@@ -1,0 +1,27 @@
+// H10a review round 6 (R6-F3) and session 6's reproducer (N10): functions given as a spread argument are judged as the arguments they become; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function pushRow(row: any[]): void {
+  row.push(9);
+}
+const args = [pushRow] as const;
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.matrix.forEach(...args);
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+console.log(m.matrix);

@@ -1,5 +1,5 @@
 // H10a session 6 (parent probe a9): reduce without an initial value hands its callback the first element as the accumulator, so a function given by reference whose any[] accumulator it writes would get a copy of the instance's row; PTS1001, not a silent copy.
-// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
 interface Cache<K, V> {
   get(key: K): V | undefined;
 }

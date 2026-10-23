@@ -266,6 +266,10 @@ func (l *lowerer) isContainerType(t *checker.Type) bool {
 // are, so writes reach it as in JS (D-179). `Array.isArray(json)`'s `any[]` is the array
 // itself (D-089).
 func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
+	return l.narrowingAnswers.answer(narrowingQuestion{node, askNarrowedDynamic}, func() bool { return l.narrowedDynamic(node) })
+}
+
+func (l *lowerer) narrowedDynamic(node *ast.Node) bool {
 	if l.isUninferredInstanceof(node) && !l.isPrivateMemberChange(node) || l.isInstanceofDynamicMember(node) ||
 		ast.SkipParentheses(node).Kind == ast.KindAwaitExpression && l.madeDynamicByInstanceof(node) { // `(await Promise.resolve(c.items)).push(x)`
 		return true // a C of any type arguments narrowed by instanceof, or a member of one tsc types with any (H10)

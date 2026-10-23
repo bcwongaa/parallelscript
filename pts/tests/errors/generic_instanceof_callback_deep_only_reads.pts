@@ -1,0 +1,26 @@
+// H10a review round 6 (R6-F1): a function given by reference whose `any[][]` parameter it only reads (`all[0]`) would still get a copy whose rows are copies, so its write to a row would be lost; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[][] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function addToFirst(_row: any, _i: number, all: any[][]): void {
+  all[0].push(3);
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.matrix.forEach(addToFirst);
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+console.log(m.matrix);

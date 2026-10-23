@@ -1,0 +1,31 @@
+// H10a session 6 (reproducer's r12): a function given by reference that only reads its array parameter but hands it to a callback that writes to it (forEach's third parameter) would write to a copy; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function setAll(row: any[]): void {
+  row.forEach((_x, i, a) => {
+    a[i] = 8;
+  });
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    c.matrix[0].push(1);
+    c.matrix.forEach(setAll);
+  }
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+console.log(m.matrix);

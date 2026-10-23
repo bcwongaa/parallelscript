@@ -1,5 +1,5 @@
 // H10a session 6 (parent probe a8): functions in an array literal given to the narrowed instance's own method, which calls them with the instance's array; PTS1001, not a silent copy.
-// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
 interface Cache<K, V> {
   get(key: K): V | undefined;
 }

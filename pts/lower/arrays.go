@@ -558,6 +558,13 @@ func (l *lowerer) arrayValues(args []*ast.Node, array *ir.Array, arrays bool) []
 			values[i] = value
 			continue
 		}
+		if arrays && value.Type() == ir.Value && l.isArrayType(l.checker.GetNonNullableType(l.typeAt(arg))) {
+			// `a.concat(c.matrix[0])`: an array held as a dynamic value (H10a), copied and checked as concat reads it (D-094)
+			if values[i] = l.dynamicConversion(value, array, arg); values[i] == nil {
+				return nil
+			}
+			continue
+		}
 		if arrays && isArray(value.Type()) && value.Type() != array.Elem && !isArray(array.Elem) {
 			// `a.concat(new Array(n).fill(0))`: an array of other elements, copied as concat reads it (D-094)
 			if values[i] = l.convert(value, array, arg); values[i] == nil {

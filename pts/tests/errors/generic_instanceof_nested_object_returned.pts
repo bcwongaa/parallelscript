@@ -1,0 +1,24 @@
+// H10a review round 6 (R6-F4): an object inside a member (`c.matrix[0]`) returned where an `any[]` goes would be a copy the caller may change or keep, as a member is (errors/generic_instanceof_member_returned.pts); PTS1001 also where the branch never runs (R3-F3's trade-off).
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  tags: V[] = [];
+  matrix: V[][] = [[], []];
+  handlers = new Map<string, (rows: V[][]) => void>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function firstRow(c: Cache<string, number>): any[] {
+  if (c instanceof MapLRU) return c.matrix[0];
+  return [];
+}
+const m = new MapLRU<string, number>("k", 0);
+firstRow(m).push(1);
+console.log(m.matrix);
