@@ -39,8 +39,8 @@ primary model; gpt-6.1-sol and then grok-4.7 are approved fallbacks when it is l
 use the same model as you ({model}); specify it explicitly for any additional Agent call.
 Read docs/agent/HARDENING_PLAN.md FIRST; it overrides the historical phase/stop rule in CLAUDE.md.
 Then read PROGRESS.md, decisions and the relevant spec/review evidence. Historical docs/agent/DONE
-is NOT a reason to stop. Work on ONLY the first unchecked, unblocked hardening task, or a clearly
-documented vertical slice split from it. Use the named reproducer and reviewer subagents on every
+is NOT a reason to stop. Work on the first unchecked ([ ]) unblocked task; once it is done and pushed,
+continue with the next one while your context stays under ~60%. Use the named reproducer and reviewer subagents on every
 substantive task. Writing children must have isolated worktrees; no shared dirty tree. Parent
 verifies child claims by running tests itself. Follow TDD RED-GREEN-REFACTOR and preserve failing
 evidence. You have up to 500 turns: commit and push each green slice as soon as it is green rather
@@ -51,7 +51,16 @@ check recent runs once at session start (non-blocking), fix any failed run first
 IDs, and otherwise tick a slice on a green local suite with "CI: pending".
 Update plan, progress, docs and consolidated review findings; do not alter tools/agent/.
 Every result must be backed by real execution. Never tick blocked/deferred scope as finished.
-After completing one task/slice, checkpoint and end SESSION_RESULT: done=<id> next=<id> green=<yes|no>.
+SPLIT AND TIME-BOX RULES (owner, 2026-10-22; these override "no scope dropped" wording in the plan):
+- Never create a task ID longer than the top-level ID plus three suffix characters (H09b5c, H12a1).
+  If more structure is needed, use a plain bullet list inside the task, not deeper IDs.
+- Never split a remainder again. If a slice can't be finished: when what remains is correctness or
+  memory safety, keep working on it; when it is precision, performance, generated-code size or other
+  refinement where programs already behave correctly, record it in docs/agent/DEFERRED.md (reproducer,
+  skipped test if useful, owning later task such as H25/H27), mark it `- [~]` with a pointer, and move on.
+- A top-level task that has used 6 sessions without finishing is time-boxed the same way.
+- `[~]` is not `[x]`: deferred scope stays listed in DEFERRED.md and in HARDENING_DONE.
+Before ending, checkpoint and end with SESSION_RESULT: done=<ids> next=<id> green=<yes|no>.
 If the model's usage limit is hit, checkpoint and exit; the driver switches models.
 No asking the owner for routine decisions: act within the supplied plan and locked constraints.
 If a task is refused by the model provider, record it as blocked with the exact error, do not

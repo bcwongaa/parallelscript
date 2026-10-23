@@ -73,7 +73,9 @@ class HardeningDriverTests(unittest.TestCase):
         self.assertFalse(driver.has_open_tasks("- [x] H01\n- [x] H02\n"))
 
     def test_one_task_per_session_and_explicit_subagents(self):
-        self.assertIn("ONLY the first unchecked, unblocked", driver.PROMPT)
+        self.assertIn("first unchecked ([ ]) unblocked task", driver.PROMPT)
+        self.assertIn("Never split a remainder again", driver.PROMPT)
+        self.assertFalse(driver.has_open_tasks("- [x] H01\n  - [~] H09b5c deferred\n"))
         self.assertIn("-p 4 -parallel 4", driver.PROMPT)
         self.assertIn("NEVER wait or poll for GitHub CI", driver.PROMPT)
         self.assertNotIn("Verify exact\nSHA CI", driver.PROMPT)
