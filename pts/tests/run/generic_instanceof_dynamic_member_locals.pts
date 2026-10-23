@@ -1,0 +1,24 @@
+// H10a: an `x: unknown` narrowed by `instanceof` to Box<any> stays a dynamic value, and its
+// typed array field, bound to a local that tsc types any[], is the object's own array, held
+// as a dynamic value (D-218, review round 2's R2-F1), so a push through the local reaches the
+// object, as in Node. On the base (and in f54f8b5c1), the local was a copy, as D-179 says a
+// dynamic value bound to a typed local is: `it 2 1 false` / `after [ 7 ]`.
+class Box<T> {
+  items: T[] = [];
+  constructor(v: T) {
+    this.items.push(v);
+  }
+}
+function f(x: unknown): void {
+  if (x instanceof Box) {
+    const it = x.items;
+    it.push(9);
+    console.log("it", it.length, x.items.length, it === x.items);
+  }
+}
+const b = new Box<number>(7);
+f(b);
+console.log("after", b.items);
+// expect:
+// it 2 2 true
+// after [ 7, 9 ]

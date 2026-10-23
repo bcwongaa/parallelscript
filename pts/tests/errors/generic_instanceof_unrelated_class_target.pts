@@ -1,0 +1,47 @@
+// H10a review round 2 (R2-F4: a narrowed reference where tsc takes an unrelated class structurally stays the base PTS1001, a conversion that can never succeed); the reviewer's probe q04_classcast_targets.pts.
+// error: using a `MapLRU` as a `Twin` is not supported yet
+// The narrowed reference passed where tsc takes it structurally: an unrelated class with the
+// same public shape (Twin), a subclass with no members of its own (Sub), and another
+// instance of its class (MapLRU<string, number | string>).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Twin {
+  constructor(public key: string, public val: number) {}
+  get(key: string): number | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Sub extends MapLRU<string, number> {}
+function useTwin(t: Twin): string {
+  return `twin ${t.key} ${t.val}`;
+}
+function useSub(s: Sub): string {
+  return `sub ${s.key}`;
+}
+function useWide(m: MapLRU<string, number | string>): string {
+  return `wide ${m.val}`;
+}
+function viaTwin(c: Cache<string, number>): string {
+  return c instanceof MapLRU ? useTwin(c) : "other";
+}
+function viaSub(c: Cache<string, number>): string {
+  return c instanceof MapLRU ? useSub(c) : "other";
+}
+function viaWide(c: Cache<string, number>): string {
+  return c instanceof MapLRU ? useWide(c) : "other";
+}
+const fs = [() => viaTwin(new MapLRU<string, number>("t", 1)), () => viaSub(new MapLRU<string, number>("s", 2)), () => viaSub(new Sub("u", 3)), () => viaWide(new MapLRU<string, number>("w", 4)), () => viaTwin(new Twin("x", 5))];
+for (const f of fs) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}

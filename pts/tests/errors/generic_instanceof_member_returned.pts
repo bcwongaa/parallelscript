@@ -1,0 +1,23 @@
+// H10a review round 2 (R2-F1: a member array returned from a function whose inferred return type is any[]: a copy would lose later writes (D-094), so PTS1001, not a silent copy); the reviewer's probe q22_member_returned.pts.
+// error: using a number[] as a value[] where it may be changed or kept
+// A member array tsc types any[] returned from the narrowed branch (inferred return type
+// any[]), then changed by the caller.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function itemsOf(c: Cache<string, number>) {
+  if (c instanceof MapLRU) return c.items;
+  return [];
+}
+const m = new MapLRU<string, number>("k", 1);
+itemsOf(m).push(2);
+console.log(m.items);

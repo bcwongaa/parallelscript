@@ -1,0 +1,36 @@
+// H10a review round 2 (R2-F1), the reviewer's probe q12c_unknown_object_alias.pts:
+// The same writes through an `unknown` narrowed by instanceof MapLRU (D-179 dynamic before H10).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  pair: [K, V];
+  meta: { label: K; weight: V };
+  entries: { k: K; v: V }[] = [];
+  constructor(public key: K, public val: V) {
+    this.pair = [key, val];
+    this.meta = { label: key, weight: val };
+    this.entries.push({ k: key, v: val });
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function bump(m: { label: string; weight: number }): void {
+  m.weight += 100;
+}
+function uses(c: unknown): void {
+  if (!(c instanceof MapLRU)) return;
+  const p = c.pair;
+  p[1] = 99;
+  const meta = c.meta;
+  meta.weight = 7;
+  for (const e of c.entries) e.v += 1;
+  const first = c.entries[0];
+  first.k = "renamed";
+}
+const m = new MapLRU<string, number>("k", 1);
+uses(m);
+console.log("after", m.pair, m.meta, m.entries);
+// expect:
+// after [ 'k', 99 ] { label: 'k', weight: 7 } [ { k: 'renamed', v: 2 } ]

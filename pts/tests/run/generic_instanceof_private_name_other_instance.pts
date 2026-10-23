@@ -1,0 +1,37 @@
+// H10a review round 2, the reviewer's probe q10_private_name_other_instance.pts:
+// `other.#cache instanceof MapLRU` inside Wrapper<K, V>'s method, where other is a Wrapper of
+// other type arguments: the declared type of other.#cache is other's Cache<number, string>.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Wrapper<K, V> {
+  #cache: Cache<K, V>;
+  constructor(c: Cache<K, V>) {
+    this.#cache = c;
+  }
+  peekOther(other: Wrapper<number, string>): string {
+    return other.#cache instanceof MapLRU ? `other ${other.#cache.key} ${other.#cache.val}` : "no";
+  }
+  peekSelf(): string {
+    return this.#cache instanceof MapLRU ? `self ${this.#cache.key} ${this.#cache.val}` : "no";
+  }
+}
+const a = new Wrapper<string, number>(new MapLRU<string, number>("a", 1));
+const b = new Wrapper<number, string>(new MapLRU<number, string>(2, "b"));
+for (const f of [() => a.peekSelf(), () => a.peekOther(b), () => b.peekOther(b)]) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// self a 1
+// other 2 b
+// other 2 b

@@ -1,0 +1,35 @@
+// H10a review round 2 (R2-F1), the reviewer's probe q08_member_local_alias.pts:
+// A member array tsc types any[] (V[] of MapLRU<any, any>) bound to a local through an
+// inferred narrowing, then changed through the local: in JS the local is the member itself.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  index = new Map<K, V>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  all(): V[] {
+    return this.items;
+  }
+}
+function uses(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const it = c.items;
+  it.push(2);
+  const all = c.all();
+  all.push(3);
+  const idx = c.index;
+  idx.set("z", 26);
+  console.log("in", it === c.items, all === c.items, c.items.length, c.index.size);
+}
+const m = new MapLRU<string, number>("k", 1);
+uses(m);
+console.log("after", m.items, m.index.size);
+// expect:
+// in true true 3 1
+// after [ 1, 2, 3 ] 1

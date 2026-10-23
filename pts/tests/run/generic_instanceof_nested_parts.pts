@@ -1,0 +1,56 @@
+// H10a review round 1 (R1-F11), the reviewer's probe p16_nested_parts.pts:
+class Shape {}
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class Inner<T> {
+  constructor(public v: T) {}
+  twice(): T[] {
+    return [this.v, this.v];
+  }
+}
+class MapLRU<K, V> extends Shape implements Cache<K, V> {
+  inner: Inner<V>;
+  byKey = new Map<K, Inner<V>>();
+  constructor(public key: K, val: V) {
+    super();
+    this.inner = new Inner(val);
+    this.byKey.set(key, this.inner);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.inner.v : undefined;
+  }
+}
+function a(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) console.log("a", c.inner.v + 1);
+}
+function b(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) console.log("b", c.inner.twice());
+}
+function d(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) console.log("d", c.byKey.get("k")?.v);
+}
+function e(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    c.inner.v = 10;
+    console.log("e", c.inner.v);
+  }
+}
+function f(s: Shape): void {
+  if (s instanceof MapLRU) console.log("f", s.inner.v + 1, s.key);
+}
+const m = new MapLRU<string, number>("k", 1);
+const fs: ((c: MapLRU<string, number>) => void)[] = [a, b, d, e, f];
+for (const g of fs) {
+  try {
+    g(m);
+  } catch (err: any) {
+    console.log("threw", err.message);
+  }
+}
+// expect:
+// a 2
+// b [ 1, 1 ]
+// d 1
+// e 10
+// f 11 k

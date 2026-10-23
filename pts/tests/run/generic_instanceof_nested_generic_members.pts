@@ -1,0 +1,47 @@
+// H10a review round 1 (R1-F11), the reviewer's probe p15_nested_generic_members.pts:
+// Members whose type is another generic class instance (Inner<T>, Inner<T>[], Map<K, Inner<V>>)
+// read through an inferred narrowing (Cache source) and a dynamic one (Shape source).
+class Shape {}
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class Inner<T> {
+  constructor(public v: T) {}
+  twice(): T[] {
+    return [this.v, this.v];
+  }
+}
+class MapLRU<K, V> extends Shape implements Cache<K, V> {
+  inner: Inner<V>;
+  list: Inner<V>[] = [];
+  byKey = new Map<K, Inner<V>>();
+  constructor(public key: K, val: V) {
+    super();
+    this.inner = new Inner(val);
+    this.list.push(this.inner);
+    this.byKey.set(key, this.inner);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.inner.v : undefined;
+  }
+}
+function inferred(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    console.log("inferred", c.inner.v + 1, c.inner.twice(), c.list[0].v, c.list.length, c.byKey.get("k")?.v);
+    c.inner.v = 10;
+    c.list.push(new Inner(20));
+    console.log("inferred2", c.inner.v, c.list.length);
+  }
+}
+function dynamic(s: Shape): void {
+  if (s instanceof MapLRU) {
+    console.log("dynamic", s.inner.v + 1, s.list.length, s.key);
+  }
+}
+const m = new MapLRU<string, number>("k", 1);
+inferred(m);
+dynamic(m);
+// expect:
+// inferred 2 [ 1, 1 ] 1 1 1
+// inferred2 10 2
+// dynamic 11 2 k

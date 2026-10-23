@@ -234,7 +234,7 @@ func (l *lowerer) narrowedValue(node *ast.Node, x ir.Expr) ir.Expr {
 		switch {
 		case narrow == nil || narrow == ir.Value:
 			return x
-		case l.isMemberOfNarrowedInstance(node):
+		case l.isMemberOfNarrowedInstance(node) || l.isInstanceofDynamicLocalRef(node) || l.isInstanceofDynamicMember(node):
 			return x // a member of an instance, which may be a typed array: the object itself, converted where it goes (H10)
 		case isDynamicData(narrow):
 			return &ir.FromUnion{X: x, To: narrow} // `Array.isArray(json)`: the array itself, checked (D-089)
@@ -277,7 +277,7 @@ func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
 		return false
 	}
 	narrow := l.irType(t, node)
-	return narrow != nil && narrow != ir.Value && (!isDynamicData(narrow) || l.isMemberOfNarrowedInstance(node))
+	return narrow != nil && narrow != ir.Value && (!isDynamicData(narrow) || l.isMemberOfNarrowedInstance(node) || l.isInstanceofDynamicLocalRef(node))
 }
 
 // narrowedMember reads `o.p` or `o[k]` (node) of a dynamic value o that tsc narrowed
@@ -287,6 +287,9 @@ func (l *lowerer) narrowedMember(node *ast.Node) ir.Expr {
 	x := l.dynamicRead(node)
 	if x == nil {
 		return nil
+	}
+	if l.mentionsPrototypeInstance(l.typeAt(node)) {
+		return x // tsc's C<any, …> (`c.next` of a MapLRU<any, any>), which another instance converts to only as a dynamic value (H10)
 	}
 	if l.contextTakesUndefined(node) {
 		return l.convert(x, l.irType(l.contextualType(node), node), node) // undefined past the end or for a missing key, as typed elements are (D-015)

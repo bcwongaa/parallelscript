@@ -1,0 +1,36 @@
+// H10a review round 2 (R2-F1), the reviewer's probe q07_dynamic_call_results.pts:
+// Results of calls fix2 makes dynamic (a literal argument for a parameter typed with any):
+// a returned member array (aliasing), a returned tuple, `this` inside a function-valued
+// field written as a function expression, an optional parameter left out.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  label = "lru";
+  describe: ((this: MapLRU<K, V>, suffix: V) => string) | undefined;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  addAll(vs: V[]): V[] {
+    this.items.push(...vs);
+    return this.items;
+  }
+  pairWith(extra: { v: V }, flag?: boolean): [K, V] {
+    return [this.key, flag ? extra.v : this.val];
+  }
+}
+function uses(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const got = c.addAll([1, 2]);
+  got.push(3);
+  console.log("1", got === c.items, c.items, got.length);
+  const t = c.pairWith({ v: 9 });
+  const u = c.pairWith({ v: 9 }, true);
+  console.log("2", t, u, t[1] + u[1]);
+}
+uses(new MapLRU<string, number>("k", 4));
+// expect:
+// 1 true [ 1, 2, 3 ] 3
+// 2 [ 'k', 4 ] [ 'k', 9 ] 13

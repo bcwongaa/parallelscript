@@ -50,12 +50,128 @@ func (l *lowerer) isUninferredInstanceof(node *ast.Node) bool {
 // instanceofMember is x, the lowered read of a member or call of a method (node) of a
 // reference whose instanceof narrowing instanceofInstance resolves, as a dynamic value where
 // tsc's type for it mentions any (isInstanceofDynamicMember): what uses it takes it as tsc
-// says, as any (`c.key + c.val`), checked where a typed place takes it.
+// says, as any (`c.key + c.val`), checked where a typed place takes it. Where it goes into
+// a typed place that a dynamic value would be copied into (an `any[]` parameter, a return,
+// an annotated variable: copiesDynamicValue), it stays the instance's typed value, which
+// converts there as typed values do (D-094): copied where nothing can see the copy change
+// (a new array, a parameter only read), and otherwise PTS1001, as a copy that writes would
+// miss isn't JS (R2-F1).
 func (l *lowerer) instanceofMember(node *ast.Node, x ir.Expr) ir.Expr {
-	if x == nil || x.Type() == ir.Value || !l.isInstanceofDynamicMember(node) {
+	if x == nil || x.Type() == ir.Value || !l.isInstanceofDynamicMember(node) || l.copiesDynamicValue(node) {
 		return x
 	}
 	return box(x)
+}
+
+// copiesDynamicValue reports whether node, an expression, goes as a value into a place
+// whose type a dynamic value converts to by a copy (dynamic data, an object type), not as
+// the object of a member access or call, an operand, or a variable that holds it as a
+// dynamic value (isInstanceofDynamicLocal).
+func (l *lowerer) copiesDynamicValue(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression || node.Parent.Kind == ast.KindNonNullExpression {
+		node = node.Parent
+	}
+	var target ir.Type
+	switch parent := node.Parent; parent.Kind {
+	case ast.KindVariableDeclaration:
+		if parent.Initializer() != node || parent.Name().Kind != ast.KindIdentifier {
+			return false
+		}
+		local := l.checker.GetSymbolAtLocation(parent.Name())
+		if local == nil || l.isInstanceofDynamicLocal(local) {
+			return false
+		}
+		target = l.irType(l.typeOfSymbol(local), parent.Name())
+	case ast.KindReturnStatement, ast.KindCallExpression, ast.KindNewExpression, ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment, ast.KindArrayLiteralExpression, ast.KindArrowFunction:
+		if parent.Kind == ast.KindCallExpression && parent.Expression() == node || parent.Kind == ast.KindArrowFunction && parent.Body() != node {
+			return false
+		}
+		t := l.contextualType(node)
+		if t == nil {
+			return true // a return of a function without a declared type: its type's place
+		}
+		target = l.irType(t, node)
+	case ast.KindBinaryExpression:
+		expr := parent.AsBinaryExpression()
+		if expr.OperatorToken.Kind != ast.KindEqualsToken || expr.Right != node {
+			return false
+		}
+		target = l.irType(l.typeAt(expr.Left), expr.Left)
+	default:
+		return false
+	}
+	return target != nil && target != ir.Value && !isCheckable(target)
+}
+
+// isInstanceofDynamicLocal reports whether symbol is a variable declared without a type
+// whose value is a dynamic value that an instanceof narrowing gives (holdsInstanceofDynamicValue):
+// its initializer's (`const it = c.items`), or a for…of binding's over one (`for (const e of
+// c.entries)`), of a type a dynamic value converts to by a copy (dynamic data, an object
+// type) or a generic class's C<any, …>, which no other instance converts to. It holds what
+// it is given, as a dynamic value, as a variable declared unknown does, so that writes
+// through it reach the object, as in JS, where a copy would miss them (R2-F1).
+func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
+	if l.instanceofLocals == nil {
+		l.instanceofLocals = map[*ast.Symbol]bool{} // a lowerer a test makes
+	}
+	if dynamic, ok := l.instanceofLocals[symbol]; ok {
+		return dynamic
+	}
+	l.instanceofLocals[symbol] = false
+	declaration := symbol.ValueDeclaration
+	if declaration == nil || declaration.Kind != ast.KindVariableDeclaration || declaration.Type() != nil || declaration.Name().Kind != ast.KindIdentifier {
+		return false
+	}
+	var source *ast.Node
+	switch list := declaration.Parent; {
+	case declaration.Initializer() != nil:
+		source = declaration.Initializer()
+	case list.Kind == ast.KindVariableDeclarationList && list.Parent.Kind == ast.KindForOfStatement:
+		source = list.Parent.AsForInOrOfStatement().Expression
+	default:
+		return false
+	}
+	if !l.holdsInstanceofDynamicValue(source) {
+		return false // checked first: storedDynamic asks of every variable, which irType mustn't make types for
+	}
+	declared := l.typeOfSymbol(symbol)
+	dynamic := l.mentionsPrototypeInstance(declared)
+	if !dynamic {
+		t := l.irType(declared, declaration.Name())
+		dynamic = t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t)
+	}
+	l.instanceofLocals[symbol] = dynamic
+	return dynamic
+}
+
+// holdsInstanceofDynamicValue reports whether node gives a dynamic value that an instanceof
+// narrowing makes: a member tsc types with any of a reference whose narrowing is inferred
+// (isInstanceofDynamicMember), a reference whose narrowing isn't (isUninferredInstanceof) or
+// a member of one, or what a member access, element or call of one of these gives.
+func (l *lowerer) holdsInstanceofDynamicValue(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	switch node.Kind {
+	case ast.KindIdentifier:
+		symbol := l.checker.GetSymbolAtLocation(node)
+		return symbol != nil && l.isInstanceofDynamicLocal(symbol) || l.isUninferredInstanceof(node)
+	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
+		return l.isInstanceofDynamicMember(node) || l.isUninferredInstanceof(node) || l.isMemberOfNarrowedInstance(node) || l.holdsInstanceofDynamicValue(node.Expression())
+	case ast.KindCallExpression:
+		callee := ast.SkipParentheses(node.Expression())
+		return l.isInstanceofDynamicMember(node) || ast.IsAccessExpression(callee) && l.holdsInstanceofDynamicValue(callee.Expression())
+	case ast.KindNonNullExpression:
+		return l.holdsInstanceofDynamicValue(node.Expression())
+	}
+	return false
+}
+
+// isInstanceofDynamicLocalRef reports whether node reads a variable isInstanceofDynamicLocal holds.
+func (l *lowerer) isInstanceofDynamicLocalRef(node *ast.Node) bool {
+	if node = ast.SkipParentheses(node); node.Kind != ast.KindIdentifier {
+		return false
+	}
+	symbol := l.checker.GetSymbolAtLocation(node)
+	return symbol != nil && l.isInstanceofDynamicLocal(symbol)
 }
 
 // isInstanceofDynamicMember reports whether node reads a member of, or calls a method of, a
@@ -76,36 +192,43 @@ func (l *lowerer) isInstanceofDynamicMember(node *ast.Node) bool {
 // as a type argument (an array's element, a tuple's, a class's or a map's), or in a function
 // type's parameters or result or an object literal type's properties.
 func (l *lowerer) mentionsAny(t *checker.Type, depth int) bool {
+	if t == nil || depth > 8 {
+		return false
+	}
+	if l.anyMentions == nil {
+		l.anyMentions = map[*checker.Type]bool{} // a lowerer a test makes
+	}
+	if known, ok := l.anyMentions[t]; ok {
+		return known
+	}
+	l.anyMentions[t] = false // a recursive type mentions any elsewhere if at all
 	mentions := func(t *checker.Type) bool { return l.mentionsAny(t, depth+1) }
+	found := false
 	switch {
-	case t == nil || depth > 8:
-		return false
 	case t.Flags()&checker.TypeFlagsAny != 0:
-		return true
+		found = true
 	case t.Flags()&checker.TypeFlagsUnionOrIntersection != 0:
-		return slices.ContainsFunc(t.Types(), mentions)
+		found = slices.ContainsFunc(t.Types(), mentions)
 	case t.Flags()&checker.TypeFlagsObject == 0:
-		return false
 	case t.ObjectFlags()&checker.ObjectFlagsReference != 0:
-		return slices.ContainsFunc(l.checker.GetTypeArguments(t), mentions)
-	case t.ObjectFlags()&checker.ObjectFlagsAnonymous != 0:
+		found = slices.ContainsFunc(l.checker.GetTypeArguments(t), mentions)
+	default: // a function type, an object literal type, a mapped type (`Record<string, V>`)
 		for _, signature := range l.checker.GetSignaturesOfType(t, checker.SignatureKindCall) {
-			if mentions(l.checker.GetReturnTypeOfSignature(signature)) {
-				return true
-			}
-			for _, parameter := range signature.Parameters() {
-				if mentions(l.checker.GetTypeOfSymbol(parameter)) {
-					return true
-				}
-			}
+			found = found || mentions(l.checker.GetReturnTypeOfSignature(signature)) || slices.ContainsFunc(signature.Parameters(), func(parameter *ast.Symbol) bool { return mentions(l.checker.GetTypeOfSymbol(parameter)) })
+		}
+		for _, info := range l.checker.GetIndexInfosOfType(t) {
+			found = found || mentions(info.ValueType())
 		}
 		for _, property := range l.checker.GetPropertiesOfType(t) {
-			if mentions(l.checker.GetTypeOfSymbol(property)) {
-				return true
-			}
+			found = found || mentions(l.checker.GetTypeOfSymbol(property))
 		}
 	}
-	return false
+	if depth == 0 || found {
+		l.anyMentions[t] = found
+	} else {
+		delete(l.anyMentions, t) // not known yet: an enclosing type's walk may have cut it short
+	}
+	return found
 }
 
 // readsInstanceofMember reports whether node reads a member of, or calls a method of, a
@@ -145,6 +268,9 @@ func (l *lowerer) instanceofNarrowing(node *ast.Node, t *checker.Type) (inferred
 	}
 	declared := l.declaredTypeOfReference(node)
 	key := instanceofKey{node, t, declared}
+	if l.instanceofInstances == nil {
+		l.instanceofInstances = map[instanceofKey]instanceofResult{} // a lowerer a test makes
+	}
 	if known, ok := l.instanceofInstances[key]; ok {
 		return known.inferred, known.narrowed
 	}
@@ -242,6 +368,9 @@ func (l *lowerer) familyPrivateField(node *ast.Node) (x ir.Expr, ok bool) {
 		return nil, true
 	}
 	x = &ir.FamilyField{X: box(object), Family: &generic.classes, Name: name.Text()}
+	if l.mentionsPrototypeInstance(l.typeAt(node)) {
+		return x, true // tsc's C<any, …> (`o.#next`), which another instance converts to only as a dynamic value
+	}
 	if t := l.irType(l.typeAt(node), node); t != nil && t != ir.Value {
 		return l.checkedConversion(x, t, node), true
 	}
@@ -374,6 +503,9 @@ func (l *lowerer) callsInstanceofMethodDynamically(call *ast.CallExpression) boo
 	if !ast.IsAccessExpression(callee) || !l.readsInstanceofMember(callee) {
 		return false
 	}
+	if callee.Kind == ast.KindPropertyAccessExpression && callee.AsPropertyAccessExpression().Name().Kind == ast.KindPrivateIdentifier {
+		return false // a private method, which only the instance's own code finds (R2-F3)
+	}
 	if declaration := l.memberDeclaration(callee); declaration == nil || declaration.Kind != ast.KindMethodDeclaration {
 		return l.isInstanceofDynamicMember(callee) // a field holding a function (`c.cb(2)`), which reads as a dynamic value
 	}
@@ -396,4 +528,28 @@ func (l *lowerer) callsInstanceofMethodDynamically(call *ast.CallExpression) boo
 		}
 	}
 	return false
+}
+
+// sameGenericClass reports whether to is an instance of the generic class whose instance
+// from is, or a subclass of one: where tsc's C<any, …> goes, a conversion that may succeed.
+func (l *lowerer) sameGenericClass(from, to *ir.Class) bool {
+	inst := l.classInstances[from]
+	if inst == nil {
+		return false
+	}
+	for class := to; class != nil; class = class.Parent {
+		if other := l.classInstances[class]; other != nil && other.generic == inst.generic {
+			return true
+		}
+	}
+	return false
+}
+
+// mentionsPrototypeInstance reports whether t is or holds (as a union's member) a generic
+// class's prototype's type, C<any, …> (`MapLRU<any, any> | undefined`).
+func (l *lowerer) mentionsPrototypeInstance(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return slices.ContainsFunc(t.Types(), l.isPrototypeInstance)
+	}
+	return l.isPrototypeInstance(t)
 }

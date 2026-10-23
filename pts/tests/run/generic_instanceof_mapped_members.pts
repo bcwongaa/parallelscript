@@ -1,0 +1,44 @@
+// H10a review round 2 (R2-F2), the reviewer's probe q01_mapped_members.pts:
+// Members whose tsc type through MapLRU<any, any> is a mapped or index-signature type that
+// mentions any (Record<string, V>, { [k: string]: V }, Partial<Entry<V>>): bound to locals,
+// read and written through the inferred narrowing.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+interface Entry<V> {
+  value: V;
+  hits: number;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  counts: Record<string, V> = {};
+  bag: { [k: string]: V } = {};
+  partial: Partial<Entry<V>> = {};
+  constructor(public key: K, public val: V) {
+    this.counts["a"] = val;
+    this.bag["b"] = val;
+    this.partial.value = val;
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function uses(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  console.log("1", c.counts["a"] + 1, c.bag.b * 2, c.partial.value);
+  c.counts["z"] = 5;
+  c.bag["y"] = 6;
+  const counts = c.counts;
+  counts["w"] = 7;
+  const bag = c.bag;
+  bag["v"] = 8;
+  const p = c.partial;
+  p.hits = 3;
+  console.log("2", Object.keys(c.counts), Object.keys(c.bag), c.partial.hits);
+}
+const m = new MapLRU<string, number>("k", 1);
+uses(m);
+console.log("after", m.counts, m.bag, m.partial);
+// expect:
+// 1 2 2 1
+// 2 [ 'a', 'z', 'w' ] [ 'b', 'y', 'v' ] 3
+// after { a: 1, z: 5, w: 7 } { b: 1, y: 6, v: 8 } { value: 1, hits: 3 }

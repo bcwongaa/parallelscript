@@ -1,0 +1,30 @@
+// H10a review round 2 (R2-F3), the reviewer's probe q14_private_method_dynamic_call.pts:
+// A private method with a callback parameter, called with an arrow through an inferred
+// narrowing inside the class (tsc types the arrow for MapLRU<any, any>'s parameter).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  #apply(f: (v: V) => V): V {
+    this.val = f(this.val);
+    return this.val;
+  }
+  #add(xs: V[]): number {
+    return xs.length;
+  }
+  static run(c: Cache<string, number>): string {
+    if (c instanceof MapLRU) return `${c.#apply((v) => v + 1)} ${c.#add([1, 2])}`;
+    return "other";
+  }
+}
+try {
+  console.log(MapLRU.run(new MapLRU<string, number>("k", 1)));
+} catch (e: any) {
+  console.log("threw", e.message);
+}
+// expect:
+// 2 2

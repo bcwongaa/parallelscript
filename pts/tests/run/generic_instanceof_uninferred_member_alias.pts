@@ -1,0 +1,24 @@
+// H10a review round 2 (R2-F1), the reviewer's probe q19_uninferred_member_alias.pts:
+// The same aliasing writes through an uninferred (dynamic) narrowing: a plain base class.
+class Shape {}
+class MapLRU<K, V> extends Shape {
+  items: V[] = [];
+  meta: { label: K; weight: V };
+  constructor(public key: K, public val: V) {
+    super();
+    this.items.push(val);
+    this.meta = { label: key, weight: val };
+  }
+}
+function uses(s: Shape): void {
+  if (!(s instanceof MapLRU)) return;
+  const it = s.items;
+  it.push(2);
+  const meta = s.meta;
+  meta.weight = 7;
+}
+const m = new MapLRU<string, number>("k", 1);
+uses(m);
+console.log("after", m.items, m.meta);
+// expect:
+// after [ 1, 2 ] { label: 'k', weight: 7 }

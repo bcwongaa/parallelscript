@@ -1,0 +1,27 @@
+// H10a review round 2, the reviewer's probe q18_private_function_field.pts:
+// A private field holding a function, called through a dynamically held narrowing (o: object),
+// and read then called.
+class Box<T> {
+  #cb: (x: number) => string;
+  constructor(public v: T) {
+    this.#cb = (x) => `cb ${x} ${String(v)}`;
+  }
+  static call(o: object): string {
+    return o instanceof Box ? o.#cb(1) : "no";
+  }
+  static readThenCall(o: object): string {
+    if (!(o instanceof Box)) return "no";
+    const f = o.#cb;
+    return f(2);
+  }
+}
+for (const g of [() => Box.call(new Box<number>(7)), () => Box.readThenCall(new Box<string>("s"))]) {
+  try {
+    console.log(g());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// cb 1 7
+// cb 2 s

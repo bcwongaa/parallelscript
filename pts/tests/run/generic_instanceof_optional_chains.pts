@@ -1,0 +1,37 @@
+// H10a review round 1 (R1-F11), the reviewer's probe p21_optional_chains.pts:
+// Optional chains through a reference narrowed by instanceof from Cache<string, number>.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  next: MapLRU<K, V> | undefined;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+interface Holder {
+  c?: Cache<string, number>;
+}
+function f(h: Holder | undefined): void {
+  if (h?.c instanceof MapLRU) {
+    console.log("a", h.c.val, h.c?.val, h.c?.get("k"), h?.c.key);
+    console.log("b", h.c.next?.val, h.c?.next?.key);
+  } else console.log("other");
+}
+function g(c: Cache<string, number> | undefined): void {
+  if (c instanceof MapLRU) console.log("g", c?.val, c?.get(c.key), c.next?.val ?? "none");
+}
+const m = new MapLRU<string, number>("k", 1);
+m.next = new MapLRU<string, number>("n", 2);
+f({ c: m });
+f(undefined);
+f({});
+g(m);
+g(undefined);
+// expect:
+// a 1 1 1 k
+// b 2 n
+// other
+// other
+// g 1 1 2

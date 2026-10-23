@@ -1,0 +1,47 @@
+// H10a review round 1 (R1-F11), the reviewer's probe p22_self_ref_members.pts:
+// A linked node member `next: MapLRU<K, V> | undefined` read through the inferred narrowing:
+// truthiness-narrowed, non-null asserted, and walked in a loop.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  next: MapLRU<K, V> | undefined;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function a(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    if (c.next) console.log("a", c.next.val + 1, c.next.key);
+  }
+}
+function b(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) console.log("b", c.next!.val);
+}
+function d(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    let n = c.next;
+    let sum = 0;
+    while (n) {
+      sum += n.val;
+      n = n.next;
+    }
+    console.log("d", sum);
+  }
+}
+const m = new MapLRU<string, number>("k", 1);
+m.next = new MapLRU<string, number>("n", 2);
+m.next.next = new MapLRU<string, number>("o", 3);
+const fs: ((c: Cache<string, number>) => void)[] = [a, b, d];
+for (const f of fs) {
+  try {
+    f(m);
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// a 3 n
+// b 2
+// d 5

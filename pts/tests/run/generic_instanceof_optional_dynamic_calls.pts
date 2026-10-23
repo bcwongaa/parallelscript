@@ -1,0 +1,34 @@
+// H10a review round 2, the reviewer's probe q11_optional_dynamic_calls.pts:
+// Calls with a literal argument for a parameter tsc types with any, through optional
+// chains on an inferred narrowing (`c?.update(…)`, `c.update?.(…)`), never reached.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  update(f: (old: V) => V): V {
+    this.val = f(this.val);
+    return this.val;
+  }
+}
+class Fixed implements Cache<string, { a: number }> {
+  get(_k: string): { a: number } | undefined {
+    return { a: 1 };
+  }
+}
+function uses(c: Cache<string, { a: number }> | undefined): string {
+  if (c instanceof MapLRU) {
+    const x = c?.update((o) => ({ a: o.a + 1 }));
+    const y = c.update?.((o) => ({ a: o.a + 2 }));
+    return `lru ${x?.a} ${y?.a}`;
+  }
+  return "other";
+}
+console.log(uses(new Fixed()), uses(undefined));
+console.log(uses(new MapLRU<string, { a: number }>("k", { a: 0 })));
+// expect:
+// other other
+// lru 1 3

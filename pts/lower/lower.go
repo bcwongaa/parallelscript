@@ -191,7 +191,7 @@ func programWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		yielded: map[*ast.Node]ir.Expr{}, kept: map[*ast.Node]ir.Expr{}, keptCurrent: map[*ast.Node]ir.Expr{}, keptSpreads: map[*ast.Node]keptSpread{}, hoisting: map[*ast.Node]bool{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
-		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, instanceofInstances: map[instanceofKey]instanceofResult{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
+		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, instanceofInstances: map[instanceofKey]instanceofResult{}, instanceofLocals: map[*ast.Symbol]bool{}, anyMentions: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, classIdentities: map[string]classIdentity{}, classComputed: map[*genericClass]*classComputed{}, computingDecls: map[*ast.Node]*declarationTypes{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
@@ -389,6 +389,8 @@ type lowerer struct {
 	chainObjects        map[*ast.Node]chainObject          // the objects of the `?.` links whose chains are being lowered
 	chainRests          map[*ast.Node]bool                 // the optional chains being lowered past their `?.` test
 	instanceofInstances map[instanceofKey]instanceofResult // what references narrowed by instanceof hold (instanceofNarrowing)
+	instanceofLocals    map[*ast.Symbol]bool               // variables that hold dynamic values of instanceof narrowings (isInstanceofDynamicLocal)
+	anyMentions         map[*checker.Type]bool             // mentionsAny's answers
 	chainDepth          int                                // how many optional chains are being lowered past their tests
 	mapsInProgress      map[*checker.Type]bool             // the map and set types whose key and value types are being mapped
 	this                map[*ir.Func]*ir.Local             // the `this` parameter of each constructor and method
@@ -863,6 +865,9 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 // bindingType is the IR type of a variable or `export default` binding (symbol, written
 // at node): the numeric type the semantic pass gave it, or its type's; nil if it has none (reported).
 func (l *lowerer) bindingType(symbol *ast.Symbol, node *ast.Node) ir.Type {
+	if l.isInstanceofDynamicLocal(symbol) {
+		return ir.Value // `const it = c.items` after `c instanceof MapLRU` (R2-F1)
+	}
 	t := l.numericType(node)
 	if t == nil {
 		t = l.irType(l.typeOfSymbol(symbol), node)

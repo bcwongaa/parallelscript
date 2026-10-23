@@ -104,7 +104,9 @@ func (l *lowerer) optionalChainFrom(node, link *ast.Node) ir.Expr {
 	nonNullable := l.checker.GetNonNullableType(l.typeAt(objectNode))
 	var value ir.Expr = ref
 	dynamic := isUnion(object.Type()) || object.Type() == ir.Value // a Value: what `a.find(…)` gives
-	if dynamic {
+	if dynamic && !(object.Type() == ir.Value && l.mentionsPrototypeInstance(nonNullable) && l.holdsInstanceofDynamicValue(objectNode)) {
+		// (`c.next?.val` after `c instanceof MapLRU`: tsc's MapLRU<any, any>, which the object,
+		// another instance, converts to only as the dynamic value it is, H10)
 		t := l.irType(nonNullable, objectNode)
 		if t == nil {
 			return nil

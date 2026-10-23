@@ -1,0 +1,30 @@
+// H10a review round 1 (R1-F11), the reviewer's probe p45_private_chain.pts:
+// Chained private reads on a dynamically held narrowing: `o.#next.#v`, `o.#next?.#v`.
+class Node2<T> {
+  #v: T;
+  #next: Node2<T> | undefined;
+  constructor(v: T, next?: Node2<T>) {
+    this.#v = v;
+    this.#next = next;
+  }
+  static second(o: object): unknown {
+    if (o instanceof Node2) { const nx = o.#next; return nx === undefined ? undefined : 0; }
+    return "no";
+  }
+  static secondBang(o: unknown): unknown {
+    if (o instanceof Node2) return o.#next!.#v;
+    return "no";
+  }
+}
+const n = new Node2<number>(1, new Node2<number>(2));
+for (const f of [() => Node2.second(n), () => Node2.secondBang(n), () => Node2.second(new Node2<string>("x"))]) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// 0
+// 2
+// undefined

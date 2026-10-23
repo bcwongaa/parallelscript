@@ -18,3 +18,9 @@ here is done; each entry names the later task that owns it and must be listed ag
 - **Why deferred:** programs behave correctly; it is generated-code size and call cost (review round 2's F4: 200 action types through five values 853 → 7,221 lines of C, one value 629 → 5,405; a hot call whose entry is the 201st about 4× slower). Keys can't be coarser: a value whose type computes nothing but whose body does needs them (`run/generic_values_body_only_twins.pts`).
 - **Owner:** H27 (code generation), with the review's `g02`–`g09` probes as the measurement.
 - **Evidence:** docs/agent/hardening-evidence/h09b5d.md, h09b5d-review.md (round 2), `h09b5d-review2-probes.tar.gz` (`p/g07_values_typed_200.pts`, `g08_value_one_200.pts`, `g09_value_lookup_hot.pts`).
+
+## H10a
+- **What remains (R2-F6):** a member of a reference narrowed by `instanceof` that tsc types with any (`c.items` an `any[]` for MapLRU<string, number>'s `string[]`) is read, written and called as a dynamic value (D-218), so a hot loop over `c.items[i]` and calls with callback arguments go through the runtime's dynamic lookups. Keep such a member typed where it is only the object of reads whose results tsc's types accept (element reads, `.length`, typed methods), boxing the result instead.
+- **Why deferred:** programs behave correctly (as Node, or an honest checked TypeError); it is run time: review round 2's `q02` sums `c.items[i]` in about 1.1 s against 0.22 s through a typed parameter (Node 64 ms, a loaded host), and `q16`'s 2M dynamic calls take 280 ms against 10 ms typed.
+- **Owner:** H27 (numeric and array code generation), with `q02_hot_loop.pts` and `q16_hot_dynamic_calls.pts` as the measurement.
+- **Evidence:** docs/agent/hardening-evidence/h10a.md, h10a-review.md (round 2), `h10a-review2-probes.tar.gz`.

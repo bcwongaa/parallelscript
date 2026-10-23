@@ -1,0 +1,37 @@
+// H10a review round 2 (R2-F1: a member array passed to an any[] parameter that changes it: a copy would lose the change (D-094), so PTS1001 as for typed arrays, not a silent copy); the reviewer's probe q09_member_passed_to_mutator.pts.
+// error: using a number[] as a value[] where it may be changed or kept
+// A member array and map tsc types with any, passed through an inferred narrowing to
+// functions that change them, and sorted in place through a local.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  index = new Map<K, V>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val, val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function fill(a: number[]): void {
+  a.push(42);
+}
+function fillAny(a: any[]): void {
+  a.push(43);
+}
+function tag(m: Map<string, number>): void {
+  m.set("t", 1);
+}
+function uses(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  fill(c.items);
+  fillAny(c.items);
+  tag(c.index);
+  const sorted = c.items;
+  sorted.sort((a, b) => a - b);
+}
+const m = new MapLRU<string, number>("k", 5);
+uses(m);
+console.log("after", m.items, m.index.size);

@@ -1,0 +1,54 @@
+// H10a review round 2, the reviewer's probe q06_member_forms2.pts:
+// More uses of members tsc types with any through an inferred narrowing: spreads into
+// builtins and calls, identifiers holding callbacks typed with any, aliasing writes,
+// identity, typeof narrowing of a member, destructuring an object member.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  pair: [K, V];
+  meta: { label: K; weight: V };
+  constructor(public key: K, public val: V) {
+    this.items.push(val, val);
+    this.pair = [key, val];
+    this.meta = { label: key, weight: val };
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  update(f: (old: V) => V): V {
+    this.val = f(this.val);
+    return this.val;
+  }
+}
+function add(a: number, b: number): number {
+  return a + b;
+}
+function uses(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  console.log("1", Math.max(...c.items), [...c.items, ...c.pair]);
+  const anyFn = (old: any) => old * 3;
+  console.log("2", c.update(anyFn), c.val);
+  const shared = [10, 20];
+  c.items = shared;
+  shared.push(30);
+  console.log("3", c.items.length, c.items === shared, c.items === c.items, c.pair === c.pair);
+  if (typeof c.val === "number") console.log("4", c.val.toFixed(1), c.val + 1);
+  const { label, weight } = c.meta;
+  console.log("5", label, weight + 1, c.meta.label.toUpperCase());
+  c.meta.weight += 5;
+  c.pair[1]++;
+  console.log("6", c.meta, c.pair);
+}
+const m = new MapLRU<string, number>("k", 2);
+uses(m);
+console.log("after", m.items, m.val, m.meta, m.pair);
+// expect:
+// 1 2 [ 2, 2, 'k', 2 ]
+// 2 6 6
+// 3 3 true true true
+// 4 6.0 7
+// 5 k 3 K
+// 6 { label: 'k', weight: 7 } [ 'k', 3 ]
+// after [ 10, 20, 30 ] 6 { label: 'k', weight: 7 } [ 'k', 3 ]

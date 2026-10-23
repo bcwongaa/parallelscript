@@ -40,7 +40,7 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 			return false
 		}
 		declared := l.checker.GetTypeOfSymbol(symbol)
-		if declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
+		if declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 || l.isInstanceofDynamicLocal(symbol) {
 			return true
 		}
 		// In an instance, a variable of a type parameter's type holds its type argument's

@@ -1,0 +1,28 @@
+// H10a review round 2 (R2-F2), the reviewer's probe q21_unreached_record_member.pts:
+// An unreached narrowed branch that binds a Record<string, V> member (tsc: Record<string,
+// any>) to a local: the base compiled the program and printed what Node prints.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  counts: Record<string, V> = {};
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Fixed implements Cache<string, number> {
+  get(_k: string): number | undefined {
+    return 1;
+  }
+}
+function stats(c: Cache<string, number>): string {
+  if (c instanceof MapLRU) {
+    const counts = c.counts;
+    return `${Object.keys(counts).length}`;
+  }
+  return `fixed ${c.get("x")}`;
+}
+console.log(stats(new Fixed()));
+// expect:
+// fixed 1
