@@ -1,0 +1,36 @@
+// H10a review round 1 (R1-F6), the reviewer's probe p25_par_private.pts:
+// `o.#v` of dynamically held narrowings (object elements) inside `.par` callbacks, and the
+// inferred instance (Cache elements) with members tsc types any, in a generic class method.
+// threads: 1 2 4
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class Box<T> implements Cache<string, T> {
+  #v: T;
+  label: string;
+  constructor(v: T) {
+    this.#v = v;
+    this.label = `L${v}`;
+  }
+  get(_k: string): T | undefined {
+    return this.#v;
+  }
+  sumOf(objs: object[]): number {
+    return objs.par.map((o) => (o instanceof Box ? Number(o.#v) : 0)).reduce((a, b) => a + b, 0);
+  }
+  labels(cs: Cache<string, number>[]): string {
+    return cs.par.map((c) => (c instanceof Box ? c.label + ":" + c.#v : "-")).join(",");
+  }
+}
+const objs: object[] = [];
+const cs: Cache<string, number>[] = [];
+for (let i = 0; i < 50; i++) {
+  objs.push(i % 3 === 0 ? { i } : i % 3 === 1 ? new Box<number>(i) : new Box<string>(`${i}`));
+  cs.push(i % 2 === 0 ? new Box<number>(i * 1.5) : { get: () => 1 });
+}
+const b = new Box<boolean>(true);
+console.log(b.sumOf(objs));
+console.log(b.labels(cs).length, b.labels(cs).slice(0, 30));
+// expect:
+// 817
+// 216 L0:0,-,L3:3,-,L6:6,-,L9:9,-,L1

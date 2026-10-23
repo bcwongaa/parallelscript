@@ -1,0 +1,54 @@
+// H10a review round 1 (R1-F2), the reviewer's probe p03_any_instance_in_base.pts:
+// The object really is Box<any> (made from an any value), held as a non-generic base class
+// and as `object`: the base's checked downcast to Box<any> succeeded; does the dynamic path?
+class Shape {
+  name = "shape";
+}
+class Box<T> extends Shape {
+  #secret: T;
+  items: T[] = [];
+  constructor(public v: T) {
+    super();
+    this.#secret = v;
+    this.items.push(v);
+  }
+  each(f: (x: T) => void): void {
+    for (const x of this.items) f(x);
+  }
+  self(): this {
+    return this;
+  }
+  map<R>(f: (x: T) => R): R {
+    return f(this.v);
+  }
+  static copyInto(s: Shape, v: number): void {
+    if (s instanceof Box) {
+      s.#secret = v;
+      console.log("secret now", s.#secret);
+    }
+  }
+  bump(s: Shape): void {
+    if (s instanceof Box) s.#tick();
+  }
+  #tick(): void {
+    console.log("tick", this.v);
+  }
+}
+const raw: any = JSON.parse("5");
+const b = new Box(raw); // Box<any>
+const s: Shape = b;
+if (s instanceof Box) {
+  s.each((x) => console.log("each", x));
+  console.log("self", s.self().v, s.map((x) => x + 1), s.name);
+  s.items.push(6);
+  s.v = "str";
+}
+Box.copyInto(s, 9);
+b.bump(s);
+console.log(b.v, b.items);
+// expect:
+// each 5
+// self 5 6 shape
+// secret now 9
+// tick str
+// str [ 5, 6 ]

@@ -1,0 +1,26 @@
+// H10a review round 1 (R1-F6), the reviewer's probe p27_private_read_uses.pts:
+// Uses of `o.#v` (FamilyField, a dynamic value) for an `o: object` narrowed by instanceof Box.
+class Box<T> {
+  #v: T;
+  constructor(v: T) {
+    this.#v = v;
+  }
+  static uses(o: object): void {
+    if (!(o instanceof Box)) return;
+    console.log("number", Number(o.#v));
+    console.log("string", String(o.#v));
+    console.log("plus", o.#v + 1, +o.#v, o.#v * 2);
+    console.log("tmpl", `${o.#v}`, typeof o.#v);
+    const n: number = o.#v;
+    console.log("typed", n);
+    console.log("cmp", o.#v === 7, o.#v > 3);
+  }
+}
+Box.uses(new Box<number>(7));
+// expect:
+// number 7
+// string 7
+// plus 8 7 14
+// tmpl 7 number
+// typed 7
+// cmp true true

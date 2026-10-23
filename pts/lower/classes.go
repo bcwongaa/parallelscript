@@ -1076,6 +1076,10 @@ func (l *lowerer) classCast(value ir.Expr, to *ir.Class, node *ast.Node) ir.Expr
 		return downcast(value, to)
 	case to.Result:
 		return asResult(value, to)
+	case l.instanceofClass(ast.SkipParentheses(node)) == from:
+		// A reference narrowed by instanceof, the instance its declared type implies, where
+		// tsc's C<any, …> goes (`const m = c`, H10b): checked where it runs, as before (D-218).
+		return downcast(value, to)
 	}
 	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", from, to))
 	return nil

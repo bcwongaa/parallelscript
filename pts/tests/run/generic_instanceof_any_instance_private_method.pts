@@ -1,0 +1,24 @@
+// H10a review round 1 (R1-F2), the reviewer's probe p04_any_instance_private_method.pts:
+// Box<any> object (from an any value) held as a non-generic base class: a private method
+// call through the narrowing, inside the class (base: checked downcast to Box<any> succeeds).
+class Shape {
+  name = "shape";
+}
+class Box<T> extends Shape {
+  constructor(public v: T) {
+    super();
+  }
+  bump(s: Shape): void {
+    if (s instanceof Box) s.#tick();
+  }
+  #tick(): void {
+    console.log("tick", this.v);
+  }
+}
+const raw: any = JSON.parse('"x"');
+const b = new Box(raw);
+b.bump(b);
+console.log("done");
+// expect:
+// tick x
+// done

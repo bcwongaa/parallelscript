@@ -1,0 +1,40 @@
+// H10a review round 1 (R1-F8), the reviewer's probe p33_unsound_inference.pts:
+// Declared types whose implied instance isn't the object's: a phantom type parameter
+// (Tagged<T> implements Named<T>, where Named doesn't use T) and a base class that absorbs
+// the subclass's type argument (Weird<A> extends Bag<A | string>).
+interface Named<T> {
+  name: string;
+}
+class Tagged<T> implements Named<T> {
+  constructor(public name: string, public value: T) {}
+}
+function viaNamed(n: Named<string>): string {
+  return n instanceof Tagged ? `named ${n.name} ${n.value}` : "other";
+}
+class Bag<T> {
+  constructor(public contents: T[]) {}
+}
+class Weird<A> extends Bag<A | string> {
+  constructor(public first: A) {
+    super([first]);
+  }
+}
+function viaBag(b: Bag<number | string>): string {
+  return b instanceof Weird ? `bag ${b.first} ${b.contents.length}` : "other";
+}
+const fs = [
+  () => viaNamed(new Tagged<number>("n", 1)),
+  () => viaBag(new Weird<number>(5)),
+  () => viaBag(new Weird<number | string>("s")),
+];
+for (const f of fs) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// named n 1
+// bag 5 1
+// bag s 1

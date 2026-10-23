@@ -4,14 +4,14 @@ H01a, 2026-10-15; fresh compiler/runtime snapshot `1b13cfd954c0f6e62a250ffaab8f7
 
 ## Inventory (300 programs)
 
-`pts/tests/corpus/report.sh` derives these numbers from `// skip:` directives, not from running the programs:
+`pts/tests/corpus/report.sh` derives these numbers from `// skip:` directives, not from running the programs (current as of H10a, 2026-10-24; H01a's were 267 / 8 / 24 / 1):
 
 | Classification | Count |
 |---|---:|
-| Classified compatible | 267 |
+| Classified compatible | 269 |
 | Intentional differences (`by design`) | 8 |
-| Unsupported | 24 |
-| Known bug | 1 |
+| Unsupported | 23 |
+| Known bug | 0 |
 
 The script's historical label `Node-identical` means **classified compatible**, not that it just executed that many Node comparisons. Its stronger execution-derived reporting is an H18 acceptance item.
 
@@ -41,3 +41,4 @@ Current commands and retained outputs: [H01 evidence](../../../docs/agent/harden
 - **H09b5c2b2b2b2b2b2a** (2026-10-22, D-213): fresh frozen required four-job build/full suite executes **263 passing corpus comparisons /37 skips /0 failures**, unchanged inventory (268 classified compatible, eight intentional differences,23 unsupported,one known bug). Whole-suite events **4,641 pass /341 skip /0 fail**, all ten tested packages PASS, build/suite exit0, empty stderr; all10,482 selected source hashes, rebuilt CLI and ten reviewed hashes unchanged. The25-line object-pattern-container run/Node fixture is outside the corpus and does not reclassify any skip. Parent independently verifies20 supported reviewer-input strict-Node executions, four intentional PTS-only checked-write timing controls and eight unchanged unsupported outcomes through both exact APIs; unsupported outcomes are not passing comparisons. [D-213 evidence](../../../docs/agent/hardening-evidence/h09b5c2b2b2b2b2b2a.md) retains raw events/provenance. No H18, parent-flow or blocked-review completion is inferred.
 - **H09b5c2b2b2b2b2b2b1** (2026-10-22, D-214): fresh frozen required four-job build/full suite executes **263 passing corpus comparisons /37 skips /0 failures**, unchanged inventory (268 classified compatible, eight intentional differences,23 unsupported,one known bug). Whole-suite events **4,888 pass /341 skip /0 fail**, all ten tested packages PASS, build/suite exit0, empty stderr; all8,148 monitored file hashes, rebuilt CLI and nine reviewed hashes unchanged during execution. This report update occurs only after the suite exits. The new21-line array-pattern-container run/Node fixture is outside the corpus and changes no classifications/skips. Parent independently replays eight reviewer-input exact-C native/strict-Node configurations and required/excluded target matrices; four unchanged unsupported contract conversions are AllInstances-only PTS1001 controls, not native comparisons or default-API claims. [D-214 evidence](../../../docs/agent/hardening-evidence/h09b5c2b2b2b2b2b2b1.md) retains original failures, exact final events and safe archives. No H18, broader-flow or provider-refused acceptance is inferred.
 - **H09b5c2b2b2b2b2b2b2a** (2026-10-22, D-215): fresh frozen required four-job build/full suite executes **263 passing corpus comparisons /37 skips /0 failures**, unchanged inventory (268 classified compatible, eight intentional differences,23 unsupported,one known bug). Whole-suite events **5,217 pass /341 skip /0 fail**, all ten tested packages PASS, build/suite exit0, empty stderr; all **8,151 monitored file hashes**, rebuilt CLI and seven reviewed hashes unchanged during execution. This reporting entry is added only after the suite exits. The new18-line elided-container run/Node fixture is outside the corpus and changes no classifications/skips. Parent independently replays134 reviewer-source/target events and eight reviewer-input exact-C native/strict-Node configurations on both compilers/APIs; unchanged unknown/any contract conversions are explicit AllInstances-only PTS1001 controls, not native successes or default-API claims. [D-215 evidence](../../../docs/agent/hardening-evidence/h09b5c2b2b2b2b2b2b2a.md) retains original failures, exact raw streams, frozen manifests and independent scoped review. No H18, parent-flow or blocked-review acceptance is inferred.
+- **H10a** (2026-10-24, D-218): `algorithms/lru_cache_map.pts`, the inventory's last known bug (`m instanceof MapLRU` narrowed a `Cache<string, number>` to tsc's `MapLRU<any, any>`, which the object isn't), prints what Node prints and is unskipped. The four-job full suite at `f54f8b5c1` executes **264 passing corpus comparisons / 36 skips / 0 failures**; inventory 269 classified compatible, 8 intentional differences, 23 unsupported, 0 known bugs.

@@ -203,15 +203,20 @@ func (c *Checker) PtsInferTypeArgumentsFromResult(signature *Signature, target *
 
 // PtsInferInstanceTypeArguments returns instance, a reference to a generic class (the
 // `C<any, …>` that `x instanceof C` narrows x to where x's declared type isn't derived from
-// C), with the type arguments tsc infers from source, a type C's objects are held as: from
-// source to the class's `extends` and `implements` clauses and their ancestors', which
-// relate type arguments one to one (`Option<number>` to `Some<T> extends Option<T>`), then,
-// for type parameters those leave open, structurally (members typed with them); from each
-// member of a union source alone. It returns nil if a type parameter gets no inference, the
-// instance isn't assignable to source, or a union's members imply different instances: the
-// object may then be an instance of C for other type arguments. ParallelScript makes an
-// instance of a generic class per type arguments (D-050), and the object in a branch of
-// `x instanceof C` is the instance its declared type implies, not C<any, …> (H10).
+// C), with the type arguments that source, a type C's objects are held as, implies, where it
+// implies one instance alone (D-218): a class's place holds the instances of its subclasses
+// whose superclass is that class instance, so a class source decides a type parameter that
+// C's `extends` chain passes up as it is (`Option<number>` for `Some<T> extends Option<T>`;
+// not `Bag<A | string>`, which several A give); an interface's place holds the objects that
+// provide its members with the same types, so an interface or object type decides those its
+// members mention, as tsc infers them from it structurally (`Cache<string, number>` to
+// `MapLRU<K, V>`'s `get(key: K): V | undefined`; not a phantom parameter), and an argument
+// that C's `implements` clause passes up as it is must agree. A union's members decide alone
+// and must agree; one that implies no instance but can hold any of C (`object`, `{}`) leaves
+// it undecided. It returns nil where C's type arguments aren't decided, or the instance isn't
+// assignable to source. ParallelScript makes an instance of a generic class per type
+// arguments (D-050), and the object in a branch of `x instanceof C` is the instance its
+// declared type implies, not C<any, …> (H10).
 func (c *Checker) PtsInferInstanceTypeArguments(source *Type, instance *Type) *Type {
 	if instance.flags&TypeFlagsObject == 0 || instance.objectFlags&ObjectFlagsReference == 0 {
 		return nil
@@ -227,16 +232,16 @@ func (c *Checker) PtsInferInstanceTypeArguments(source *Type, instance *Type) *T
 	if source.flags&TypeFlagsUnion == 0 {
 		return c.ptsInferInstance(source, target, typeParameters)
 	}
-	// Each member implies an instance of its own (`Sink<number> | Sink<string>`), or none
-	// (`undefined`, an unrelated interface): the one they imply, if they agree.
 	var result *Type
 	for _, member := range source.Types() {
 		switch inferred := c.ptsInferInstance(member, target, typeParameters); {
-		case inferred == nil:
+		case inferred == nil && c.isTypeAssignableTo(instance, member):
+			return nil // `object`, `{}`: any instance of C
+		case inferred == nil: // `undefined`, `string`, an unrelated interface
 		case result == nil:
 			result = inferred
 		case inferred != result:
-			return nil
+			return nil // `Sink<number> | Sink<string>`
 		}
 	}
 	return result
@@ -245,22 +250,41 @@ func (c *Checker) PtsInferInstanceTypeArguments(source *Type, instance *Type) *T
 // ptsInferInstance is PtsInferInstanceTypeArguments's instance of target, a generic class
 // declaration with typeParameters, for source, a type that isn't a union.
 func (c *Checker) ptsInferInstance(source *Type, target *Type, typeParameters []*Type) *Type {
-	heritage := c.newInferenceContext(typeParameters, nil, InferenceFlagsNone, nil)
-	for _, base := range c.ptsHeritageTypes(target, nil, map[*Type]bool{}) {
-		c.inferTypes(heritage.inferences, source, base, InferencePriorityNone, false)
+	if source.flags&TypeFlagsObject == 0 {
+		return nil
 	}
-	structural := c.newInferenceContext(typeParameters, nil, InferenceFlagsNone, nil)
-	c.inferTypes(structural.inferences, source, target, InferencePriorityNone, false)
-	arguments := make([]*Type, len(typeParameters))
-	for i := range typeParameters {
-		switch {
-		case ptsHasCandidates(heritage.inferences[i]):
-			arguments[i] = c.getInferredType(heritage, i)
-		case ptsHasCandidates(structural.inferences[i]):
-			arguments[i] = c.getInferredType(structural, i)
-		default:
-			return nil
+	sourceIsClass := source.symbol != nil && source.symbol.Flags&ast.SymbolFlagsClass != 0
+	passed := make([]*Type, len(typeParameters)) // as C's heritage passes them up to source's declaration
+	for _, base := range c.ptsHeritageTypes(target, nil, true, map[*Type]bool{}) {
+		if base.t.objectFlags&ObjectFlagsReference == 0 || source.objectFlags&ObjectFlagsReference == 0 || base.t.AsTypeReference().target != source.AsTypeReference().target || sourceIsClass && !base.viaExtends {
+			continue
 		}
+		arguments, sourceArguments := c.getTypeArguments(base.t), c.getTypeArguments(source)
+		for i, argument := range arguments[:min(len(arguments), len(sourceArguments))] {
+			if j := slices.Index(typeParameters, argument); j >= 0 {
+				if passed[j] != nil && passed[j] != sourceArguments[i] {
+					return nil
+				}
+				passed[j] = sourceArguments[i]
+			}
+		}
+	}
+	arguments := passed
+	if !sourceIsClass {
+		structural := c.newInferenceContext(typeParameters, nil, InferenceFlagsNone, nil)
+		c.inferTypes(structural.inferences, source, target, InferencePriorityNone, false)
+		arguments = make([]*Type, len(typeParameters))
+		for i := range typeParameters {
+			if !ptsHasCandidates(structural.inferences[i]) {
+				return nil // a phantom parameter, which the source's members don't decide
+			}
+			arguments[i] = c.getInferredType(structural, i)
+			if passed[i] != nil && passed[i] != arguments[i] {
+				return nil
+			}
+		}
+	} else if slices.Contains(arguments, nil) {
+		return nil
 	}
 	result := c.createTypeReference(target, arguments)
 	if !c.isTypeAssignableTo(result, source) {
@@ -273,40 +297,57 @@ func ptsHasCandidates(inference *InferenceInfo) bool {
 	return len(inference.candidates) != 0 || len(inference.contraCandidates) != 0
 }
 
+// ptsHeritage is a type a class or interface declaration extends or implements, directly
+// or through its ancestors, and whether it is reached through `extends` clauses of classes
+// alone.
+type ptsHeritage struct {
+	t          *Type
+	viaExtends bool
+}
+
 // ptsHeritageTypes lists the types a class or interface declaration (target) extends and
 // implements, and theirs in turn, in terms of target's type parameters; mapper instantiates
-// an ancestor's in terms of its own.
-func (c *Checker) ptsHeritageTypes(target *Type, mapper *TypeMapper, seen map[*Type]bool) []*Type {
+// an ancestor's in terms of its own, and viaExtends says whether target is reached through
+// classes' `extends` clauses alone.
+func (c *Checker) ptsHeritageTypes(target *Type, mapper *TypeMapper, viaExtends bool, seen map[*Type]bool) []ptsHeritage {
 	if seen[target] {
 		return nil
 	}
 	seen[target] = true
-	direct := slices.Clone(c.getBaseTypes(target))
+	isClass := target.symbol.Flags&ast.SymbolFlagsClass != 0
+	var direct []ptsHeritage
+	for _, base := range c.getBaseTypes(target) {
+		direct = append(direct, ptsHeritage{base, viaExtends && isClass})
+	}
 	for _, declaration := range target.symbol.Declarations {
 		if ast.IsClassLike(declaration) {
 			for _, node := range ast.GetImplementsTypeNodes(declaration) {
-				direct = append(direct, c.getTypeFromTypeNode(node.AsNode()))
+				direct = append(direct, ptsHeritage{c.getTypeFromTypeNode(node.AsNode()), false})
 			}
 		}
 	}
-	var all []*Type
+	var all []ptsHeritage
 	for _, base := range direct {
 		if mapper != nil {
-			base = c.instantiateType(base, mapper)
+			base.t = c.instantiateType(base.t, mapper)
 		}
 		all = append(all, base)
-		if base.flags&TypeFlagsObject == 0 || base.objectFlags&ObjectFlagsReference == 0 {
+		if base.t.flags&TypeFlagsObject == 0 || base.t.objectFlags&ObjectFlagsReference == 0 {
 			continue
 		}
-		ancestor := base.AsTypeReference().target
+		ancestor := base.t.AsTypeReference().target
 		if ancestor.objectFlags&ObjectFlagsClassOrInterface == 0 {
 			continue
 		}
 		var inner *TypeMapper
 		if parameters := ancestor.AsInterfaceType().TypeParameters(); len(parameters) > 0 {
-			inner = newTypeMapper(parameters, c.getTypeArguments(base)[:len(parameters)])
+			arguments := c.getTypeArguments(base.t)
+			if len(arguments) < len(parameters) {
+				continue
+			}
+			inner = newTypeMapper(parameters, arguments[:len(parameters)])
 		}
-		all = append(all, c.ptsHeritageTypes(ancestor, inner, seen)...)
+		all = append(all, c.ptsHeritageTypes(ancestor, inner, base.viaExtends, seen)...)
 	}
 	return all
 }

@@ -1,0 +1,24 @@
+// H10a review round 1 (R1-F4), the reviewer's probe p24_unknown_member_par.pts:
+// x: unknown narrowed to Box<any>: `.par` over its any[] member (the instance's number[]),
+// and over a Shape-held (dynamic with H10a) instance's member.
+// threads: 1 2 4
+class Shape {}
+class Box<T> extends Shape {
+  items: T[] = [];
+  constructor(n: number, f: (i: number) => T) {
+    super();
+    for (let i = 0; i < n; i++) this.items.push(f(i));
+  }
+}
+function viaUnknown(x: unknown): number {
+  if (x instanceof Box) return x.items.par.map((v) => v * 2).reduce((a, b) => a + b, 0);
+  return -1;
+}
+function viaShape(s: Shape): number {
+  if (s instanceof Box) return s.items.par.map((v) => v + 1).length;
+  return -1;
+}
+const b = new Box<number>(100, (i) => i);
+console.log(viaUnknown(b), viaShape(b));
+// expect:
+// 9900 100

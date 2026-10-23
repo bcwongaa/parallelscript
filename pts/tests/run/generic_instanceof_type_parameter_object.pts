@@ -1,0 +1,18 @@
+// H10a review round 1 (R1-F9), the reviewer's probe p14_typeparam_object_alone.pts:
+// x: S with S = object (and S = {}), alone: `S & MapLRU<any, any>` in the instance.
+class MapLRU<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+}
+function probe<S>(x: S): string {
+  if (x instanceof MapLRU) {
+    x.hits++;
+    return `lru ${x.key} ${x.val} ${x.hits}`;
+  }
+  return `other ${typeof x}`;
+}
+console.log(probe<object>(new MapLRU<boolean, string>(true, "o")));
+console.log(probe<{}>(new MapLRU<boolean, string>(false, "p")));
+// expect:
+// lru true o 1
+// lru false p 1

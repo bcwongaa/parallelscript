@@ -1,0 +1,27 @@
+// H10a review round 1 (R1-F6), the reviewer's probe p26_private_in_callback.pts:
+// `o.#v` on an `o: object` narrowed by instanceof Box: in a method body vs in an arrow
+// callback inside the method; Box<number> and Box<string> objects.
+class Box<T> {
+  #v: T;
+  constructor(v: T) {
+    this.#v = v;
+  }
+  direct(o: object): unknown {
+    return o instanceof Box ? o.#v : "-";
+  }
+  inArrow(objs: object[]): unknown[] {
+    return objs.map((o) => (o instanceof Box ? o.#v : "-"));
+  }
+  inArrowNumber(objs: object[]): number[] {
+    return objs.map((o) => (o instanceof Box ? Number(o.#v) : 0));
+  }
+}
+const objs: object[] = [new Box<number>(1), new Box<string>("2"), {}];
+const b = new Box<boolean>(true);
+console.log(objs.map((o) => b.direct(o)));
+console.log(b.inArrow(objs));
+console.log(b.inArrowNumber(objs));
+// expect:
+// [ 1, '2', '-' ]
+// [ 1, '2', '-' ]
+// [ 1, 2, 0 ]

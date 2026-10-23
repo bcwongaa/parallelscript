@@ -1,0 +1,34 @@
+// H10a review round 1 (R1-F3), the reviewer's probe p08_unreached_branch.pts:
+// The narrowed branch is never reached with a MapLRU: on the base it compiled and ran as Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  keys(): K[] {
+    return [this.key];
+  }
+  pairs(): [K, V][] {
+    return [[this.key, this.val]];
+  }
+}
+class Fixed implements Cache<string, number> {
+  get(_k: string): number | undefined {
+    return 1;
+  }
+}
+function stats(c: Cache<string, number>): string {
+  if (c instanceof MapLRU) {
+    const ks = c.keys();
+    const ps = c.pairs();
+    const label: string = c.val;
+    return `${ks.length} ${ps.length} ${label}`;
+  }
+  return "fixed";
+}
+console.log(stats(new Fixed()));
+// expect:
+// fixed

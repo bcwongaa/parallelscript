@@ -1,0 +1,52 @@
+// H10a review round 1 (R1-F3), the reviewer's probe p28b_argument_forms.pts:
+// Arguments to the inferred instance's methods that tsc contextually types any (the
+// signature is MapLRU<any, any>'s): object and array literals, arrows, nested instances.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class Inner<T> {
+  constructor(public v: T) {}
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  store = new Map<K, V>();
+  get(key: K): V | undefined {
+    return this.store.get(key);
+  }
+  put(key: K, value: V): this {
+    this.store.set(key, value);
+    return this;
+  }
+  update(key: K, f: (old: V | undefined) => V): void {
+    this.store.set(key, f(this.store.get(key)));
+  }
+}
+function objs(c: Cache<string, { a: number }>): void {
+  if (c instanceof MapLRU) {
+    c.put("x", { a: 1 });
+    console.log("objs", c.get("x"));
+  }
+}
+function arrs(c: Cache<string, number[]>): void {
+  if (c instanceof MapLRU) {
+    c.put("y", [1, 2]);
+    console.log("arrs", c.get("y"));
+  }
+}
+function inners(c: Cache<string, Inner<number>>): void {
+  if (c instanceof MapLRU) {
+    c.put("z", new Inner(5));
+    console.log("inners", c.get("z")?.v);
+  }
+}
+const fs = [() => objs(new MapLRU<string, { a: number }>()), () => arrs(new MapLRU<string, number[]>()), () => inners(new MapLRU<string, Inner<number>>())];
+for (const f of fs) {
+  try {
+    f();
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// objs { a: 1 }
+// arrs [ 1, 2 ]
+// inners 5

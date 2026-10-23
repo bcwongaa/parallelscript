@@ -1,0 +1,22 @@
+// H10a review round 1 (R1-F1), the reviewer's probe p47b_cache_key_any_instance.pts:
+// The instanceof cache across a generic function's instances: show<string, number> (never
+// called at run time) is lowered first; show<any, any> then reuses its inferred MapLRU<string, number> for a MapLRU<any, any>.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function show<K, V>(c: Cache<K, V>): string {
+  if (c instanceof MapLRU) return `${c.key}:${c.val}`;
+  return "other";
+}
+const raw: any = JSON.parse('["b", 2]');
+const flag = raw.length > 5;
+if (flag) console.log(show(new MapLRU<string, number>("a", 1)));
+console.log(show<any, any>(new MapLRU<any, any>(raw[0], raw[1])));
+// expect:
+// b:2

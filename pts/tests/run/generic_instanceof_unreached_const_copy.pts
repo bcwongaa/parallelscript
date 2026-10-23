@@ -1,0 +1,27 @@
+// H10a review round 1 (R1-F3), the reviewer's probe p39_unreached_const_copy.pts:
+// The narrowed branch copies the reference (`const m = c`, H10b's flow out) but is never
+// entered: on the base the program compiled and printed what Node prints.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Fixed implements Cache<string, number> {
+  get(_k: string): number | undefined {
+    return 1;
+  }
+}
+function describe(c: Cache<string, number>): string {
+  if (c instanceof MapLRU) {
+    const m = c;
+    return `lru ${m.key}`;
+  }
+  return `fixed ${c.get("x")}`;
+}
+console.log(describe(new Fixed()));
+// expect:
+// fixed 1

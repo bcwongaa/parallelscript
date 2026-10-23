@@ -1,0 +1,37 @@
+// H10a review round 1 (R1-F5), the reviewer's probe p19_private_static.pts:
+// Private field, private getter reads on a dynamically held narrowing, from static methods
+// (no instance's method is being lowered).
+class Box<T> {
+  #v: T;
+  constructor(v: T) {
+    this.#v = v;
+  }
+  get #doubled(): string {
+    return `${this.#v}${this.#v}`;
+  }
+  static fieldUnknown(o: unknown): unknown {
+    return o instanceof Box ? o.#v : "no";
+  }
+  static getterUnknown(o: unknown): unknown {
+    return o instanceof Box ? o.#doubled : "no";
+  }
+  static getterObject(o: object): unknown {
+    return o instanceof Box ? o.#doubled : "no";
+  }
+}
+const fs = [
+  () => Box.fieldUnknown(new Box<number>(1)),
+  () => Box.getterUnknown(new Box<number>(2)),
+  () => Box.getterObject(new Box<number>(3)),
+];
+for (const f of fs) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// 1
+// 22
+// 33

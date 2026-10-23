@@ -1710,6 +1710,19 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
 	}
+	if callee := ast.SkipParentheses(call.Expression); ast.IsAccessExpression(callee) && l.callsInstanceofMethodDynamically(call) {
+		// `c.update(k, (o) => ({ a: o.a + 1 }))` after `c instanceof MapLRU`: tsc types the
+		// callback, or literal, for MapLRU<any, any>'s parameter, as the instance's isn't; the
+		// method found at run time converts the arguments with checks (H10).
+		object := l.expression(callee.Expression())
+		if object == nil {
+			return nil
+		}
+		if x := l.dynamicMethodCall(call, callee, object); x != nil {
+			return l.narrowedValue(call.AsNode(), x)
+		}
+		return nil
+	}
 	if callee := ast.SkipParentheses(call.Expression); ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression()) {
 		// A method of a dynamic value tsc narrowed: a dynamic value, of tsc's type as a
 		// member read is (`u.slice(1).length`, `u.join("").length`; D-179)

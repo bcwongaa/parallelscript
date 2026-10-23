@@ -51,7 +51,9 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 		instantiated := l.typeOfSymbol(symbol)
 		return instantiated != declared && l.isDynamicIRType(instantiated, node)
 	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
-		return l.isDynamicSource(node.Expression()) || l.isNarrowedDynamic(node.Expression()) // `u[1]` of a narrowed `u: unknown`
+		// `u[1]` of a narrowed `u: unknown`; `c.next` of a `c` narrowed by instanceof, which
+		// tsc types C<any, …> (isInstanceofDynamicMember)
+		return l.isDynamicSource(node.Expression()) || l.isNarrowedDynamic(node.Expression()) || l.isInstanceofDynamicMember(node)
 	case ast.KindBinaryExpression:
 		expr := node.AsBinaryExpression()
 		return expr.OperatorToken.Kind == ast.KindEqualsToken && l.storedDynamic(expr.Left)
@@ -59,7 +61,7 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 		return l.storedDynamic(node.Expression()) // `m.get(k)!`
 	case ast.KindCallExpression: // the result of a method of a narrowed dynamic value
 		callee := ast.SkipParentheses(node.AsCallExpression().Expression)
-		return ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression())
+		return ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression()) || l.isInstanceofDynamicMember(node)
 	}
 	return false
 }
@@ -152,6 +154,11 @@ func (l *lowerer) wantDynamicMember(node *ast.Node) {
 
 // dynamicRead lowers `o.name` or `o[k]` for an o of type any: the property found at run time.
 func (l *lowerer) dynamicRead(node *ast.Node) ir.Expr {
+	if node.Kind == ast.KindPropertyAccessExpression {
+		if x, ok := l.familyPrivateField(node); ok {
+			return x // `Number(o.#v)` (C274)
+		}
+	}
 	l.wantDynamicMember(node)
 	object := l.expression(node.Expression())
 	key := l.dynamicKey(node)

@@ -1,0 +1,21 @@
+// H10a review round 1 (R1-F4), the reviewer's probe p11_tuple_member_crash.pts:
+// A tuple member [K, V] read through an instanceof narrowing whose declared type implies
+// MapLRU<string, number>: tsc types `c.pair[1]` any.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  pair: [K, V];
+  constructor(public key: K, public val: V) {
+    this.pair = [key, val];
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function uses(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) console.log(c.pair[1] + 1);
+}
+uses(new MapLRU<string, number>("k", 1));
+// expect:
+// 2

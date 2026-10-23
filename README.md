@@ -12,7 +12,7 @@ A plain TypeScript program (no `parallel`, no integer types, no `pts:` imports) 
 
 Why use it:
 
-- **It is TypeScript.** The front end is the TypeScript 7 compiler itself, so the types, the inference and the error messages are tsc's. The test suite runs hundreds of programs under Node too and compares what they print, among them a corpus of 300 realistic programs, 267 of which print exactly what Node prints (each of the others says why).
+- **It is TypeScript.** The front end is the TypeScript 7 compiler itself, so the types, the inference and the error messages are tsc's. The test suite runs hundreds of programs under Node too and compares what they print, among them a corpus of 300 realistic programs, 269 of which are classified as printing exactly what Node prints (each of the others says why).
 - **Native binaries that start in a millisecond.** `pts build` makes one executable that needs only libc and libm. Hello world starts in about 1 ms, where Node takes 74 ms.
 - **Every core, one heap.** `parallel f()` runs a task on another core's event loop, `xs.par.map(f)` splits work over a work-stealing pool, and `parallel for` runs a loop's iterations in parallel. Threads share objects directly; nothing is copied or serialized. A data race can make a program read a stale value, but it can't crash it or corrupt memory.
 - **One guardrail, not a borrow checker.** The compiler rejects assigning a captured outer `let` inside a parallel body, and checks nothing else about how threads share data. `pts:sync` has atomics, a mutex and channels for the code that needs them.
@@ -623,7 +623,7 @@ Not built yet:
 
 Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):
 
-- The 300-program corpus inventory classifies 267 as compatible, 24 as unsupported, 8 as intentional differences and 1 as a bug. H01a verified all 267 compatible cases (262 suite comparisons plus five manual comparisons), but the default suite currently compares only 262: feature detection falsely skips five ordinary programs. The [executed corpus baseline](pts/tests/corpus/REPORT.md) separates these counts; H18 will fix enforcement and execute the other classifications.
+- The 300-program corpus inventory classifies 269 as compatible, 23 as unsupported, 8 as intentional differences and none as a bug (H10a fixed the last one, `algorithms/lru_cache_map.pts`, D-218). The default suite compares 264 of the compatible programs with Node: feature detection falsely skips five ordinary programs (H01a verified them by hand). The [executed corpus baseline](pts/tests/corpus/REPORT.md) separates these counts; H18 will fix enforcement and execute the other classifications.
 - Overrides must keep the overridden method's parameter types.
 - RegExp: no `indices` for the `d` flag, no `v` flag, and without `u`, `.` and character classes match an astral character whole.
 - Indexing a long non-ASCII string at a large index is O(n); ASCII strings are O(1).

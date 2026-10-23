@@ -1,0 +1,28 @@
+// H10a: `c instanceof MapLRU` in a generic function, whose instances each narrow their own
+// `Cache<K, V>`: each is the MapLRU of its own type arguments. Found by the parent after
+// f54f8b5c1, which kept the first instance's inferred MapLRU<string, number> for the others
+// (`Expected MapLRU<string, number>, got MapLRU<number, string>`); on the base, every call
+// threw `Expected MapLRU<any, any>`.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(
+    public key: K,
+    public val: V,
+  ) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function show<K, V>(c: Cache<K, V>): string {
+  if (c instanceof MapLRU) return `${typeof c.key}:${c.key} ${typeof c.val}:${c.val} ${c.get(c.key)}`;
+  return "other";
+}
+console.log(show(new MapLRU<string, number>("a", 1)));
+console.log(show(new MapLRU<number, string>(2, "b")));
+console.log(show(new MapLRU<boolean, number[]>(true, [3])));
+// expect:
+// string:a number:1 1
+// number:2 string:b b
+// boolean:true object:3 3

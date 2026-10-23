@@ -1,0 +1,22 @@
+// H10a review round 1 (R1-F1), the reviewer's probe p35_class_method_two_instances.pts:
+// `o instanceof MapLRU` inside MapLRU<K, V>'s own method, for an `o: Cache<K, V>`, in two
+// instances of the class (MapLRU<string, number> and MapLRU<number, string>).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  same(o: Cache<K, V>): string {
+    return o instanceof MapLRU ? `${typeof o.key}:${o.key === this.key} ${typeof o.val}:${o.val === this.val}` : "other";
+  }
+}
+const a = new MapLRU<string, number>("a", 1);
+const b = new MapLRU<number, string>(2, "b");
+console.log(a.same(new MapLRU<string, number>("a", 1)));
+console.log(b.same(new MapLRU<number, string>(2, "c")));
+// expect:
+// string:true number:true
+// number:true string:false

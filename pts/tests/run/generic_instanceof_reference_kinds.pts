@@ -1,0 +1,41 @@
+// H10a review round 1 (R1-F10), the reviewer's probe p43_reference_gaps.pts:
+// References the declared-type lookup misses: a private-name property (`this.#cache`), a
+// property found through an index signature (`rec.main`), a static property.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Wrapper {
+  #cache: Cache<string, number>;
+  static global: Cache<string, number> = new MapLRU<string, number>("g", 3);
+  constructor(c: Cache<string, number>) {
+    this.#cache = c;
+  }
+  private_(): string {
+    return this.#cache instanceof MapLRU ? `private ${this.#cache.val}` : "other";
+  }
+  static static_(): string {
+    return Wrapper.global instanceof MapLRU ? `static ${Wrapper.global.val}` : "other";
+  }
+}
+function indexed(rec: Record<string, Cache<string, number>>): string {
+  return rec.main instanceof MapLRU ? `indexed ${rec.main.val}` : "other";
+}
+const m = new MapLRU<string, number>("k", 1);
+const fs = [() => new Wrapper(m).private_(), () => Wrapper.static_(), () => indexed({ main: m })];
+for (const f of fs) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// private 1
+// static 3
+// indexed 1

@@ -1,0 +1,36 @@
+// H10a review round 1 (R1-F2), the reviewer's probe p05_any_instance_object_source.pts:
+// Box<any> object held as `object` and as an interface whose type arguments don't cover T:
+// private write inside the class, the typical `assign(o: object)` pattern.
+interface Named {
+  name: string;
+}
+class Box<T> implements Named {
+  name = "box";
+  #v: T;
+  constructor(v: T) {
+    this.#v = v;
+  }
+  assign(o: object): void {
+    if (o instanceof Box) o.#v = this.#v;
+  }
+  rename(n: Named): void {
+    if (n instanceof Box) {
+      n.#v = this.#v;
+      n.name = "renamed";
+    }
+  }
+  get value(): T {
+    return this.#v;
+  }
+}
+const parse = (s: string): any => JSON.parse(s);
+const a = new Box(parse("1"));
+const c = new Box(parse("2"));
+a.assign(c);
+console.log(c.value);
+const d = new Box(parse("3"));
+a.rename(d);
+console.log(d.value, d.name);
+// expect:
+// 1
+// 1 renamed

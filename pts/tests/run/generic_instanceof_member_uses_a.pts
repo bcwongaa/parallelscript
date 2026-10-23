@@ -1,0 +1,76 @@
+// H10a review round 1 (R1-F3), the reviewer's probe p09_member_use_forms.pts:
+// Uses of members tsc types any / any[] / any-containing through an inferred narrowing.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  pair: [K, V];
+  map = new Map<K, V>();
+  cb: ((v: V) => V) | undefined;
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+    this.pair = [key, val];
+    this.map.set(key, val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  keys(): K[] {
+    return [this.key];
+  }
+  each(f: (v: V, k: K) => void): void {
+    f(this.val, this.key);
+  }
+  transform(f: (v: V) => V): void {
+    this.val = f(this.val);
+  }
+  get first(): V {
+    return this.items[0];
+  }
+  self(): this {
+    return this;
+  }
+}
+function uses(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  console.log("1", c.val.toFixed(2), c.key.toUpperCase(), c.key.length);
+  console.log("2", c.items.map((x) => x * 2), c.items.filter((x) => x > 0).length);
+  console.log("3", c.pair[0], c.pair[1] + 1);
+  console.log("4", c.map.get(c.key), c.map.size);
+  c.each((v, k) => console.log("5", v * 3, k + "!"));
+  c.transform((v) => v + 100);
+  console.log("6", c.val, c.first, c.get(c.key)! / 2);
+  for (const k of c.keys()) console.log("7", k);
+  for (const x of c.items) console.log("8", x);
+  const [k0, v0] = c.pair;
+  console.log("9", k0, v0);
+  const { key, val } = c;
+  console.log("10", key, val);
+  c.items[0] = c.items[0] + 1;
+  c.val++;
+  c.key += "?";
+  console.log("11", c.items, c.val, c.key, c.self().key);
+  c.cb = (v) => v * 10;
+  console.log("12", c.cb ? c.cb(2) : -1);
+  console.log("13", JSON.stringify(c.items), String(c.val), `${c.pair}`);
+  console.log("14", c.items.includes(101), c.items.indexOf(101), [...c.items, 5]);
+  console.log("15", typeof c.val, c.val === 101, c.val == 101);
+}
+uses(new MapLRU<string, number>("k", 1));
+// expect:
+// 1 1.00 K 1
+// 2 [ 2 ] 1
+// 3 k 2
+// 4 1 1
+// 5 3 k!
+// 6 101 1 50.5
+// 7 k
+// 8 1
+// 9 k 1
+// 10 k 101
+// 11 [ 2 ] 102 k? k?
+// 12 20
+// 13 [2] 102 k,1
+// 14 false -1 [ 2, 5 ]
+// 15 number false false

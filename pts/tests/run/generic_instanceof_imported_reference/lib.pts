@@ -1,0 +1,10 @@
+export interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+export class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+export const shared: Cache<string, number> = new MapLRU<string, number>("s", 5);

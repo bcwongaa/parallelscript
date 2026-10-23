@@ -1,0 +1,36 @@
+// H10a review round 1 (R1-F4), the reviewer's probe p12b_tuple_member_variants.pts:
+// Tuple members [K, V] through: an unknown source (dynamic before H10), a non-generic base
+// (dynamic with H10a), and the inferred instance (const binding, element 0).
+class Shape {}
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> extends Shape implements Cache<K, V> {
+  pair: [K, V];
+  constructor(public key: K, public val: V) {
+    super();
+    this.pair = [key, val];
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function viaUnknown(x: unknown): void {
+  if (x instanceof MapLRU) console.log("unknown", x.pair[0], x.pair[1] + 1);
+}
+function viaShape(s: Shape): void {
+  if (s instanceof MapLRU) console.log("shape", s.pair[0], s.pair[1] + 1);
+}
+function viaCacheConst(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    console.log("const", c.pair[0]);
+  }
+}
+const m = new MapLRU<string, number>("k", 1);
+viaUnknown(m);
+viaShape(m);
+viaCacheConst(m);
+// expect:
+// unknown k 2
+// shape k 2
+// const k

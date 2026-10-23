@@ -1,0 +1,28 @@
+// H10a review round 1 (R1-F5), the reviewer's probe p18_private_getter.pts:
+// A private getter (and a private method read as a value) on a dynamically held narrowing.
+class Box<T> {
+  #v: T;
+  constructor(v: T) {
+    this.#v = v;
+  }
+  get #doubled(): string {
+    return `${this.#v}${this.#v}`;
+  }
+  viaUnknown(o: unknown): unknown {
+    return o instanceof Box ? o.#doubled : "no";
+  }
+  viaObject(o: object): unknown {
+    return o instanceof Box ? o.#doubled : "no";
+  }
+}
+const b = new Box<number>(1);
+for (const f of [() => b.viaUnknown(new Box<number>(2)), () => b.viaObject(new Box<number>(3))]) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// 22
+// 33

@@ -1,0 +1,35 @@
+// H10a review round 1 (R1-F7), the reviewer's probe p36_union_empty_object.pts:
+// `Cache<string, number> | {}` and `| Record<string, unknown>` holding other MapLRU instances.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function viaEmpty(c: Cache<string, number> | {}): string {
+  return c instanceof MapLRU ? `empty ${c.key} ${c.val}` : "other";
+}
+function viaNull(c: Cache<string, number> | object | null): string {
+  return c instanceof MapLRU ? `null ${c.key} ${c.val}` : "other";
+}
+const fs = [
+  () => viaEmpty(new MapLRU<string, number>("a", 1)),
+  () => viaEmpty(new MapLRU<boolean, string>(true, "b")),
+  () => viaNull(new MapLRU<number, number>(3, 4)),
+  () => viaNull(null),
+];
+for (const f of fs) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+// expect:
+// empty a 1
+// empty true b
+// null 3 4
+// other

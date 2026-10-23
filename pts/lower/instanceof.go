@@ -16,10 +16,13 @@ import (
 // goes on (D-149's gap). Such a reference is instead the instance of C for the type
 // arguments tsc infers from its declared type, which is what its object is (H10).
 
-// instanceofKey is a reference and tsc's type for it, in the instance being lowered.
+// instanceofKey is a reference, tsc's type for it and its declared type, in the instance
+// being lowered: in a generic function's instances, the node and tsc's C<any, …> are the
+// same, and the declared type (`Cache<K, V>`) is each instance's own.
 type instanceofKey struct {
-	node *ast.Node
-	t    *checker.Type
+	node     *ast.Node
+	t        *checker.Type
+	declared *checker.Type
 }
 
 // instanceofInstance returns the type of what a reference (node) that tsc types t holds,
@@ -46,14 +49,63 @@ func (l *lowerer) isUninferredInstanceof(node *ast.Node) bool {
 
 // instanceofMember is x, the lowered read of a member or call of a method (node) of a
 // reference whose instanceof narrowing instanceofInstance resolves, as a dynamic value where
-// tsc types it any: C<any, …>'s member for C's type parameters, where the instance's is
-// typed (`c.get(k)` is a `number | undefined` of MapLRU<string, number>), so that what uses
-// it takes it as tsc says, as any (`c.key + c.val`), checked where a typed place takes it.
+// tsc's type for it mentions any (isInstanceofDynamicMember): what uses it takes it as tsc
+// says, as any (`c.key + c.val`), checked where a typed place takes it.
 func (l *lowerer) instanceofMember(node *ast.Node, x ir.Expr) ir.Expr {
-	if x == nil || x.Type() == ir.Value || !l.isAny(node) || !l.readsInstanceofMember(node) {
+	if x == nil || x.Type() == ir.Value || !l.isInstanceofDynamicMember(node) {
 		return x
 	}
 	return box(x)
+}
+
+// isInstanceofDynamicMember reports whether node reads a member of, or calls a method of, a
+// reference whose instanceof narrowing instanceofInstance resolves, where tsc's type for it
+// mentions any: C<any, …>'s member for C's type parameters (`c.val`, `c.items` an `any[]`,
+// `c.pair` an `[any, any]`, `c.self()` a C<any, …>), where the instance's is typed. It is
+// the instance's own value, held as a dynamic value, whose members are read, written and
+// called as a dynamic value's are (isNarrowedDynamic): `c.items.push(x)` reaches the
+// instance's array, `c.pair[1]` its tuple's element, and bound to a typed local or passed to
+// a typed parameter it converts as a dynamic value does (D-179), which compiles wherever
+// tsc's type goes.
+func (l *lowerer) isInstanceofDynamicMember(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	return l.readsInstanceofMember(node) && l.mentionsAny(l.typeAt(node), 0)
+}
+
+// mentionsAny reports whether t is any or holds it: as a member of a union or intersection,
+// as a type argument (an array's element, a tuple's, a class's or a map's), or in a function
+// type's parameters or result or an object literal type's properties.
+func (l *lowerer) mentionsAny(t *checker.Type, depth int) bool {
+	mentions := func(t *checker.Type) bool { return l.mentionsAny(t, depth+1) }
+	switch {
+	case t == nil || depth > 8:
+		return false
+	case t.Flags()&checker.TypeFlagsAny != 0:
+		return true
+	case t.Flags()&checker.TypeFlagsUnionOrIntersection != 0:
+		return slices.ContainsFunc(t.Types(), mentions)
+	case t.Flags()&checker.TypeFlagsObject == 0:
+		return false
+	case t.ObjectFlags()&checker.ObjectFlagsReference != 0:
+		return slices.ContainsFunc(l.checker.GetTypeArguments(t), mentions)
+	case t.ObjectFlags()&checker.ObjectFlagsAnonymous != 0:
+		for _, signature := range l.checker.GetSignaturesOfType(t, checker.SignatureKindCall) {
+			if mentions(l.checker.GetReturnTypeOfSignature(signature)) {
+				return true
+			}
+			for _, parameter := range signature.Parameters() {
+				if mentions(l.checker.GetTypeOfSymbol(parameter)) {
+					return true
+				}
+			}
+		}
+		for _, property := range l.checker.GetPropertiesOfType(t) {
+			if mentions(l.checker.GetTypeOfSymbol(property)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // readsInstanceofMember reports whether node reads a member of, or calls a method of, a
@@ -91,13 +143,14 @@ func (l *lowerer) instanceofNarrowing(node *ast.Node, t *checker.Type) (inferred
 	if prototype == nil || !l.isPrototypeInstance(prototype) {
 		return nil, false
 	}
-	key := instanceofKey{node, t}
+	declared := l.declaredTypeOfReference(node)
+	key := instanceofKey{node, t, declared}
 	if known, ok := l.instanceofInstances[key]; ok {
 		return known.inferred, known.narrowed
 	}
 	l.instanceofInstances[key] = instanceofResult{}
 	var result instanceofResult
-	switch declared := l.declaredTypeOfReference(node); {
+	switch {
 	case declared == nil:
 	case declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0:
 		// A property or element declared any or unknown (`holder.c`), whose value is a
@@ -152,6 +205,9 @@ func (l *lowerer) isMemberOfNarrowedInstance(node *ast.Node) bool {
 	if !ast.IsAccessExpression(node) {
 		return false
 	}
+	if l.isInstanceofDynamicMember(node) {
+		return true // a member of an instance whose type tsc gives as C<any, …>'s
+	}
 	object := ast.SkipParentheses(node.Expression())
 	if !l.storedDynamic(object) && !l.isUninferredInstanceof(object) {
 		return false
@@ -173,6 +229,9 @@ func (l *lowerer) familyPrivateField(node *ast.Node) (x ir.Expr, ok bool) {
 	receiver := ast.SkipParentheses(node.Expression())
 	if name.Kind != ast.KindPrivateIdentifier || !l.storedDynamic(receiver) && !l.isUninferredInstanceof(receiver) {
 		return nil, false
+	}
+	if symbol := l.checker.GetSymbolAtLocation(name); symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindPropertyDeclaration {
+		return nil, false // a private accessor or method, which method tables hold by name
 	}
 	generic := l.prototypeGeneric(l.typeAt(receiver))
 	if generic == nil {
@@ -247,13 +306,25 @@ func (l *lowerer) narrowsByInstanceof(declared, t *checker.Type) bool {
 func (l *lowerer) declaredTypeOfReference(node *ast.Node) *checker.Type {
 	switch node.Kind {
 	case ast.KindIdentifier:
-		symbol := l.checker.GetSymbolAtLocation(node)
+		symbol := l.followAliases(l.checker.GetSymbolAtLocation(node)) // an imported binding's
 		if symbol == nil || symbol.Flags&(ast.SymbolFlagsVariable|ast.SymbolFlagsProperty) == 0 {
 			return nil
 		}
 		return l.typeOfSymbol(symbol)
 	case ast.KindPropertyAccessExpression:
-		return l.checker.GetTypeOfPropertyOfType(l.typeAt(node.Expression()), node.AsPropertyAccessExpression().Name().Text())
+		object, name := l.typeAt(node.Expression()), node.AsPropertyAccessExpression().Name()
+		if name.Kind == ast.KindPrivateIdentifier {
+			if symbol := l.checker.GetSymbolAtLocation(name); symbol != nil {
+				return l.typeOfSymbol(symbol) // `this.#cache`
+			}
+			return nil
+		}
+		if t := l.checker.GetTypeOfPropertyOfType(object, name.Text()); t != nil {
+			return t
+		}
+		if infos := l.checker.GetIndexInfosOfType(object); len(infos) > 0 {
+			return infos[0].ValueType() // `rec.main` of a Record<string, …>
+		}
 	case ast.KindElementAccessExpression:
 		object := l.typeAt(node.Expression())
 		if t := l.checker.GetTypeOfPropertyOfType(object, node.AsElementAccessExpression().ArgumentExpression.Text()); t != nil {
@@ -264,4 +335,65 @@ func (l *lowerer) declaredTypeOfReference(node *ast.Node) *checker.Type {
 		}
 	}
 	return nil
+}
+
+// isPrivateMemberChange reports whether node is the object of a private member that is
+// written or called there (`o.#v = x`, `o.#v++`, `o.#tick()`), which an instance held as a
+// dynamic value has no way to reach yet (H10b): such an object keeps the downcast to tsc's
+// C<any, …> it had before H10 (D-149), which an instance for any passes.
+func (l *lowerer) isPrivateMemberChange(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	access := node.Parent
+	if access.Kind != ast.KindPropertyAccessExpression || access.Expression() != node || access.AsPropertyAccessExpression().Name().Kind != ast.KindPrivateIdentifier {
+		return false
+	}
+	for access.Parent.Kind == ast.KindParenthesizedExpression {
+		access = access.Parent
+	}
+	switch parent := access.Parent; parent.Kind {
+	case ast.KindCallExpression:
+		return ast.SkipParentheses(parent.Expression()) == ast.SkipParentheses(access)
+	case ast.KindBinaryExpression:
+		return ast.IsAssignmentOperator(parent.AsBinaryExpression().OperatorToken.Kind) && parent.AsBinaryExpression().Left == access
+	case ast.KindPrefixUnaryExpression, ast.KindPostfixUnaryExpression:
+		return true
+	}
+	return false
+}
+
+// callsInstanceofMethodDynamically reports whether call calls a member of a reference whose
+// instanceof narrowing instanceofInstance resolves that is found at run time: a field
+// holding a function whose type mentions any, or a method with an argument that tsc types
+// for C<any, …>'s parameter where the instance's differs, a function, object or array
+// literal (or a spread) for a parameter whose type mentions any (`(old: any) => any` for the
+// instance's `(old: V | undefined) => V`), which converts to the instance's only at run time.
+func (l *lowerer) callsInstanceofMethodDynamically(call *ast.CallExpression) bool {
+	callee := ast.SkipParentheses(call.Expression)
+	if !ast.IsAccessExpression(callee) || !l.readsInstanceofMember(callee) {
+		return false
+	}
+	if declaration := l.memberDeclaration(callee); declaration == nil || declaration.Kind != ast.KindMethodDeclaration {
+		return l.isInstanceofDynamicMember(callee) // a field holding a function (`c.cb(2)`), which reads as a dynamic value
+	}
+	signature := l.checker.GetResolvedSignature(call.AsNode())
+	if signature == nil {
+		return false
+	}
+	parameters := signature.Parameters()
+	for i, argument := range call.Arguments.Nodes {
+		switch ast.SkipParentheses(argument).Kind {
+		case ast.KindArrowFunction, ast.KindFunctionExpression, ast.KindObjectLiteralExpression, ast.KindArrayLiteralExpression, ast.KindSpreadElement:
+		default:
+			continue
+		}
+		if len(parameters) == 0 {
+			return true
+		}
+		if l.mentionsAny(l.typeOfSymbol(parameters[min(i, len(parameters)-1)]), 0) {
+			return true
+		}
+	}
+	return false
 }

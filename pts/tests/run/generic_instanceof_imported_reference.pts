@@ -1,0 +1,6 @@
+// H10a review round 1 (R1-F10), the reviewer's probe p42_imported_reference.pts:
+// An imported const (an alias symbol) narrowed by instanceof to a generic class.
+import { shared, MapLRU } from "./generic_instanceof_imported_reference/lib.pts";
+if (shared instanceof MapLRU) console.log("imported", shared.key, shared.val + 1);
+// expect:
+// imported s 6
