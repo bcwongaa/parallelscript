@@ -1,0 +1,28 @@
+// H10a review round 3 (R3-F1), the reviewer's probe r03b_local_cache_control.pts:
+// isInstanceofDynamicLocal's answer is cached per variable, not per instance: grow<Box<any>>
+// (x typed, `it` an any[] local that needs no copy) is lowered second (control: grow<Shape> first), whose
+// x is a dynamic value and whose `it` reuses the first instance's typed any[] local.
+class Shape {}
+class Box<T> extends Shape {
+  items: T[] = [];
+  constructor(v: T) {
+    super();
+    this.items.push(v);
+  }
+}
+function grow<S>(x: S): number {
+  if (x instanceof Box) {
+    const it = x.items;
+    it.push(9);
+    return it.length;
+  }
+  return -1;
+}
+const raw: any = JSON.parse("0");
+const anyBox = new Box<any>(raw);
+const b = new Box<number>(2);
+const second = grow<Shape>(b);
+
+console.log(grow<Box<any>>(anyBox), second, anyBox.items, b.items);
+// expect:
+// 2 2 [ 0, 9 ] [ 2, 9 ]

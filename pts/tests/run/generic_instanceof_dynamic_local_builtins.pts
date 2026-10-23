@@ -1,0 +1,37 @@
+// H10a review round 3, the reviewer's probe r10_dynamic_local_builtins.pts:
+// A dynamic local (`const it = c.items`) used with builtins and typed code: spreads, Set,
+// typed arrays, Array.from, length writes, a typed number[] parameter, sort, a for loop.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function sumNums(a: number[]): number {
+  let s = 0;
+  for (const x of a) s += x;
+  return s;
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  c.items.push(3, 1, 2);
+  const it = c.items;
+  console.log("1", Math.max(...it), new Set(it).size, Float64Array.from(it).length, Array.from(it).length);
+  it.sort((a, b) => a - b);
+  let s = 0;
+  for (let i = 0; i < it.length; i++) s += it[i];
+  console.log("2", s, sumNums(it), it.indexOf(3), it.includes(9), it.slice(1).length);
+  it.length = 2;
+  console.log("3", c.items, it === c.items, typeof it, Array.isArray(it));
+}
+run(new MapLRU<string, number>("k", 5));
+// expect:
+// 1 5 4 4 4
+// 2 11 11 2 false 3
+// 3 [ 1, 2 ] true object true

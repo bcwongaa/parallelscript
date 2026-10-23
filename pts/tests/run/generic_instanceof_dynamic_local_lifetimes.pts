@@ -1,0 +1,51 @@
+// H10a review round 3 (R3-F2), the reviewer's probe r07_dynamic_local_lifetimes.pts:
+// Dynamic locals (members tsc types with any, after an inferred narrowing) captured by
+// closures, held across await and yield, reassigned with typed values, assigned in a loop,
+// and destructured in for…of.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  groups: { name: K; list: V[] }[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+    this.groups.push({ name: key, list: [val] });
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+const nums: number[] = [100];
+async function run(c: Cache<string, number>): Promise<void> {
+  if (!(c instanceof MapLRU)) return;
+  const it = c.items;
+  const add = (v: number) => it.push(v);
+  add(1);
+  await null;
+  it.push(2);
+  function* gen() {
+    const g = c instanceof MapLRU ? c.items : [];
+    yield 0;
+    g.push(3);
+  }
+  for (const _ of gen()) {
+  }
+  let cur = c.items;
+  cur.push(4);
+  cur = nums;
+  cur.push(101);
+  let last = c.items;
+  for (let i = 0; i < 2; i++) {
+    last = c.items;
+    last.push(5 + i);
+  }
+  for (const { name, list } of c.groups) list.push(name.length);
+  console.log("items", c.items, "nums", nums, "groups", JSON.stringify(c.groups));
+}
+run(new MapLRU<string, number>("key", 0));
+// expect:
+// items [
+//   0, 1, 2, 3,
+//   4, 5, 6
+// ] nums [ 100, 101 ] groups [{"name":"key","list":[0,3]}]

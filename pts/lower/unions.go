@@ -635,6 +635,10 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	if y = l.convert(y, result, expr.Right); y == nil {
 		return nil
 	}
+	if l.copiesInstanceofDynamicValue(x, result, expr.Left) {
+		l.reportInstanceofCopy(result, expr.Left) // `c.items ?? []` (D-218, R3-F2)
+		return nil
+	}
 	tmp := l.newLocal("value", x.Type())
 	ref := &ir.LocalRef{Local: tmp}
 	coalesced := &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: y, Else: fromUnion(ref, result)}}

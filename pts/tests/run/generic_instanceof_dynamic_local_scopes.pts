@@ -1,0 +1,37 @@
+// H10a review round 3, the reviewer's probe r12_var_and_module_scope.pts:
+// Dynamic locals declared at module scope inside a
+// top-level narrowing, used by a nested function declaration and an arrow.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function viaVar(c: Cache<string, number>): number {
+  if (c instanceof MapLRU) {
+    const it = c.items;
+    it.push(1);
+    return it.length;
+  }
+  return -1;
+}
+const top: Cache<string, number> = new MapLRU<string, number>("t", 10);
+if (top instanceof MapLRU) {
+  const shared = top.items;
+  function addTop(v: number): void {
+    shared.push(v);
+  }
+  addTop(11);
+  const later = () => shared.push(12);
+  later();
+}
+const m = new MapLRU<string, number>("k", 0);
+console.log(viaVar(m), m.items, top instanceof MapLRU ? top.items : []);
+// expect:
+// 2 [ 0, 1 ] [ 10, 11, 12 ]

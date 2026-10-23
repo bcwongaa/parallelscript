@@ -233,3 +233,72 @@ Everything below was run with `/tmp/h10/pts-fix2`, `pts-fix1` and `pts-base` (wi
 ## Test quality
 - None of the 27 new tests checks aliasing after binding a member to a local or returning it, so R2-F1 passes them all.
 - `generic_instanceof_unreached_branch.pts` and the `member_uses_*` tests bind `c.keys()` and `c.pairs()` to locals and only read lengths. They would pass with copies.
+
+## Round 3: `5e5f838b0`
+
+NOT READY
+
+# H10a review, round 3: commit `5e5f838b0` (against `105354671`)
+
+The round-2 fixes hold, and nothing outside the instanceof tests changed. But the new dynamic locals only fix one sink: the direct `const it = c.items; it.push(…)`. Writes are still lost silently through 16 other sinks, every one of which threw a checked TypeError on the base where I ran it on the base. And the dynamic-local cache ignores the generic instance, so one instance's answer is reused for another; with one call order that also loses writes silently.
+
+All runs used `/tmp/h10/pts-fix3`, `pts-fix2` and `pts-base` (with `PTS_HOME` set) against Node on a `.mts` copy.
+- **Probes:** `/tmp/h10/review3/p/r*.pts`. `/tmp/h10/review3/bin/cmp.sh FILE [versions]` reprints the outputs; programs with a `// threads:` line run at each count.
+- **Archive:** `/tmp/h10/review3-probes.tar.gz`.
+
+## What holds (verified)
+- **Round-1 and round-2 probes on fix3** (`review3/rerun/`): everything matches Node except p06, p17, p20, p29, p34, p41, q03, q04, q05, q09, q15, q15b, q20 and q22, plus q02 and q16, which only differ because they print timings. That's exactly your list.
+  - The round-2 fixes: q01 and q21 now run as Node (R2-F2); q14 prints `2 2` (R2-F3); q04 is PTS1001 `using a MapLRU as a Twin` (R2-F4).
+- **Matrix (3 jobs, `review3/matrix/fix3.jsonl`):** 622 OK, none worse than the base, fix1 or fix2, no WRONG. 14 cases moved TYPEERR → OK since fix2.
+- **emit-c sweep, base vs fix3:** over 306 generic-class programs outside the instanceof tests, only the same two benign files from round 2 (`generic_narrowed_instances_{dynamic_arguments,lies}`) and the LRU corpus program change.
+- **Compile time** is back to the base's: q17b took 1.13 s against 1.11 s, and the four largest generic programs are within ±0.03 s.
+- **New tests:** the `// expect:` blocks of all 18 run tests match Node's output, and the 3 error tests expect honest PTS1001s.
+- **Dynamic locals work correctly** for every form I tried:
+  - closures and nested function declarations, also at module scope (r07, r12);
+  - across `await`, `yield` and async generators (r08);
+  - reassigned with a typed `number[]`, which keeps aliasing (r07);
+  - `let` in loops, and spreads, `Set`, `Float64Array.from`, `sort`, writes to `length`, a typed `number[]` parameter (r10);
+  - `.par` reading them or mapping over them at threads 1, 2 and 4 (r09).
+
+## Findings
+
+### R3-F2 (High, regression: a checked TypeError became silently lost writes): every sink except the direct local still copies
+- **Main repro:** `r15_sinks_each.pts`. Each line makes one write that JS makes to `c.items` itself. Node prints `true` on all 15 lines. fix3 prints `true` only for the control `const it = c.items; it.push(1)` and `false` for the other 14.
+  - **Members going straight into a sink:**
+    - `const a = flag ? c.items : []`;
+    - `c.items ?? []`, `c.items || []`;
+    - `c.items as any[]`, `c.items satisfies any[]`;
+    - a default parameter `(a = c.items) => …`;
+    - `a ||= c.items`;
+    - `for (const { list } of c.groups) list.push(…)`.
+  - **A dynamic local going on into a sink:** an `any[]` parameter, a field, an array-literal element, object-literal shorthand `{ it }`, an annotated `const t: any[] = it`, `flag ? it : []`.
+- **More repros, all `false` or lost on fix3:**
+  - `r16b_more_sinks.pts`: `yield c.items` from a generator, and a returned conditional.
+  - `r04b_copy_sinks.pts`: Node `items [0,1,2,3,4,5,6,8]`, fix3 `items [ 0 ]`, base TypeError. It also covers `await c.items`.
+  - `r05_dynamic_local_sinks.pts`: Node `[0,1,2,3,4,5,6]`, fix3 `[ 0 ]`, base TypeError.
+  - `r07_dynamic_local_lifetimes.pts`: for…of destructuring and the generator conditional lose their writes.
+  - `r11_uninferred_sinks.pts`: the same with a `Shape` source. Node `[ 0, 1, 2 ] [{"list":[0,3]}]`, fix3 `[ 0 ] [{"list":[0]}]`, base TypeError.
+- **Root cause:** a dynamic value holding a typed array, Map or shape is converted to `value[]` or a shape by a copy (D-179). That is pre-existing for `any` values: `r06_any_value_sinks_baseline.pts`, which has no instanceof at all, loses its writes on the base too. But H10a routes values the base threw on into that copy. `copiesDynamicValue` and `isInstanceofDynamicLocal` recognise a fixed list of parent nodes, and anything else falls through to the copy.
+- **Suggested fix:** make it hold at the conversion, not by listing syntax. When a Value that an instanceof narrowing produced (a member, an uninferred reference, a dynamic local, or anything derived from them) is converted to dynamic data or an object type, either keep it as a Value or report D-094's PTS1001.
+- **Already handled honestly by fix3 (PTS1001):** spread arguments, object-literal properties, `ident(c.items)`, optional `any[]` parameters, `for (const it of [c.items])` (r13, r16).
+
+### R3-F1 (Medium-High, silent wrong output depending on call order): `instanceofLocals` is keyed by symbol, not by instance
+- **Where:** `instanceof.go`, `isInstanceofDynamicLocal`. Its answer depends on the instance being lowered (whether `x` is narrowed, inferred or typed, and on `typeOfSymbol` under `l.subst`), but it is cached in `l.instanceofLocals[symbol]`. This is the same bug class as R1-F1.
+- **Repro 1, silent:** `r03_local_cache_silent.pts`. `grow<S>(x)` does `const it = x.items; it.push(9)`. `grow<Box<any>>` is lowered first (x typed, an `any[]` local that needs no copy), then `grow<Shape>` (x dynamic).
+  - Node: `2 2 [ 0, 9 ] [ 2, 9 ]`.
+  - fix3: `2 2 [ 0, 9 ] [ 2 ]`.
+  - Base: TypeError.
+- **Repro 1, control:** `r03b_local_cache_control.pts` makes the same calls in the other order, and fix3 then prints Node's output.
+- **Repro 2, compile success depends on order:** `r02_local_cache_order.pts` (`grow<Shape>` first) runs as Node on fix3. `r02b_local_cache_order_reversed.pts` (`grow<Box<number>>` first) is PTS1001 on fix3.
+- **Fix:** key the cache by symbol and substitution, or don't cache across instances.
+
+### R3-F3 (Low, accepted trade-off): honest PTS1001s now reject some unreached branches the base compiled
+- `copiesDynamicValue`'s PTS1001s are right compared with a silent copy. But `fillAny(c.items)`, `return c.items` with an inferred return type, spread arguments and object-literal properties now fail to compile even in branches that never run. The base compiled those and ran as Node there (R1-F3's class). Worth a line in D-218's known gaps.
+
+### Notes (not blocking)
+- R2-F5 (C281) and R2-F6's run-time cost (C282) are recorded as deferred.
+- q03's checked TypeError for a deliberately ill-typed argument is D-070's by design.
+
+## Test quality
+- The new tests only bind members directly to locals. Nothing covers the R3-F2 sinks (conditional, `??`/`||`, `as`, default parameters, `||=`, `yield`, `await`, for…of destructuring, or onward flows of a dynamic local), or a generic function with two instances whose locals differ (R3-F1).
+- `r15_sinks_each.pts`, `r03_local_cache_silent.pts` and `r03b_local_cache_control.pts` are ready-made RED tests with Node's output.

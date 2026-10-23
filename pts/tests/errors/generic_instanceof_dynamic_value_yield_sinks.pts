@@ -1,0 +1,38 @@
+// H10a review round 3 (R3-F2: `yield` of a member and a returned conditional); the reviewer's probe r16b_more_sinks.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// More sinks for a member tsc types any[] after an inferred narrowing: a spread argument, a
+// yielded value, an object-literal property, a returned conditional.
+// (Node: every line ends "true".)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function fillAll(...arrs: any[][]): void {
+  for (const a of arrs) a.push(1);
+}
+const flag = Math.random() < 2;
+function check(name: string, f: (c: Cache<string, number>) => void): void {
+  const m = new MapLRU<string, number>("k", 0);
+  try {
+    f(m);
+    console.log(name, m.items.length > 0);
+  } catch (e: any) {
+    console.log(name, "threw", e.message);
+  }
+}
+check("yield", (c) => {
+  function* g() {
+    if (c instanceof MapLRU) yield c.items;
+  }
+  for (const a of g()) a.push(1);
+});
+check("returned conditional", (c) => {
+  const pick = () => (c instanceof MapLRU ? c.items : []);
+  pick().push(1);
+});

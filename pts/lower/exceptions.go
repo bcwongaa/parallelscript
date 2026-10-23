@@ -273,6 +273,9 @@ func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
 		return false
 	}
 	t := l.typeAt(node)
+	if l.mentionsPrototypeInstance(t) && t.Flags()&checker.TypeFlagsUnion == 0 {
+		return true // `y` holding an `S & Box<any>` of an instance's narrowing (R3-F2), found at run time
+	}
 	if t.Flags()&checker.TypeFlagsObject == 0 || l.isCheckedValueType(t) || len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) > 0 {
 		return false
 	}

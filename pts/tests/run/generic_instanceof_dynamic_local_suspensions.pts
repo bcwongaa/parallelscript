@@ -1,0 +1,41 @@
+// H10a review round 3, the reviewer's probe r08_generator_dynamic_local.pts:
+// A dynamic local held across yields in a generator and across awaits in an async generator.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function* gen(c: Cache<string, number>) {
+  if (c instanceof MapLRU) {
+    const g = c.items;
+    yield g.length;
+    g.push(3);
+    yield g.length;
+  }
+}
+async function* agen(c: Cache<string, number>) {
+  if (c instanceof MapLRU) {
+    const h = c.items;
+    await null;
+    h.push(4);
+    yield h.length;
+  }
+}
+async function main(): Promise<void> {
+  const m = new MapLRU<string, number>("k", 0);
+  console.log([...gen(m)]);
+  for await (const n of agen(m)) console.log("async", n);
+  console.log(m.items);
+}
+main();
+// expect:
+// [ 1, 2 ]
+// async 3
+// [ 0, 3, 4 ]

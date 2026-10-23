@@ -1,0 +1,34 @@
+// H10a review round 3 (R3-F2: the same through an uninferred narrowing (a Shape source) and an unknown one); the reviewer's probe r11_uninferred_sinks.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// The conditional, ?? and for…of-destructuring sinks for an uninferred narrowing (a plain
+// base class) and an `unknown` source.
+class Shape {}
+class Box<T> extends Shape {
+  items: T[] = [];
+  groups: { list: T[] }[] = [];
+  constructor(v: T) {
+    super();
+    this.items.push(v);
+    this.groups.push({ list: [v] });
+  }
+}
+const flag = Math.random() < 2;
+function viaShape(s: Shape): void {
+  if (!(s instanceof Box)) return;
+  const a = flag ? s.items : [];
+  a.push(1);
+  const b = s.items ?? [];
+  b.push(2);
+  for (const { list } of s.groups) list.push(3);
+}
+function viaUnknown(u: unknown): void {
+  if (!(u instanceof Box)) return;
+  const a = flag ? u.items : [];
+  a.push(1);
+  for (const { list } of u.groups) list.push(3);
+}
+const x = new Box<number>(0);
+const y = new Box<number>(0);
+viaShape(x);
+viaUnknown(y);
+console.log(x.items, JSON.stringify(x.groups), y.items, JSON.stringify(y.groups));

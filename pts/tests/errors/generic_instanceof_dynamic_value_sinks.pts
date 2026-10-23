@@ -1,0 +1,45 @@
+// H10a review round 3 (R3-F2: a member or a variable holding one, going into a conditional, `??`, `||`, `as`, a default parameter, `||=`, an any[] parameter, a field, an array literal, an annotated variable: each a copy that writes would miss, so PTS1001, not a silent copy); the reviewer's probe r15_sinks_each.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// Each sink alone: after the write, does the member see it? (Node: every line ends "true".)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  groups: { list: V[] }[] = [];
+  constructor(public key: K, public val: V) {
+    this.groups.push({ list: [] });
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Keeper {
+  kept: any[] = [];
+}
+function fillAny(a: any[]): void {
+  a.push(1);
+}
+const flag = Math.random() < 2;
+type Sink = (c: MapLRU<string, number>) => boolean;
+function make(name: string, f: (c: Cache<string, number>) => void, seen: (c: MapLRU<string, number>) => number): void {
+  const m = new MapLRU<string, number>("k", 0);
+  f(m);
+  console.log(name, seen(m) > 0);
+}
+const len = (c: MapLRU<string, number>) => c.items.length;
+make("conditional", (c) => { if (c instanceof MapLRU) { const a = flag ? c.items : []; a.push(1); } }, len);
+make("nullish", (c) => { if (c instanceof MapLRU) { const a = c.items ?? []; a.push(1); } }, len);
+make("or", (c) => { if (c instanceof MapLRU) { const a = c.items || []; a.push(1); } }, len);
+make("as any[]", (c) => { if (c instanceof MapLRU) { const a = c.items as any[]; a.push(1); } }, len);
+make("satisfies", (c) => { if (c instanceof MapLRU) { const a = c.items satisfies any[]; a.push(1); } }, len);
+make("default param", (c) => { if (c instanceof MapLRU) { const g = (a = c.items) => a.push(1); g(); } }, len);
+make("logical assign", (c) => { if (c instanceof MapLRU) { let a: any[] | undefined; a ||= c.items; a.push(1); } }, len);
+make("for-of destructuring", (c) => { if (c instanceof MapLRU) for (const { list } of c.groups) list.push(1); }, (c) => c.groups[0].list.length);
+make("local to any[] param", (c) => { if (c instanceof MapLRU) { const it = c.items; fillAny(it); } }, len);
+make("local to field", (c) => { if (c instanceof MapLRU) { const it = c.items; const k = new Keeper(); k.kept = it; k.kept.push(1); } }, len);
+make("local in array literal", (c) => { if (c instanceof MapLRU) { const it = c.items; const arr = [it]; arr[0].push(1); } }, len);
+make("local shorthand", (c) => { if (c instanceof MapLRU) { const it = c.items; const o = { it }; o.it.push(1); } }, len);
+make("local to annotated", (c) => { if (c instanceof MapLRU) { const it = c.items; const t: any[] = it; t.push(1); } }, len);
+make("local conditional", (c) => { if (c instanceof MapLRU) { const it = c.items; const t = flag ? it : []; t.push(1); } }, len);
+make("control: local", (c) => { if (c instanceof MapLRU) { const it = c.items; it.push(1); } }, len);

@@ -1,0 +1,37 @@
+// H10a review round 3 (R3-F1), the reviewer's probe r01_local_cache_across_instances.pts:
+// `const y = x` in a generic function whose instances narrow x differently: uninferred (a
+// dynamic value) for S = Shape, inferred (Box<number>) for S = Holder<number>. The order of
+// the calls decides which instance is lowered first.
+class Shape {}
+interface Holder<T> {
+  items: T[];
+}
+class Box<T> extends Shape implements Holder<T> {
+  items: T[] = [];
+  constructor(v: T) {
+    super();
+    this.items.push(v);
+  }
+}
+function grow<S>(x: S): string {
+  if (x instanceof Box) {
+    const y = x;
+    y.items.push(9);
+    return `grew ${y.items.length}`;
+  }
+  return "no";
+}
+const a = new Box<number>(1);
+const b = new Box<number>(2);
+for (const f of [() => grow<Shape>(a), () => grow<Holder<number>>(b)]) {
+  try {
+    console.log(f());
+  } catch (e: any) {
+    console.log("threw", e.message);
+  }
+}
+console.log(a.items, b.items);
+// expect:
+// grew 2
+// grew 2
+// [ 1, 9 ] [ 2, 9 ]

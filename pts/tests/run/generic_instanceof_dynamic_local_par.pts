@@ -1,0 +1,34 @@
+// H10a review round 3, the reviewer's probe r09_par_dynamic_local.pts:
+// threads: 1 2 4
+// Dynamic locals (a member tsc types any[], a Map member, after an inferred narrowing) read in
+// `.par` callbacks on other threads, and `.par` over the dynamic local itself.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  index = new Map<K, V>();
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return this.index.get(key);
+  }
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  for (let i = 0; i < 200; i++) {
+    c.items.push(i);
+    c.index.set(`k${i}`, i * 2);
+  }
+  const it = c.items;
+  const idx = c.index;
+  const ids: number[] = [];
+  for (let i = 0; i < 200; i++) ids.push(i);
+  const viaLocal = ids.par.map((i) => it[i] + (idx.get(`k${i}`) ?? 0));
+  console.log(viaLocal.reduce((a, b) => a + b, 0));
+  const doubled = it.par.map((v) => v * 2);
+  console.log(doubled.length, doubled[199]);
+}
+run(new MapLRU<string, number>("k", 0));
+// expect:
+// 59700
+// 200 398
