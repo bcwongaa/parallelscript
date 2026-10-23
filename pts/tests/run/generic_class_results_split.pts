@@ -1,0 +1,18 @@
+// H09b5d review round 2 (h01): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// make<T> computes nothing itself, but returns Task<T>, whose Awaited<T> member splits
+// Task<Promise<number>> from Task<Promise<string>> (sharesClass: number and string don't
+// convert): make's one instance (IR args value) returns the first's class for both.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function make<T>(p: T): Task<T> {
+  return new Task(p);
+}
+const a = make(Promise.resolve(1));
+const b = make(Promise.resolve("s"));
+a.result = 1;
+b.result = "s";
+console.log(a.result, b.result, a.p instanceof Promise, b.p instanceof Promise);
+// expect:
+// 1 s true true

@@ -26,8 +26,9 @@ func newClassMembers() *classMembers {
 }
 
 // Generic classes are monomorphized like generic functions (D-049, D-050): each list of
-// IR types a generic class is instantiated with makes a class of its own (and type
-// arguments of the same IR types whose members' types differ, C177), named as the
+// IR types a generic class is instantiated with makes a class of its own (and, where a
+// program is lowered splitting classes, type arguments of the same IR types whose computed
+// types differ, C177), named as the
 // generic class (console.log prints `Box { value: 1 }` for every instance), whose
 // members are declared, and whose constructor and methods are lowered, with the class's
 // type parameters replaced by the type arguments.
@@ -169,7 +170,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 		}
 	}
 	for _, existing := range generic.instances {
-		if slices.Equal(existing.arguments, arguments) && (slices.Equal(existing.subst.arguments, concrete) || l.sharesClass(generic, existing.subst.arguments, concrete)) {
+		if slices.Equal(existing.arguments, arguments) && (!l.splitClasses || slices.Equal(existing.subst.arguments, concrete) || l.sharesClass(generic, existing.subst.arguments, concrete)) {
 			l.use(existing.subst)
 			return existing.class
 		}
@@ -314,47 +315,71 @@ func (l *lowerer) classMembersIdentity(generic *genericClass, concrete []*checke
 	if identity, ok := l.classIdentities[key]; ok {
 		return identity
 	}
+	computed := l.classComputedTypes(generic)
+	outer := l.subst
+	l.subst = &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true}
+	defer func() { l.subst = outer }()
+	walk := &typeWalk{budget: maxKeyParts}
+	identity := classIdentity{members: slices.Clone(computed.members)}
+	for _, base := range computed.superclasses {
+		identity.superclass += l.memberPart(walk, base.t) + ";"
+	}
+	for i := range identity.members {
+		identity.members[i].part = l.memberPart(walk, identity.members[i].t)
+	}
+	l.classIdentities[key] = identity
+	return identity
+}
+
+// classComputed are the superclasses and the members (or constructors' parameters) whose
+// types a generic class computes from its type parameters (computesTypes).
+type classComputed struct {
+	superclasses, members []computedType
+}
+
+// classComputedTypes are generic's classComputed, remembered; while they are being found
+// (a member's type names the class), none.
+func (l *lowerer) classComputedTypes(generic *genericClass) *classComputed {
+	if computed, ok := l.classComputed[generic]; ok {
+		if computed == nil {
+			return &classComputed{}
+		}
+		return computed
+	}
+	l.classComputed[generic] = nil
+	computed := &classComputed{}
 	symbol := l.declaredSymbol(generic.node)
 	declared := l.checker.GetDeclaredTypeOfSymbol(symbol)
-	var superclasses, members []computedType
 	for _, base := range l.checker.GetBaseTypes(declared) {
 		if l.computesTypes(base, map[*checker.Type]bool{}) {
-			superclasses = append(superclasses, computedType{name: "extends", t: base})
+			computed.superclasses = append(computed.superclasses, computedType{name: "extends", t: base})
 		}
 	}
 	for _, property := range l.checker.GetPropertiesOfType(declared) {
 		if t := l.checker.GetTypeOfSymbol(property); l.computesTypes(t, map[*checker.Type]bool{}) {
-			members = append(members, computedType{name: property.Name, t: t})
+			computed.members = append(computed.members, computedType{name: property.Name, t: t})
 		}
 	}
 	for _, signature := range l.checker.GetSignaturesOfType(l.checker.GetTypeOfSymbol(symbol), checker.SignatureKindConstruct) {
 		for i, parameter := range signature.Parameters() {
 			if t := l.checker.GetTypeOfSymbol(parameter); l.computesTypes(t, map[*checker.Type]bool{}) {
-				members = append(members, computedType{name: fmt.Sprintf("new(%d)", i), t: t})
+				computed.members = append(computed.members, computedType{name: fmt.Sprintf("new(%d)", i), t: t})
 			}
 		}
 	}
-	outer := l.subst
-	l.subst = &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true}
-	defer func() { l.subst = outer }()
-	walk := &typeWalk{budget: maxKeyParts}
-	identity := classIdentity{members: members}
-	for _, base := range superclasses {
-		identity.superclass += l.memberPart(walk, base.t) + ";"
-	}
-	for i := range members {
-		members[i].part = l.memberPart(walk, members[i].t)
-	}
-	l.classIdentities[key] = identity
-	return identity
+	l.classComputed[generic] = computed
+	return computed
 }
 
 // computesTypes reports whether t, a type in a generic declaration, is or holds a type
 // that tsc computes from type parameters, whose IR type for type arguments is not made of
 // their IR types alone: a conditional type (`T extends 1 ? string : number`, `Awaited<T>`,
 // `ReturnType<F>`), an indexed access (`T["kind"]`), `keyof T`, a mapped type or a
-// template literal type. An intersection with a type parameter (`T & any[]`, which a
-// narrowing makes) is an instance's as narrowedInstance and D-195 say.
+// template literal type, also in a generic interface's members; and where the program is
+// lowered splitting classes, a generic
+// class that computes types from its own (classComputedTypes), whose instances of one IR
+// type may then be other classes. An intersection with a type parameter (`T & any[]`,
+// which a narrowing makes) is an instance's as narrowedInstance and D-195 say.
 func (l *lowerer) computesTypes(t *checker.Type, seen map[*checker.Type]bool) bool {
 	if seen[t] || len(seen) > maxKeyParts {
 		return false
@@ -371,7 +396,19 @@ func (l *lowerer) computesTypes(t *checker.Type, seen map[*checker.Type]bool) bo
 	case t.ObjectFlags()&checker.ObjectFlagsMapped != 0:
 		return true
 	case t.ObjectFlags()&checker.ObjectFlagsReference != 0 && t.ObjectFlags()&checker.ObjectFlagsAnonymous == 0:
-		return slices.ContainsFunc(l.checker.GetTypeArguments(t), func(argument *checker.Type) bool { return l.computesTypes(argument, seen) })
+		if generic := l.genericClasses[t.Symbol()]; generic != nil && l.splitClasses {
+			if computed := l.classComputedTypes(generic); len(computed.superclasses)+len(computed.members) > 0 {
+				return true
+			}
+		}
+		if slices.ContainsFunc(l.checker.GetTypeArguments(t), func(argument *checker.Type) bool { return l.computesTypes(argument, seen) }) {
+			return true
+		}
+		if !l.isProgramInterface(t) {
+			return false
+		}
+		// A program's generic interface, whose members may compute from its type arguments
+		// (`interface Wrap<X> { v: Awaited<X> }`): as the object type it is.
 	}
 	for _, property := range l.checker.GetPropertiesOfType(t) {
 		if l.computesTypes(l.checker.GetTypeOfSymbol(property), seen) {
@@ -615,4 +652,16 @@ func (l *lowerer) instancesExtend(node *ast.Node, class *ir.Class) bool {
 		return l.instancesExtend(parent.node, class)
 	}
 	return false
+}
+
+// isProgramInterface reports whether t is a reference to an interface the program declares
+// (`Wrap<number>`), not a class or the library's.
+func (l *lowerer) isProgramInterface(t *checker.Type) bool {
+	symbol := t.Symbol()
+	if symbol == nil || symbol.Flags&ast.SymbolFlagsInterface == 0 || symbol.Flags&ast.SymbolFlagsClass != 0 || l.isLibInterface(symbol) {
+		return false
+	}
+	_, class := l.classes[symbol]
+	_, generic := l.genericClasses[symbol]
+	return !class && !generic
 }

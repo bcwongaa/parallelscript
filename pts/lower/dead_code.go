@@ -397,10 +397,11 @@ func (l *lowerer) mentionsParameters(t *checker.Type) bool {
 
 // deadTest is the substitution isDeadRead tests reads with: the instance's, each type
 // argument the widest type of its IR type (widestOfIRType). Instances are told apart by IR
-// types (a function's also by literal type arguments), so one instance's code runs for
-// every type argument of those IR types: `Holder<Id>`'s methods for a branded string Id are
-// `Holder<string>`'s, and `Holder<Json>`'s `Holder<unknown>`'s, which hold numbers too.
-// Code is dead only if it is for all of them.
+// types and literal type arguments (and by their checker types only for a function that
+// computes types from them, or a class whose computed members can't share, D-216), so one
+// instance's code may run for every type argument of those IR types: `Holder<Id>`'s
+// methods for a branded string Id are `Holder<string>`'s, and `Holder<Json>`'s
+// `Holder<unknown>`'s, which hold numbers too. Code is dead only if it is for all of them.
 func (l *lowerer) deadTest() *substitution {
 	if test, ok := l.deadTests[l.subst]; ok {
 		return test

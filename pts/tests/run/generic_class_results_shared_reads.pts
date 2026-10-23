@@ -1,0 +1,20 @@
+// H09b5d review round 2 (h01b), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// h01 without writes of the computed member, which the base can't do: make<T> computes
+// nothing itself and returns Task<T>, whose instances for Promise<number> and
+// Promise<string> are split classes now; make's one instance returns the first's class.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function make<T>(p: T): Task<T> {
+  return new Task(p);
+}
+const a = make(Promise.resolve(1));
+const b = make(Promise.resolve("s"));
+console.log(a.result, b.result, a.p instanceof Promise, b.p instanceof Promise);
+const tasks: Task<Promise<string>>[] = [b, new Task(Promise.resolve("t"))];
+console.log(tasks.length);
+// expect:
+// undefined undefined true true
+// 2

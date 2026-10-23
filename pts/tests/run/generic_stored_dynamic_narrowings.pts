@@ -1,0 +1,49 @@
+// H09b5d review round 2 (sd03): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// sd01 without the Json instances, whose instanceof Map branch is PTS1001 on the base too.
+type Json = string | number | null | Json[] | { [k: string]: Json };
+function kinds<T>(x: T, other: T): string {
+  const out: string[] = [];
+  if (typeof x === "string") out.push("str " + x.length);
+  if (typeof x === "number") out.push("num " + (x + 1));
+  if (Array.isArray(x)) out.push("arr " + x.length + " " + x.map((e) => typeof e).join("/"));
+  if (x instanceof Map) out.push("map " + x.size + " " + [...x.keys()].join("/"));
+  if (x instanceof Set) out.push("set " + x.size);
+  if (typeof x === "object" && x !== null && "k" in x) out.push("k " + String((x as { k: unknown }).k));
+  x = other;
+  out.push("after " + typeof x);
+  const read = () => typeof x;
+  x = other;
+  out.push("closure " + read());
+  return out.join(", ");
+}
+function* gen<T>(x: T): Generator<string> {
+  if (x instanceof Map) yield "gmap " + x.size;
+  if (Array.isArray(x)) yield "garr " + x.length;
+  yield "gend " + typeof x;
+}
+async function later<T>(x: T): Promise<string> {
+  await null;
+  if (x instanceof Map) return "amap " + x.size;
+  if (typeof x === "string") return "astr " + x.toUpperCase();
+  return "aother " + typeof x;
+}
+const m = new Map([["a", 1]]);
+console.log(kinds<unknown>(m, 3));
+console.log(kinds<unknown>([1, "b"], "s"));
+console.log(kinds<unknown>({ k: 7 }, null));
+console.log(kinds<any>(new Set([1, 2]), [1]));
+console.log(kinds<Promise<number>>(Promise.resolve(1), Promise.resolve(2)));
+console.log(kinds<number>(4, 5), kinds<string>("ab", "c"));
+console.log([...gen<unknown>(m)].join(";"), [...gen<number>(1)].join(";"));
+later<unknown>(m).then((s) => console.log(s));
+later<unknown>("q").then((s) => console.log(s));
+// expect:
+// map 1 a, after number, closure number
+// arr 2 number/string, after string, closure string
+// k 7, after object, closure object
+// set 2, after object, closure object
+// after object, closure object
+// num 5, after number, closure number str 2, after string, closure string
+// gmap 1;gend object gend number
+// amap 1
+// astr Q

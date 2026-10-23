@@ -1,0 +1,53 @@
+// H09b5d review round 2 (ik01): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// Typed calls of generic values whose bodies compute types from T (body only), in the call
+// forms instanceKey now keys: ?. calls, rest parameters, a wrapper that forwards, bind, an
+// adapter (a generic value where a non-generic function type goes), dispatch through an
+// interface and a literal's method.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+type A = { kind: "a" };
+type B = { kind: "b" };
+const conv = <T,>(x: T, raw: unknown): string => {
+  const b: Box<K<T>> = new Box(raw as K<T>);
+  return typeof b.value + ":" + String(b.value);
+};
+const restConv = <T,>(x: T, ...raws: unknown[]): string => {
+  const b: Box<K<T>> = new Box(raws[0] as K<T>);
+  return typeof b.value + ":" + String(b.value);
+};
+type Conv = <T>(x: T, raw: unknown) => string;
+const maybe: Conv | undefined = Math.random() < 2 ? conv : undefined;
+const wrapped: Conv = (x, raw) => conv(x, raw);
+function forward<F extends Conv>(f: F): Conv {
+  return (x, raw) => f(x, raw);
+}
+const fw = forward(conv);
+const bound = conv.bind(null);
+const forA: (x: A, raw: unknown) => string = conv;
+const forB: (x: B, raw: unknown) => string = conv;
+interface HasConv {
+  conv<T>(x: T, raw: unknown): string;
+}
+const lit: HasConv = {
+  conv<T>(x: T, raw: unknown): string {
+    const b: Box<K<T>> = new Box(raw as K<T>);
+    return typeof b.value + ":" + String(b.value);
+  },
+};
+const a: A = { kind: "a" };
+const b: B = { kind: "b" };
+console.log(maybe?.(a, 1), maybe?.(b, "s"));
+console.log(restConv(a, 2), restConv(b, "t"));
+console.log(wrapped(a, 3), wrapped(b, "u"), fw(a, 4), fw(b, "v"));
+console.log(bound(a, 5), bound(b, "w"));
+console.log(forA(a, 6), forB(b, "x"));
+console.log(lit.conv(a, 7), lit.conv(b, "y"));
+// expect:
+// number:1 string:s
+// number:2 string:t
+// number:3 string:u number:4 string:v
+// number:5 string:w
+// number:6 string:x
+// number:7 string:y

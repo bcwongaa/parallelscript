@@ -1,0 +1,19 @@
+// H09b5d review round 2 (sc02), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// Two generic classes that refer to each other; A computes (Awaited<T>), B doesn't, so B's
+// instances share a class whose a is the first's A.
+class A<T> {
+  b: B<T> | undefined = undefined;
+  v: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+class B<T> {
+  a: A<T> | undefined = undefined;
+}
+const b1 = new B<Promise<number>>();
+b1.a = new A(Promise.resolve(1));
+const b2 = new B<Promise<string>>();
+b2.a = new A(Promise.resolve("s"));
+console.log(b1.a.v, b2.a.v, b2.a.p instanceof Promise);
+// expect:
+// undefined undefined true

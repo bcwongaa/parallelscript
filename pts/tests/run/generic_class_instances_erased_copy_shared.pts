@@ -1,0 +1,19 @@
+// H09b5d review round 2 (c11), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// c05 with two split instances (Task<Promise<number>> and Task<Promise<string>>, whose
+// Awaited<T> members don't convert): the erased copy's Task<any> shares one of them, so a
+// typed Task<Promise<string>> takes the other's object with a check.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function wrap<T>(p: T): Task<T> {
+  return new Task(p);
+}
+const first = new Task(Promise.resolve(1));
+const g: any = wrap;
+const t: Task<Promise<string>> = g(Promise.resolve("s"));
+const u: Task<Promise<number>> = g(Promise.resolve(2));
+console.log(first.result, t.result, u.result, t instanceof Task);
+// expect:
+// undefined undefined undefined true

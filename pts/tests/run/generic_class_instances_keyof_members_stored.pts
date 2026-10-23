@@ -1,4 +1,4 @@
-// skip: known issue (H09b5d, C262): Tagged<"circle"> and Tagged<"square"> are two classes, and Tagged<keyof Shapes> shares one of them, so the other stored there is PTS1001 `using a Tagged as a Tagged`
+// skip: known issue (H09b5d, C262): Tagged<"circle"> and Tagged<"square"> can't share a class (their `Shapes[K]` members convert neither way), and Tagged<keyof Shapes>, to which both convert, can be only one of them: PTS1001 whether classes are shared or split
 // H09b5d RED (C177, classes; design risk): as generic_class_instances_keyof_members, and both
 // stored where Tagged<keyof Shapes> goes, as tsc allows. HEAD: the same PTS1001. A fix that splits
 // classes by their members' IR types makes Tagged<"circle">, Tagged<"square"> and

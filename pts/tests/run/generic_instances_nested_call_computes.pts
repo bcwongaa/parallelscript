@@ -1,0 +1,18 @@
+// skip: known issue (H09b5d, C267): outer<T> calls inner<T>, and only inner's body computes types from T, so outer's instances for Promise<number> and Promise<string> are one, which calls inner<Promise<number>> for both: a TypeError
+// H09b5d review round 2 (h03).
+// The computation is in a nested generic call's body (inner's signature computes nothing):
+// outer<Promise<number>> and outer<Promise<string>> share one instance, which calls
+// inner<Promise<number>> for both.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function inner<U>(p: U, raw: unknown): string {
+  const b: Box<Awaited<U>> = new Box(raw as Awaited<U>);
+  return typeof b.value + " " + String(b.value);
+}
+function outer<T>(p: T, raw: unknown): string {
+  return inner(p, raw);
+}
+console.log(outer(Promise.resolve(1), 1), outer(Promise.resolve("s"), "s"));
+// expect:
+// number 1 string s

@@ -1,0 +1,13 @@
+// H09b5d review round 2 (h02b): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// h02's twins part alone: Pick2<X> computes from X in an interface member.
+type A = { kind: "a" };
+type B = { kind: "b" };
+interface Pick2<X> {
+  v: X extends A ? string : number;
+}
+function pick<T>(x: T, v: unknown): Pick2<T> {
+  return { v } as Pick2<T>;
+}
+console.log(pick<A>({ kind: "a" }, "s").v, pick<B>({ kind: "b" }, 2).v);
+// expect:
+// s 2

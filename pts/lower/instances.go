@@ -142,7 +142,7 @@ func (l *lowerer) demandAt(call *ast.CallExpression, erasedParams []ir.Type) *de
 	// parameters, in its body too (C177), and whose dynamic results the instance makes for
 	// its type arguments (D-190).
 	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode(), chained: chained, narrowable: resolved.HasRestParameter() || want.Result == ir.Value,
-		key: l.instanceKey(resolved, call.AsNode())}
+		key: l.instanceKey(resolved, want.Result == ir.Value, call.AsNode())}
 	return d
 }
 
@@ -185,17 +185,20 @@ func (l *lowerer) fromErasedFor(d *demand, value ir.Expr, node *ast.Node) ir.Exp
 }
 
 // instanceKey is the key (ir.Instance.Key) of the entries a call finds, resolved: the
-// same for calls through the same function type whose type arguments, parameters and
-// result are the same types (keyPart, brands included, as an instance's type arguments
-// are told apart: typeArgumentsIdentity), else another one. The value's instance depends
-// on all of them: a type argument can reach it from outside the call's own (a type
-// alias's, `Loader<U>`, or an enclosing instance's, `outer<U>`), through the result or a
-// parameter whose IR type is or holds a dynamic value (`Promise<U>`), and its code may
-// compute types from them where its signature's IR types don't show it (C177). The key
-// names the first such call's result type, for reading the IR.
-func (l *lowerer) instanceKey(resolved *checker.Signature, node *ast.Node) string {
+// same for calls whose type arguments, parameters and result are the same types
+// (keyPart, brands included, as an instance's type arguments are told apart:
+// typeArgumentsIdentity), and for a dynamic result through the same function type, else
+// another one. The value's instance depends on all of them: a type argument can reach it
+// from outside the call's own (a type alias's, `Loader<U>`, or an enclosing instance's,
+// `outer<U>`), through the result or a parameter whose IR type is or holds a dynamic
+// value (`Promise<U>`), and its code may compute types from them where its signature's
+// IR types don't show it (C177). The key names the first such call's result type, for
+// reading the IR.
+func (l *lowerer) instanceKey(resolved *checker.Signature, dynamic bool, node *ast.Node) string {
 	identity := &keyIdentity{typeWalk: typeWalk{budget: maxKeyParts}, brands: true}
-	fmt.Fprintf(identity, "%p", resolved.Declaration())
+	if dynamic {
+		fmt.Fprintf(identity, "%p", resolved.Declaration())
+	}
 	for _, t := range l.checker.PtsTypeArgumentsOfSignature(resolved) {
 		l.keyPart(identity, t, node)
 	}
@@ -239,6 +242,7 @@ type keyIdentity struct {
 	// polymorphic recursion through dynamic values (`f<T>` calling `f<Promise<T>>`) meets
 	// an identity it made before.
 	typeArguments bool
+	widenLiterals bool // a literal type is written as its primitive, by its IR type
 }
 
 // keyPart writes t's identity for instanceKey and typeArgumentsIdentity: the same for
@@ -247,9 +251,11 @@ type keyIdentity struct {
 // and never the same for other IR types. So it writes a literal type by itself, a
 // branded primitive by its primitive and its brand's properties, a union's or an
 // intersection's members, a type reference's (`Promise<Box<T>>`, `Pair<K, V>`, an array)
-// target and type arguments, without making a class instance for it, a class or a
-// library interface by its IR type, another object type (a literal's, an interface's, a
-// mapped type's, a function type's) by its IR type (but for identity.typeArguments) and
+// target and type arguments (but for identity.typeArguments, a program's interface's by
+// its members, which its type arguments compute), without making a class instance for
+// it, a class or a library interface by its IR type, another object type (a literal's, an
+// interface's, a mapped type's, a function type's) by its IR type (but for
+// identity.typeArguments) and
 // its properties, index signatures and signatures, whose own type parameters by their
 // places, and anything else by its IR type, or if that is a dynamic value or it has none
 // (reported at node, then taken back), by its checker type. A type inside itself is
@@ -288,6 +294,8 @@ func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node
 		objectFlags = t.ObjectFlags()
 	}
 	switch {
+	case isLiteralType(t) && identity.widenLiterals:
+		l.irTypeKeyPart(identity, t, node)
 	case isLiteralType(t):
 		fmt.Fprintf(identity, ",=%d", t.Id())
 	case identity.brands && l.brandedPrimitive(t) != nil:
@@ -309,7 +317,7 @@ func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node
 			l.keyPart(identity, member, node)
 		}
 		identity.WriteString(")")
-	case objectFlags&checker.ObjectFlagsReference != 0 && objectFlags&checker.ObjectFlagsAnonymous == 0:
+	case objectFlags&checker.ObjectFlagsReference != 0 && objectFlags&checker.ObjectFlagsAnonymous == 0 && !(identity.typeArguments && l.isProgramInterface(t)):
 		fmt.Fprintf(identity, ",r%d<", t.Target().Id())
 		for _, argument := range l.checker.GetTypeArguments(t) {
 			l.keyPart(identity, argument, node)

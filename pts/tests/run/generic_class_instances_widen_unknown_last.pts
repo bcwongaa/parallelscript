@@ -1,0 +1,20 @@
+// H09b5d review round 2 (c13), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// c12 with Task<Promise<number>> made first (a parameter declared before wide's): then
+// Task<unknown> shares its class, Task<Promise<string>> is another, and widening the latter
+// to Task<unknown>, which TypeScript allows, is PTS1001. c12 (Task<unknown> first) runs.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function numbers(t: Task<Promise<number>>): string {
+  return "numbers " + String(t.result);
+}
+function wide(t: Task<unknown>): string {
+  return "wide " + (t.p instanceof Promise) + " " + String(t.result);
+}
+const n = new Task(Promise.resolve(1));
+const s = new Task(Promise.resolve("s"));
+console.log(numbers(n), wide(n), wide(s), wide(new Task<unknown>(3)));
+// expect:
+// numbers undefined wide true undefined wide true undefined wide false undefined

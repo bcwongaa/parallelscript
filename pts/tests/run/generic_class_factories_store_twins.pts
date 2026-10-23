@@ -1,0 +1,24 @@
+// H09b5d review round 2 (h07), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// A store factory (computes nothing itself) for two state types of one shape that differ
+// by a literal: Store's get<K>(k): T[K] splits Store<A> from Store<B>, the factory's one
+// instance returns the first's class.
+class Store<T> {
+  constructor(public state: T) {}
+  get<K extends keyof T>(k: K): T[K] {
+    return this.state[k];
+  }
+}
+function createStore<T>(init: T): Store<T> {
+  return new Store(init);
+}
+type Idle = { status: "idle"; count: number };
+type Busy = { status: "busy"; count: number };
+const idle = createStore<Idle>({ status: "idle", count: 0 });
+const busy = createStore<Busy>({ status: "busy", count: 1 });
+console.log(idle.get("status"), busy.get("status"), busy.get("count"));
+const direct = new Store<Busy>({ status: "busy", count: 2 });
+console.log(direct.get("count"));
+// expect:
+// idle busy 1
+// 2

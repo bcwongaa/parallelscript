@@ -168,9 +168,22 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 // (nil: nothing). If it reports, and every diagnostic is blamed on a pairing or call site
 // that a narrower lowering leaves out (C176), narrower is narrowing with them; else nil.
 func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Info, specialization Specialization, narrowing *Narrowing) (lowered *ir.Program, diagnostics []diagnostic.Diagnostic, narrower *Narrowing) {
+	return programWith(ctx, program, info, specialization, narrowing, false)
+}
+
+// ProgramSplittingClasses is ProgramWith where a generic class's instances for type
+// arguments of the same IR types are two classes where the types the class computes from
+// its type parameters differ for them and can't share one (sharesClass, C177). A program
+// that converts between such instances, as TypeScript lets it, can't then, so a build
+// lowers a program this way only where it doesn't lower with them shared (D-216).
+func ProgramSplittingClasses(ctx context.Context, program *frontend.Program, info *check.Info, specialization Specialization, narrowing *Narrowing) (lowered *ir.Program, diagnostics []diagnostic.Diagnostic, narrower *Narrowing) {
+	return programWith(ctx, program, info, specialization, narrowing, true)
+}
+
+func programWith(ctx context.Context, program *frontend.Program, info *check.Info, specialization Specialization, narrowing *Narrowing, splitClasses bool) (lowered *ir.Program, diagnostics []diagnostic.Diagnostic, narrower *Narrowing) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{program: program.TS, checker: c, info: info, specialization: specialization, narrowing: narrowing,
+	l := &lowerer{program: program.TS, checker: c, info: info, specialization: specialization, narrowing: narrowing, splitClasses: splitClasses,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
@@ -179,7 +192,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
-		genericClasses: map[*ast.Symbol]*genericClass{}, classIdentities: map[string]classIdentity{}, computingDecls: map[*ast.Node]bool{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
+		genericClasses: map[*ast.Symbol]*genericClass{}, classIdentities: map[string]classIdentity{}, classComputed: map[*genericClass]*classComputed{}, computingDecls: map[*ast.Node]*declarationTypes{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
 		genericConstNodes: map[*ast.Node]*genericFunc{}, instanceCounts: map[recursionBudget]int{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}, funcUses: map[*ir.Func]use{}}
@@ -302,7 +315,8 @@ type lowerer struct {
 	subst               *substitution                    // the instance being lowered or declared, or nil
 	genericClasses      map[*ast.Symbol]*genericClass    // every generic class declaration, whose instances types make; nil if it failed
 	classIdentities     map[string]classIdentity         // classMembersIdentity's, by generic class and type arguments
-	computingDecls      map[*ast.Node]bool               // computesFromTypeParameters's, by generic function declaration
+	classComputed       map[*genericClass]*classComputed // classComputedTypes's
+	computingDecls      map[*ast.Node]*declarationTypes  // computedTypes's, by generic function declaration
 	classInstances      map[*ir.Class]*classInstance     // the generic class instance each instance's class is
 	instanceClasses     []*ir.Class                      // the classes of generic class instances, in the order they were made
 	classInstanceBodies []*classInstance                 // the class instances whose constructors and methods are still to be lowered
@@ -346,6 +360,7 @@ type lowerer struct {
 	valueFlow           valueFlow                        // immutable source proofs for ordinary function-value demands (D-201)
 	containing          containingCode                   // completed containing-code availability of pairings and sites (C251)
 	specialization      Specialization                   // which generic function values list instances (D-190)
+	splitClasses        bool                             // ProgramSplittingClasses's
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
 	narrowing           *Narrowing                       // what this lowering leaves out (C176)
 	errorUses           [][]use                          // the code each of errors was reported in (here)

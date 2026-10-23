@@ -1,0 +1,38 @@
+// H09b5d review round 2 (sc01b), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// sc01 without writes of the computed member (the base can't write a string there): inheritance
+// chains of split instances widened to Task<unknown>, statics, instanceof.
+class Task<T> {
+  static count = 0;
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {
+    Task.count++;
+  }
+}
+class Mid<T> extends Task<T> {
+  tag = "mid";
+}
+class Leaf<T> extends Mid<T> {
+  leaf(): string {
+    return this.tag + "/leaf " + String(this.result);
+  }
+}
+function base(t: Task<Promise<number>>): string {
+  return "task " + String(t.result);
+}
+function wide(t: Task<unknown>): string {
+  return "wide " + (t.p instanceof Promise);
+}
+const n = new Leaf(Promise.resolve(1));
+
+const s = new Leaf(Promise.resolve("s"));
+
+const u = new Leaf<unknown>(3);
+console.log(base(n), wide(n), wide(s), wide(u), n.leaf(), s.leaf(), u.leaf());
+console.log(Task.count, n instanceof Mid, s instanceof Task, u instanceof Leaf);
+const mids: Mid<Promise<string>>[] = [s, new Mid(Promise.resolve("t"))];
+console.log(mids.length);
+// expect:
+// task undefined wide true wide true wide false mid/leaf undefined mid/leaf undefined mid/leaf undefined
+// 3 true true true
+// 2

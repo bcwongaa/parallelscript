@@ -1,0 +1,11 @@
+// H09b5d review round 2 (sd02): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// sd01's instanceof Map branch alone, for one type argument (Promise<number>).
+type Json = string | number | null | Json[] | { [k: string]: Json };
+function sizes<T>(x: T): string {
+  if (x instanceof Map) return "map " + x.size + " " + [...x.keys()].join("/");
+  if (x instanceof Set) return "set " + x.size;
+  return "other " + typeof x;
+}
+console.log(sizes<Promise<number>>(new Map([["a", 1]]) as unknown as Promise<number>));
+// expect:
+// map 1 a

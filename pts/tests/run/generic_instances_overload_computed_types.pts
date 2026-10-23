@@ -1,0 +1,13 @@
+// skip: known issue (H09b5d, C268): a type computed only in an overload's signature (`Box<Awaited<T>>`) isn't seen, so the implementation's instances for Promise<number> and Promise<string> are one: PTS1001 `using a Box as a Box`
+// H09b5d review round 2 (h04).
+// The computation is only in an overload's signature; the implementation's is plain.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function load<T>(p: T, raw: Awaited<T>): Box<Awaited<T>>;
+function load<T>(p: T, raw: unknown): Box<unknown> {
+  return new Box(raw);
+}
+console.log(load(Promise.resolve(1), 1).value, load(Promise.resolve("s"), "s").value);
+// expect:
+// 1 s

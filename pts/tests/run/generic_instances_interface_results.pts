@@ -1,0 +1,23 @@
+// H09b5d review round 2 (h02): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// A function whose result is a generic interface that computes from T (Wrap<X>'s
+// Awaited<X>): computesTypes sees a reference with argument T, so f's instances for
+// Promise<number> and Promise<string> are one (C263's function side).
+interface Wrap<X> {
+  v: Awaited<X>;
+}
+function wrap<T>(p: T, v: Awaited<T>): Wrap<T> {
+  return { v };
+}
+console.log(wrap(Promise.resolve(1), 1).v, wrap(Promise.resolve("s"), "s").v);
+type A = { kind: "a" };
+type B = { kind: "b" };
+interface Pick2<X> {
+  v: X extends A ? string : number;
+}
+function pick<T>(x: T, v: unknown): Pick2<T> {
+  return { v } as Pick2<T>;
+}
+console.log(pick<A>({ kind: "a" }, "s").v, pick<B>({ kind: "b" }, 2).v);
+// expect:
+// 1 s
+// s 2

@@ -1219,7 +1219,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		}
 		if computes && !slices.Equal(existing.subst.arguments[len(existing.subst.arguments)-len(concrete):], concrete) { // after an enclosing instance's
 			if !identified {
-				identity, identified = l.typeArgumentsIdentity(concrete, node), true
+				identity, identified = l.typeArgumentsIdentity(generic, concrete, node), true
 			}
 			if existing.identity != identity {
 				continue
@@ -1236,16 +1236,13 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		return nil, limit
 	}
 	if computes && !identified {
-		identity = l.typeArgumentsIdentity(concrete, node)
+		identity = l.typeArgumentsIdentity(generic, concrete, node)
 	}
 	if recursive {
 		l.countInstance(generic.node, false)
 	}
-	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst, outer: generic.outer}
-	if outer := generic.outer; outer != nil {
-		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
-		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
-	}
+	subst := instanceSubstitution(generic, concrete)
+	subst.made = l.subst
 	inst := &instance{generic: generic, arguments: arguments, literals: literals, identity: identity, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	if t := l.trial; t != nil && t.root == nil {
@@ -1263,61 +1260,110 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 }
 
 // typeArgumentsIdentity is what tells apart instances for type arguments (concrete) of the
-// same IR types and literal types where their declaration computes types from them: their
-// keyParts, each with its own budget, brands included and making no IR type
-// (keyIdentity.typeArguments), the same for types of the same structure, literals and
-// brands, and for dynamic values of the same checker types (C177).
-func (l *lowerer) typeArgumentsIdentity(concrete []*checker.Type, node *ast.Node) string {
-	parts := make([]string, len(concrete))
-	for i, t := range concrete {
-		identity := &keyIdentity{typeWalk: typeWalk{budget: maxKeyParts}, brands: true, typeArguments: true}
+// same IR types and literal types where their declaration computes types from them: the
+// keyParts of the types it computes (computedTypes) for those type arguments, each with
+// its own budget, brands included, a literal type as its primitive and making no IR type
+// (keyIdentity.typeArguments, widenLiterals), the same where those types have the same
+// structure and IR types (`A["type"]` for 200 action types is a string for each), and
+// for dynamic values the same checker types (`Box<Awaited<T>>` for Promise<number> and
+// Promise<string>, C177). Past maxComputedTypes, the type arguments' own keyParts.
+func (l *lowerer) typeArgumentsIdentity(generic *genericFunc, concrete []*checker.Type, node *ast.Node) string {
+	computed := l.computedTypes(generic)
+	types, widen := computed.types, true
+	if computed.overflow {
+		types, widen = concrete, false
+	} else {
+		outer := l.subst
+		l.subst = instanceSubstitution(generic, concrete)
+		defer func() { l.subst = outer }()
+	}
+	parts := make([]string, len(types))
+	for i, t := range types {
+		identity := &keyIdentity{typeWalk: typeWalk{budget: maxKeyParts}, brands: true, typeArguments: true, widenLiterals: widen}
 		l.keyPart(identity, t, node)
 		parts[i] = identity.String()
 	}
 	return strings.Join(parts, "|")
 }
 
+// instanceSubstitution is the substitution of generic's instance for type arguments
+// (concrete), after its class instance's, if any.
+func instanceSubstitution(generic *genericFunc, concrete []*checker.Type) *substitution {
+	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, outer: generic.outer}
+	if outer := generic.outer; outer != nil {
+		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
+		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
+	}
+	return subst
+}
+
+// maxComputedTypes bounds the types computedTypes lists of one declaration.
+const maxComputedTypes = 64
+
+// declarationTypes are the types a generic function's declaration computes from its type
+// parameters (computedTypes), or past maxComputedTypes, overflow.
+type declarationTypes struct {
+	types    []*checker.Type
+	overflow bool
+}
+
 // computesFromTypeParameters reports whether generic's declaration computes types from its
-// type parameters (computesTypes, `Box<Awaited<T>>`, `T extends Id ? string : number`):
-// in its signature, the types of the expressions and type nodes in its body, or the type
-// arguments of the calls there. Where it computes none, its types are made of its type
+// type parameters (computedTypes).
+func (l *lowerer) computesFromTypeParameters(generic *genericFunc) bool {
+	computed := l.computedTypes(generic)
+	return len(computed.types) > 0 || computed.overflow
+}
+
+// computedTypes are the types generic's declaration computes from its type parameters
+// (computesTypes, `Box<Awaited<T>>`, `T extends Id ? string : number`): in its signature,
+// the types of the expressions and type nodes in its body, or the type arguments of the
+// calls there, remembered. Where it computes none, its types are made of its type
 // parameters by unions, references, arrays, object and function types, whose IR types are
 // made of the type arguments' IR types; narrowings to intersections with them are an
 // instance's as D-195 says, for every type argument of their IR types.
-func (l *lowerer) computesFromTypeParameters(generic *genericFunc) bool {
-	if computes, ok := l.computingDecls[generic.node]; ok {
-		return computes
+func (l *lowerer) computedTypes(generic *genericFunc) *declarationTypes {
+	if computed, ok := l.computingDecls[generic.node]; ok {
+		return computed
 	}
 	anys := make([]*checker.Type, len(generic.parameters))
 	for i := range anys {
 		anys[i] = l.checker.GetAnyType()
 	}
-	computes := func(t *checker.Type) bool {
-		return t != nil && l.computesTypes(t, map[*checker.Type]bool{}) && l.checker.PtsInstantiateType(t, generic.parameters, anys) != t
+	computed := &declarationTypes{}
+	note := func(t *checker.Type) {
+		switch {
+		case t == nil || computed.overflow || slices.Contains(computed.types, t) || !l.computesTypes(t, map[*checker.Type]bool{}) || l.checker.PtsInstantiateType(t, generic.parameters, anys) == t:
+		case len(computed.types) == maxComputedTypes:
+			computed.types, computed.overflow = nil, true
+		default:
+			computed.types = append(computed.types, t)
+		}
 	}
 	signature := l.checker.GetSignatureFromDeclaration(generic.node)
-	found := computes(l.checker.GetReturnTypeOfSignature(signature)) || slices.ContainsFunc(signature.Parameters(), func(parameter *ast.Symbol) bool {
-		return computes(l.checker.GetTypeOfSymbol(parameter))
-	})
+	for _, parameter := range signature.Parameters() {
+		note(l.checker.GetTypeOfSymbol(parameter))
+	}
+	note(l.checker.GetReturnTypeOfSignature(signature))
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
 		switch {
-		case found:
 		case ast.IsTypeNode(node):
-			found = computes(l.checker.GetTypeFromTypeNode(node))
+			note(l.checker.GetTypeFromTypeNode(node))
 		case ast.IsExpressionNode(node):
-			found = computes(l.checker.GetTypeAtLocation(node))
-			if !found && (node.Kind == ast.KindCallExpression || node.Kind == ast.KindNewExpression) {
+			note(l.checker.GetTypeAtLocation(node))
+			if node.Kind == ast.KindCallExpression || node.Kind == ast.KindNewExpression {
 				if resolved := l.checker.GetResolvedSignature(node); resolved != nil {
-					found = slices.ContainsFunc(l.checker.PtsTypeArgumentsOfSignature(resolved), computes)
+					for _, argument := range l.checker.PtsTypeArgumentsOfSignature(resolved) {
+						note(argument)
+					}
 				}
 			}
 		}
-		return found || node.ForEachChild(visit)
+		return computed.overflow || node.ForEachChild(visit)
 	}
 	generic.node.ForEachChild(visit)
-	l.computingDecls[generic.node] = found
-	return found
+	l.computingDecls[generic.node] = computed
+	return computed
 }
 
 // isLiteralType reports whether t is a literal type or a union of them.

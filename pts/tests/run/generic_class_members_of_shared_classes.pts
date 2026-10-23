@@ -1,0 +1,21 @@
+// H09b5d review round 2 (h05), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// Outer<T>'s member is Task<T>, whose instances for Promise<number> and Promise<string> are
+// split classes; Outer's own members compute nothing (computesTypes of a reference looks at
+// its type arguments only), so Outer's instances share the first's class, whose inner is
+// the first's Task.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+class Outer<T> {
+  inner: Task<T>;
+  constructor(p: T) {
+    this.inner = new Task(p);
+  }
+}
+const a = new Outer(Promise.resolve(1));
+const b = new Outer(Promise.resolve("s"));
+console.log(a.inner.result, b.inner.result, b.inner.p instanceof Promise);
+// expect:
+// undefined undefined true

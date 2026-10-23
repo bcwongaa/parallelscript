@@ -1009,11 +1009,10 @@ func wrap_string.inner(y: string) string closure [] {
 func TestInstancesForTypeArgumentsOfOneIRTypeAreToldApartWhereTheirTypesDiffer(t *testing.T) {
 	t.Parallel()
 	// C177: Promise<number> and Promise<string> are both dynamic values. A function that
-	// computes types from its type parameters (pick's R<T>) has an instance for each, a
-	// call for the same types sharing one; one that computes none (same) has one for both.
-	// A generic class has two only where members it computes differ for them and neither
-	// converts to the other (Holder's pick), so Box<1>, which converts to Box<number>, and
-	// Task<Promise<number>>, which converts to Task<unknown>, share their classes.
+	// computes types from its type parameters (pick's R<T>) has an instance for each where
+	// the types it computes differ, a call for the same types sharing one; one that
+	// computes none (same) has one for both, as does one whose computed types are the same
+	// for them (kind's A["kind"], a string for each literal).
 	got := lowerValid(t, `class Box<T> {
   constructor(public value: T) {}
 }
@@ -1023,6 +1022,32 @@ function pick<T>(x: T, v: R<T>): R<T> {
 }
 function same<T>(x: T): T {
   return x;
+}
+function kind<A extends { kind: string }>(a: A): A["kind"] {
+  return a.kind;
+}
+pick(Promise.resolve(1), new Box(1));
+pick<Promise<number>>(Promise.resolve(2), new Box(2));
+pick(Promise.resolve("s"), new Box("t"));
+same(Promise.resolve(1));
+same(Promise.resolve("s"));
+kind({ kind: "a" as const, n: 1 });
+kind({ kind: "b" as const, n: 2 });
+`)
+	assert.Equal(t, strings.Count(got, "\nfunc pick_value("), 2, got)
+	assert.Equal(t, strings.Count(got, "\nfunc same_value("), 1, got)
+	assert.Equal(t, strings.Count(got, "\nfunc kind_"), 1, got)
+}
+
+func TestClassInstancesOfOneIRTypeAreSplitOnlyWhereTheirComputedTypesCantShare(t *testing.T) {
+	t.Parallel()
+	// C177: lowered splitting classes, a generic class has two classes for type arguments
+	// of one IR type only where members it computes differ and neither converts to the
+	// other (Holder's pick), so Box<1>, which converts to Box<number>, and
+	// Task<Promise<number>>, which converts to Task<unknown>, share their classes; lowered
+	// as a build first lowers a program, every instance of one IR type is one class.
+	source := `class Box<T> {
+  constructor(public value: T) {}
 }
 type S<T> = Box<T extends 1 ? string : number>;
 class Holder<T> {
@@ -1034,20 +1059,24 @@ class Holder<T> {
 class Task<T> {
   constructor(public result: Awaited<T> | undefined) {}
 }
-pick(Promise.resolve(1), new Box(1));
-pick<Promise<number>>(Promise.resolve(2), new Box(2));
-pick(Promise.resolve("s"), new Box("t"));
-same(Promise.resolve(1));
-same(Promise.resolve("s"));
 const one: Box<number> = new Box<1>(1);
 const task: Task<unknown> = new Task<Promise<number>>(3);
 console.log(one.value, new Holder<1>(1).pick(new Box("s")).value, new Holder<number>(2).pick(new Box(3)).value, task.result);
-`)
-	assert.Equal(t, strings.Count(got, "\nfunc pick_value("), 2, got)
-	assert.Equal(t, strings.Count(got, "\nfunc same_value("), 1, got)
+`
+	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	program, errors := frontend.Load(t.Context(), fs, "/p/main.pts")
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	info, errors := check.Program(t.Context(), program)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	split, errors, _ := lower.ProgramSplittingClasses(t.Context(), program, info, lower.AllInstances, nil)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	got := split.String()
 	assert.Equal(t, strings.Count(got, "class Box { value: number }"), 1, got)
 	assert.Equal(t, strings.Count(got, "class Holder {"), 2, got)
 	assert.Equal(t, strings.Count(got, "class Task {"), 1, got)
+	shared, errors, _ := lower.ProgramWith(t.Context(), program, info, lower.AllInstances, nil)
+	assert.Equal(t, len(errors), 1, "errors: %v", errors) // Holder<number>'s pick takes Holder<1>'s Box<string>
+	assert.Equal(t, strings.Count(shared.String(), "class Holder {"), 1)
 }
 
 func TestParametersWithDefaultsTakeAFlagThatSaysWhetherTheCallPassedThem(t *testing.T) {
@@ -1544,7 +1573,7 @@ func run.make(arg1: value) value closure [receiver] {
   16: return interface make(receiver, arg1)
 }
 func run.adapter(arg1: number) Box closure [adapted] {
-  17: return (let argument1 = arg1 in instance [Box<number>#2] (adapted, argument1) else Box(call adapted(box(argument1))))
+  17: return (let argument1 = arg1 in instance [Box<number>#1] (adapted, argument1) else Box(call adapted(box(argument1))))
 }
 func run(m: {make(value): value}, f: (value) => value) void {
   16: console.log(box(use((let receiver = m in closure run.make))))

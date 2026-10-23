@@ -1,0 +1,54 @@
+// H09b5d review round 2 (ik02), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// r3's question: typed demands through separately declared function types whose
+// instantiated type arguments, parameters and results are equal share a key (no
+// declaration pointer). Values that compute from T in their bodies, called through a type
+// alias, an interface's call signature, a generic interface's instantiation and a method
+// signature of two interfaces, with twins and promises.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type K<T> = T extends { kind: "a" } ? number : string;
+type A = { kind: "a" };
+type B = { kind: "b" };
+type F1 = <T>(x: T, raw: unknown) => string;
+interface F2 {
+  <T>(x: T, raw: unknown): string;
+}
+interface G<R> {
+  <T>(x: T, raw: unknown): R;
+}
+interface M1 {
+  run<T>(x: T, raw: unknown): string;
+}
+interface M2 {
+  run<T>(x: T, raw: unknown): string;
+}
+const conv = <T,>(x: T, raw: unknown): string => {
+  const b: Box<K<T>> = new Box(raw as K<T>);
+  return typeof b.value + ":" + String(b.value);
+};
+const other = <T,>(x: T, raw: unknown): string => {
+  const b: Box<Awaited<T>> = new Box(raw as Awaited<T>);
+  return "o" + typeof b.value + ":" + String(b.value);
+};
+const f1: F1 = Math.random() < 2 ? conv : other;
+const f2: F2 = Math.random() < 2 ? other : conv;
+const g: G<string> = Math.random() < 2 ? conv : other;
+const a: A = { kind: "a" };
+const b: B = { kind: "b" };
+console.log(f1(a, 1), f1(b, "s"), f2(a, "t"), f2(b, "u"), g(a, 2), g(b, "v"));
+console.log(f2(Promise.resolve(1), 3), f2(Promise.resolve("x"), "w"), f1(Promise.resolve(1), "y"));
+const m1: M1 = { run: conv };
+const m2: M2 = { run: other };
+const ms: (M1 | M2)[] = [m1, m2];
+for (const m of ms) console.log(m.run(a, 4), m.run(b, "z"));
+const objs: M1[] = [m1, m2];
+for (const m of objs) console.log(m.run(Promise.resolve(1), 5), m.run(Promise.resolve("q"), "r"));
+// expect:
+// number:1 string:s ostring:t ostring:u number:2 string:v
+// onumber:3 ostring:w string:y
+// number:4 string:z
+// onumber:4 ostring:z
+// number:5 string:r
+// onumber:5 ostring:r

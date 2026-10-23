@@ -79,7 +79,25 @@ const maxLowerings = 8
 // are made for calls that may never meet them, and a failure in their code that the
 // lowering's trials don't take back mustn't stop a program that compiles without them
 // (D-190, D-191): each is lowered leaving out what its failures are blamed on (narrowedAt).
+// A generic class's instances for type arguments of the same IR types share one class,
+// which the program may convert between as TypeScript lets it; only where no lowering
+// succeeds that way is the program lowered again with such instances split where the types
+// the class computes for them differ (lower.ProgramSplittingClasses, C177), and if that
+// fails too, the first failure stands (D-216).
 func (p *checkedProgram) compileC(ctx context.Context, accept func(ctx context.Context, c string) error) (code string, err error) {
+	if code, err = p.compileCWith(ctx, accept); code != "" || err == nil || !fallsBack(ctx, err) {
+		return code, err
+	}
+	split := *p
+	split.splitClasses = true
+	if splitCode, splitErr := split.compileCWith(ctx, accept); splitCode != "" {
+		return splitCode, splitErr
+	}
+	return code, err
+}
+
+// compileCWith is compileC with the program's classes shared or split, as p says.
+func (p *checkedProgram) compileCWith(ctx context.Context, accept func(ctx context.Context, c string) error) (code string, err error) {
 	lowerings := map[int]*lowering{}
 	for at := range lower.Fallbacks {
 		r := p.narrowedAt(ctx, at, lowerings)
@@ -145,10 +163,12 @@ func (p *checkedProgram) laterLowering(ctx context.Context, from int, lowerings 
 	return nil
 }
 
-// checkedProgram is a program that loaded and passed the semantic checks.
+// checkedProgram is a program that loaded and passed the semantic checks, lowered with its
+// generic classes' instances split (lower.ProgramSplittingClasses) or not.
 type checkedProgram struct {
-	program *frontend.Program
-	info    *check.Info
+	program      *frontend.Program
+	info         *check.Info
+	splitClasses bool
 }
 
 // load loads the program whose entry module is the file at entry and checks it.
@@ -166,7 +186,7 @@ func load(ctx context.Context, entry string) (checked *checkedProgram, err error
 	if len(diagnostics) > 0 {
 		return nil, &diagnostic.Error{Diagnostics: diagnostics}
 	}
-	return &checkedProgram{program, info}, nil
+	return &checkedProgram{program: program, info: info}, nil
 }
 
 // fallsBack reports whether a lowering that failed with err is tried again (compileC):
@@ -181,7 +201,11 @@ func fallsBack(ctx context.Context, err error) bool {
 // and emits its C; narrower is what lower.ProgramWith says a lowering that fails may leave out.
 func (p *checkedProgram) emitC(ctx context.Context, specialization lower.Specialization, narrowing *lower.Narrowing) (code string, narrower *lower.Narrowing, err error) {
 	defer diagnostic.Contain(&err)
-	lowered, diagnostics, narrower := lower.ProgramWith(ctx, p.program, p.info, specialization, narrowing)
+	programWith := lower.ProgramWith
+	if p.splitClasses {
+		programWith = lower.ProgramSplittingClasses
+	}
+	lowered, diagnostics, narrower := programWith(ctx, p.program, p.info, specialization, narrowing)
 	if len(diagnostics) > 0 {
 		return "", narrower, &diagnostic.Error{Diagnostics: diagnostics}
 	}

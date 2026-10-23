@@ -1,0 +1,26 @@
+// H09b5d review round 2 (h06), a guard: the base ran it as Node does; lowered splitting classes it didn't,
+// so a build splits them only where it doesn't lower otherwise (D-216).
+// h01b through a generic method of a class, a generic arrow const and a static method.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+class Factory {
+  make<T>(p: T): Task<T> {
+    return new Task(p);
+  }
+  static of<T>(p: T): Task<T> {
+    return new Task(p);
+  }
+}
+const mk = <T,>(p: T): Task<T> => new Task(p);
+const f = new Factory();
+const a = f.make(Promise.resolve(1));
+const b = f.make(Promise.resolve("s"));
+const c = Factory.of(Promise.resolve(2));
+const d = Factory.of(Promise.resolve("t"));
+const e = mk(Promise.resolve(3));
+const g = mk(Promise.resolve("u"));
+console.log(a.result, b.result, c.result, d.result, e.result, g.result, b.p instanceof Promise);
+// expect:
+// undefined undefined undefined undefined undefined undefined true

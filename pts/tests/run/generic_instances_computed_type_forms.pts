@@ -1,0 +1,38 @@
+// H09b5d review round 2 (h09): PTS1001, PTS9001 or a TypeError on the base; it runs as Node does now.
+// computesFromTypeParameters: what it sees (an infer cast in the body, a default type
+// argument, a computation in a nested non-generic arrow) and what it doesn't (a generic
+// method of a helper object whose body computes, called with the outer T).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type A = { kind: "a" };
+type B = { kind: "b" };
+function inferCast<T>(p: T, raw: unknown): string {
+  const b = new Box(raw as T extends { kind: "a" } ? number : string);
+  return typeof b.value + ":" + String(b.value);
+}
+function defaulted<T, R = T extends { kind: "a" } ? number : string>(p: T, raw: unknown): string {
+  const b = new Box(raw as R);
+  return typeof b.value + ":" + String(b.value);
+}
+function nestedArrow<T>(p: T, raw: unknown): string {
+  const make = () => new Box(raw as T extends { kind: "a" } ? number : string);
+  const b = make();
+  return typeof b.value + ":" + String(b.value);
+}
+const helper = {
+  conv<U>(p: U, raw: unknown): string {
+    const b: Box<U extends { kind: "a" } ? number : string> = new Box(raw as U extends { kind: "a" } ? number : string);
+    return typeof b.value + ":" + String(b.value);
+  },
+};
+function viaHelper<T>(p: T, raw: unknown): string {
+  return helper.conv(p, raw);
+}
+const a: A = { kind: "a" };
+const b: B = { kind: "b" };
+console.log(inferCast(a, 1), inferCast(b, "s"), defaulted(a, 2), defaulted(b, "t"), nestedArrow(a, 3), nestedArrow(b, "u"));
+console.log(viaHelper(a, 4), viaHelper(b, "v"));
+// expect:
+// number:1 string:s number:2 string:t number:3 string:u
+// number:4 string:v
