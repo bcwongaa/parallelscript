@@ -1,0 +1,54 @@
+// H10a review round 4 (R4-F2), the reviewer's probe s03b_bypass_paths.pts without its annotated `(row: any[])` callback (errors/generic_instanceof_annotated_callback_copy.pts):
+// Conversion paths besides convert for a member tsc types any[] (c.items) of an inferred
+// narrowing, each followed by a write JS makes to the member itself. Node: every line "true".
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [[]];
+  seeded = 0;
+  meta: { tags: V[] } = { tags: [] };
+  store = new Map<K, V[]>();
+  constructor(public key: K, public val: V) {
+    this.store.set(key, []);
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  update(key: K, f: (old: V[]) => V[]): void {
+    this.store.set(key, f(this.store.get(key)!));
+  }
+}
+class Holder {
+  #list: any[] = [];
+  set list(v: any[]) {
+    this.#list = v;
+  }
+  get list(): any[] {
+    return this.#list;
+  }
+}
+class Base {
+  constructor(public kept: any[]) {}
+}
+function check(name: string, f: (c: Cache<string, number>) => void, seen: (c: MapLRU<string, number>) => number): void {
+  const m = new MapLRU<string, number>("k", 0);
+  try {
+    f(m);
+    console.log(name, seen(m) > 0);
+  } catch (e: any) {
+    console.log(name, "threw", e.message);
+  }
+}
+const len = (c: MapLRU<string, number>) => c.items.length - 1;
+check("destructuring default", (c) => { if (c instanceof MapLRU) { const { tags = [] } = c.meta; tags.push(1); } }, (c) => c.meta.tags.length);
+check("forEach arr", (c) => { if (c instanceof MapLRU) c.items.forEach((_x, _i, arr) => arr.push(1)); }, len);
+check("dynamic call callback param", (c) => { if (c instanceof MapLRU) c.update("k", (old: any[]) => { old.push(1); return old; }); }, (c) => c.store.get("k")!.length);
+check("Object.assign target", (c) => { if (c instanceof MapLRU) Object.assign(c.meta, { tags: [5] }); }, (c) => c.meta.tags.length);
+// expect:
+// destructuring default true
+// forEach arr true
+// dynamic call callback param true
+// Object.assign target true

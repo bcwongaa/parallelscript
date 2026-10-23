@@ -1,0 +1,47 @@
+// H10a review round 4 (R4-F2), the reviewer's probe s06b_more_paths.pts:
+// More paths for members tsc types with any after an inferred narrowing, each followed by a
+// write JS makes to the member itself. Node: every line "true".
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [[]];
+  meta: { tags: V[]; deep: { list: V[] } } = { tags: [], deep: { list: [] } };
+  store = new Map<K, V[]>();
+  constructor(public key: K, public val: V) {
+    this.store.set(key, []);
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+async function check(name: string, f: (c: Cache<string, number>) => Promise<void> | void, seen: (c: MapLRU<string, number>) => number): Promise<void> {
+  const m = new MapLRU<string, number>("k", 0);
+  try {
+    await f(m);
+    console.log(name, seen(m) > 0);
+  } catch (e: any) {
+    console.log(name, "threw", e.message);
+  }
+}
+const len = (c: MapLRU<string, number>) => c.items.length - 1;
+async function main(): Promise<void> {
+  await check("map callback arr", (c) => { if (c instanceof MapLRU) c.items.map((_x, _i, arr) => arr.push(1)); }, len);
+  await check("filter callback arr", (c) => { if (c instanceof MapLRU) c.items.filter((_x, _i, arr) => arr.push(1) > 0); }, len);
+  await check("pattern first", (c) => { if (c instanceof MapLRU) { const [first] = c.matrix; first.push(1); } }, (c) => c.matrix[0].length);
+  await check("pattern nested", (c) => { if (c instanceof MapLRU) { const { deep: { list } } = c.meta; list.push(1); } }, (c) => c.meta.deep.list.length);
+  await check("pattern renamed", (c) => { if (c instanceof MapLRU) { const { tags: t } = c.meta; t.push(1); } }, (c) => c.meta.tags.length);
+  await check("for-of map entries", (c) => { if (c instanceof MapLRU) for (const [, list] of c.store) list.push(1); }, (c) => c.store.get("k")!.length);
+  await check("promise", async (c) => { if (c instanceof MapLRU) (await Promise.resolve(c.items)).push(1); }, len);
+}
+main();
+// expect:
+// map callback arr true
+// filter callback arr true
+// pattern first true
+// pattern nested true
+// pattern renamed true
+// for-of map entries true
+// promise true

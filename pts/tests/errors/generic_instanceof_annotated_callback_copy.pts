@@ -1,0 +1,47 @@
+// H10a review round 4 (R4-F2: a callback parameter annotated `any[]` that a method of an instanceof narrowing's member array hands the instance's typed rows would copy them, so PTS1001, not a silent copy); from the reviewer's probe s03b_bypass_paths.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// Conversion paths besides convert for a member tsc types any[] (c.items) of an inferred
+// narrowing, each followed by a write JS makes to the member itself. Node: every line "true".
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [[]];
+  seeded = 0;
+  meta: { tags: V[] } = { tags: [] };
+  store = new Map<K, V[]>();
+  constructor(public key: K, public val: V) {
+    this.store.set(key, []);
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  update(key: K, f: (old: V[]) => V[]): void {
+    this.store.set(key, f(this.store.get(key)!));
+  }
+}
+class Holder {
+  #list: any[] = [];
+  set list(v: any[]) {
+    this.#list = v;
+  }
+  get list(): any[] {
+    return this.#list;
+  }
+}
+class Base {
+  constructor(public kept: any[]) {}
+}
+function check(name: string, f: (c: Cache<string, number>) => void, seen: (c: MapLRU<string, number>) => number): void {
+  const m = new MapLRU<string, number>("k", 0);
+  try {
+    f(m);
+    console.log(name, seen(m) > 0);
+  } catch (e: any) {
+    console.log(name, "threw", e.message);
+  }
+}
+const len = (c: MapLRU<string, number>) => c.items.length - 1;
+check("forEach annotated row", (c) => { if (c instanceof MapLRU) c.matrix.forEach((row: any[]) => row.push(1)); }, (c) => c.matrix[0].length);

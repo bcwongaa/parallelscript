@@ -1,0 +1,32 @@
+// H10a review round 3 (R3-F2), one sink of the reviewer's probe r15_sinks_each.pts: local to any[] param. The member array (or a variable holding it) would be copied into an any[] place, which the write after it would miss, so PTS1001, not a silent copy.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a
+// Each sink alone: after the write, does the member see it? (Node: every line ends "true".)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  groups: { list: V[] }[] = [];
+  constructor(public key: K, public val: V) {
+    this.groups.push({ list: [] });
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Keeper {
+  kept: any[] = [];
+}
+function fillAny(a: any[]): void {
+  a.push(1);
+}
+const flag = Math.random() < 2;
+type Sink = (c: MapLRU<string, number>) => boolean;
+function make(name: string, f: (c: Cache<string, number>) => void, seen: (c: MapLRU<string, number>) => number): void {
+  const m = new MapLRU<string, number>("k", 0);
+  f(m);
+  console.log(name, seen(m) > 0);
+}
+const len = (c: MapLRU<string, number>) => c.items.length;
+
+make("local to any[] param", (c) => { if (c instanceof MapLRU) { const it = c.items; fillAny(it); } }, len);

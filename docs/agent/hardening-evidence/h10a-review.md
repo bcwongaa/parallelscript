@@ -302,3 +302,70 @@ All runs used `/tmp/h10/pts-fix3`, `pts-fix2` and `pts-base` (with `PTS_HOME` se
 ## Test quality
 - The new tests only bind members directly to locals. Nothing covers the R3-F2 sinks (conditional, `??`/`||`, `as`, default parameters, `||=`, `yield`, `await`, for…of destructuring, or onward flows of a dynamic local), or a generic function with two instances whose locals differ (R3-F1).
 - `r15_sinks_each.pts`, `r03_local_cache_silent.pts` and `r03b_local_cache_control.pts` are ready-made RED tests with Node's output.
+
+## Round 4: `77a63f2f6`
+
+NOT READY
+
+# H10a review, round 4: commit `77a63f2f6` (against `5e5f838b0`)
+
+R3-F1 is fixed, and the guard catches most round-3 sinks. Two blockers remain:
+- **Rejects code the base ran:** the new PTS1001 rejects programs with `unknown`, `catch` and `any` sources that compiled and printed what Node prints on the base and on fix3.
+- **Still silently loses writes:** six conversion paths bypass the guard, where the base threw a checked TypeError.
+
+All runs used `/tmp/h10/pts-fix4`, `pts-fix3` and `pts-base` (with `PTS_HOME` set) against Node on a `.mts` copy.
+- **Probes:** `/tmp/h10/review4/p/s*.pts`. `/tmp/h10/review4/bin/cmp.sh FILE [versions]` reprints the outputs.
+- **Archive:** `/tmp/h10/review4-probes.tar.gz`.
+
+## What holds (verified)
+- **Probe rerun:** I re-ran all round 1–3 probes on fix4 (`review4/rerun/`), and the results match your list.
+  - R3-F1 is fixed: r03 now prints Node's output. r02 and r02b both get the same PTS1001 as the base, so the result no longer depends on call order.
+  - Of r15's 14 sinks, 8 are now reported as PTS1001 (nullish, `as`, default parameter, `||=`, `any[]` parameter, field, array literal, annotated variable). Five now keep the object and run as Node (conditional, `||`, `satisfies`, for…of destructuring, local conditional, in `s07`). One still copies silently (shorthand, R4-F2).
+- **Matrix (3 jobs, `review4/matrix/fix4.jsonl`):** 622 OK, identical to fix3 case by case, none worse, no WRONG.
+- **emit-c sweep:** base vs fix4 over 488 programs (every generic-class or instanceof program outside the H10 tests).
+  - Changed: `generic_statics.pts` and `generic_narrowed_instances_wider_first.pts`, both newly changed in this round, plus round 3's two.
+  - All four only stop making an unused `Box<any>` class, because an `unknown` source narrowed to `Box<any>` now reads its members dynamically. Both new ones still print their expected output on fix4.
+- **Paths the guard handles honestly (PTS1001):** setters, `super(…)` arguments, `map` callbacks returning the member, `any[]` parameters (s03, s04).
+- **Paths that keep the object correctly:** `Object.assign` into the member, a typed callback parameter of a dynamic method call (s03b), and the destructuring forms `const [first] = …`, nested and renamed patterns, and `for (const [, list] of map)` (s06b).
+
+## Findings
+
+### R4-F1 (High, regression: programs that ran as Node on the base no longer compile): false-positive PTS1001s for `unknown`, `catch` and `any` sources
+- **Where:** `copiesInstanceofDynamicValue` (`instanceof.go`, called from `convert`). Its source test, `holdsInstanceofDynamicValue` through `isMemberOfNarrowedInstance`, also covers storedDynamic sources (`unknown`, `any`, a `catch` binding) narrowed by instanceof. On the base those members were D-179 copies, and programs that only read them printed what Node prints.
+- **s02_catch_generic_error.pts:** `catch (e) { if (e instanceof ApiError) return e.details; }`, from a function declared `: any[]`.
+  - Node, base and fix3: `[] [ 'name missing', 'age < 0' ]`.
+  - fix4: `PTS1001: using the object an instanceof narrowing holds as a dynamic value as a value[] where it may be changed or kept…`.
+- **s01_unknown_read_only.pts:** an `x: unknown` whose members are only read, through `return x instanceof Box ? x.items : []`, `const arr: any[] = x.items`, `r.rows = x.items`, `x.items ?? []`, an annotated object-type local, and `[1, 2].map(() => x.items)`.
+  - Node, base and fix3: `1 1 1 1 1 2 1 0`.
+  - fix4: six PTS1001s.
+- **s05_any_source_read_only.pts:** an `x: any` source, giving `itemsOf(x): any[]` and `const list: any[] = x.items`.
+  - Node, base and fix3: `[ 's' ] [] s`.
+  - fix4: two PTS1001s.
+- **Fix idea:** limit the guard to values H10a made dynamic: inferred members, uninferred references and their dynamic locals. Sources the base already held dynamically (storedDynamic `unknown`, `any`, `catch`) should keep D-179's copy, as they do outside instanceof.
+- For inferred and uninferred sources the same PTS1001 in unreached code is R3-F3's accepted trade-off. For these sources it isn't: the base compiled them and their reached branches ran as Node.
+
+### R4-F2 (High, regression: a checked TypeError became silently lost writes): six conversion paths still copy silently
+Every line here is Node `true`, fix4 `false`. The base threw `Expected MapLRU<any, any>` for each one.
+- **s03b_bypass_paths.pts:**
+  - a destructuring default: `const { tags = [] } = c.meta; tags.push(1)`. `bindingSource` returns nil for a binding element with an initializer, so `tags` is a typed `any[]` local and gets a copy;
+  - `forEach`'s third argument: `c.items.forEach((_x, _i, arr) => arr.push(1))`;
+  - an annotated callback parameter in a dynamic `forEach`: `c.matrix.forEach((row: any[]) => row.push(1))`.
+- **s06b_more_paths.pts:**
+  - the third argument of `map` and of `filter` (`(_x, _i, arr) => arr.push(1)`). The callback adapter of a dynamic array-method call converts the array to the closure's `value[]` parameter outside `convert`;
+  - `(await Promise.resolve(c.items)).push(1)`.
+- **s08_object_literal_forms.pts:** object-literal shorthand of a dynamic local, `const it = c.items; const o = { it }; o.it.push(1)`. It loses the write untyped, typed `{ it: number[] }`, and returned from an arrow.
+  - `s08b_object_literal_explicit.pts`: `{ it: it }` loses it too, except typed as `{ it: number[] }`.
+  - This is r15's "local shorthand" line. It sits in `errors/generic_instanceof_dynamic_value_sinks.pts`, whose other lines' PTS1001s hide it (see Test quality).
+- **s04b_field_from_any.pts:** a dynamic local stored in an `any` variable and later read by a field initializer `kept: any[] = pending`.
+  - fix4: `false`. Base: TypeError.
+  - The copy itself is D-179's general behaviour for `any` values (r06, no instanceof, does the same on the base). H10a now sends instance arrays into it where the base threw.
+
+### Notes
+- Things that run as Node on the base now behave differently in R4-F1's PTS1001s and in the four benign emit-c diffs (output unchanged). I found nothing else in the 488-program sweep or the matrix.
+- The guard makes no difference to the matrix: it is identical to fix3, since the matrix covers neither write-through-copy nor read-only `unknown` patterns.
+
+## Test quality
+- The three new error tests each assert one `// error:` substring. In `generic_instanceof_dynamic_value_sinks.pts`, the "local shorthand" sink still loses its write silently, and the other lines' errors hide it.
+- That file's header says every listed sink is PTS1001. In fact the conditional, `||`, `satisfies`, for…of destructuring and local-conditional sinks now compile and run as Node (`s07`), and the shorthand one copies.
+- Splitting it into one error test per sink, plus run tests for the sinks that now work, would catch both.
+- Nothing tests R4-F1's read-only `unknown`, `catch` and `any` sources. `s01`, `s02` and `s05` are ready as run tests with Node's output; all three pass on the base and fix3.

@@ -1,0 +1,22 @@
+// H10a review round 4 (R4-F1), the reviewer's probe s05_any_source_read_only.pts:
+// An `any` source narrowed by instanceof, its any[] member returned as any[] and only read
+// (D-179 copied it on the base, nobody wrote through it).
+class Box<T> {
+  items: T[] = [];
+  constructor(v: T) {
+    this.items.push(v);
+  }
+}
+function itemsOf(x: any): any[] {
+  if (x instanceof Box) return x.items;
+  return [];
+}
+function firstOf(x: any): unknown {
+  if (!(x instanceof Box)) return undefined;
+  const list: any[] = x.items;
+  return list[0];
+}
+const raw: any = new Box<string>("s");
+console.log(itemsOf(raw), itemsOf(1), firstOf(raw));
+// expect:
+// [ 's' ] [] s

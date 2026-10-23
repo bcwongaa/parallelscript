@@ -1,0 +1,34 @@
+// H10a review round 4 (R4-F1), the reviewer's probe s01_unknown_read_only.pts:
+// `unknown` sources narrowed by instanceof (D-179 dynamic values before H10) whose any[] and
+// object members go into typed places and are only read there: an annotated local, a
+// returned value, a field, a `??`, a conditional, a callback's result. On the base each was a
+// copy nobody wrote through, so the program printed what Node prints.
+class Box<T> {
+  items: T[] = [];
+  meta: { label: string; tags: T[] };
+  constructor(v: T) {
+    this.items.push(v);
+    this.meta = { label: "m", tags: [v] };
+  }
+}
+class Report {
+  rows: any[] = [];
+}
+const flag = Math.random() < 2;
+function itemsOf(x: unknown): any[] {
+  return x instanceof Box ? x.items : [];
+}
+function describe(x: unknown, r: Report): string {
+  if (!(x instanceof Box)) return "none";
+  const arr: any[] = x.items;
+  r.rows = x.items;
+  const fallback = x.items ?? [];
+  const either = flag ? x.items : [];
+  const meta: { label: string; tags: any[] } = x.meta;
+  const lists = [1, 2].map(() => x.items);
+  return `${arr.length} ${r.rows.length} ${fallback.length} ${either.length} ${meta.tags.length} ${lists.length}`;
+}
+const b = new Box<number>(7);
+console.log(describe(b, new Report()), itemsOf(b).length, itemsOf(3).length);
+// expect:
+// 1 1 1 1 1 2 1 0

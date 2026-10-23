@@ -152,11 +152,11 @@ func (l *lowerer) bindingSource(symbol *ast.Symbol) *ast.Node {
 	if declaration == nil || declaration.Name() == nil || declaration.Name().Kind != ast.KindIdentifier {
 		return nil
 	}
+	if declaration.Kind == ast.KindParameter {
+		return callbackSource(declaration)
+	}
 	for declaration.Kind == ast.KindBindingElement {
-		if declaration.Initializer() != nil {
-			return nil // a default, which the pattern may give instead
-		}
-		declaration = declaration.Parent.Parent // the pattern's declaration or binding element
+		declaration = declaration.Parent.Parent // the pattern's declaration or binding element; a default is a new value (R4-F2)
 	}
 	if declaration.Kind != ast.KindVariableDeclaration || declaration.Type() != nil {
 		return nil
@@ -173,33 +173,72 @@ func (l *lowerer) bindingSource(symbol *ast.Symbol) *ast.Node {
 // holdsInstanceofDynamicValue reports whether node gives a dynamic value that an instanceof
 // narrowing makes: a member tsc types with any of a reference whose narrowing is inferred
 // (isInstanceofDynamicMember), a reference whose narrowing isn't (isUninferredInstanceof) or
-// a member of one, or what a member access, element or call of one of these gives.
+// a member of one or of an `unknown` narrowed so (isMemberOfNarrowedInstance), or what a
+// member access, element, call, conditional, `??`, `||`, `as` or `await` of one gives.
 func (l *lowerer) holdsInstanceofDynamicValue(node *ast.Node) bool {
+	return l.instanceofDynamicSource(node, false)
+}
+
+// madeDynamicByInstanceof is holdsInstanceofDynamicValue for the values H10a made dynamic:
+// not the members of a variable declared `unknown` or `any` or of a `catch` binding, which
+// were dynamic values before and convert to typed places by copies, as D-179 says (R4-F1).
+func (l *lowerer) madeDynamicByInstanceof(node *ast.Node) bool {
+	return l.instanceofDynamicSource(node, true)
+}
+
+func (l *lowerer) instanceofDynamicSource(node *ast.Node, made bool) bool {
 	node = ast.SkipParentheses(node)
 	switch node.Kind {
 	case ast.KindIdentifier:
-		symbol := l.checker.GetSymbolAtLocation(node)
-		return symbol != nil && l.isInstanceofDynamicLocal(symbol) || l.isUninferredInstanceof(node)
+		return l.dynamicLocalSource(l.readSymbol(node), made) || l.isUninferredInstanceof(node) // readSymbol: also a shorthand property's variable
 	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
-		return l.isInstanceofDynamicMember(node) || l.isUninferredInstanceof(node) || l.isMemberOfNarrowedInstance(node) || l.holdsInstanceofDynamicValue(node.Expression())
+		switch {
+		case l.isInstanceofDynamicMember(node) || l.isUninferredInstanceof(node):
+			return true
+		case l.isMemberOfNarrowedInstance(node):
+			return !made || l.isUninferredInstanceof(ast.SkipParentheses(node.Expression())) || l.instanceofDynamicSource(node.Expression(), true)
+		}
+		return l.instanceofDynamicSource(node.Expression(), made)
 	case ast.KindCallExpression:
 		callee := ast.SkipParentheses(node.Expression())
-		return l.isInstanceofDynamicMember(node) || ast.IsAccessExpression(callee) && l.holdsInstanceofDynamicValue(callee.Expression())
+		if l.isInstanceofDynamicMember(node) || ast.IsAccessExpression(callee) && l.instanceofDynamicSource(callee.Expression(), made) {
+			return true
+		}
+		// `Promise.resolve(c.items)`, whose awaited value is the array (R4-F2)
+		return callee.Kind == ast.KindPropertyAccessExpression && l.isPromiseConstructor(callee.Expression()) && callee.AsPropertyAccessExpression().Name().Text() == "resolve" &&
+			len(node.Arguments()) == 1 && l.instanceofDynamicSource(node.Arguments()[0], made)
 	case ast.KindNonNullExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindTypeAssertionExpression, ast.KindAwaitExpression:
-		return l.holdsInstanceofDynamicValue(node.Expression())
+		return l.instanceofDynamicSource(node.Expression(), made)
+	case ast.KindPropertyAssignment:
+		return l.instanceofDynamicSource(node.Initializer(), made) // an object literal's `it: it`
+	case ast.KindShorthandPropertyAssignment:
+		return l.dynamicLocalSource(l.checker.GetShorthandAssignmentValueSymbol(node), made) // `{ it }`
 	case ast.KindConditionalExpression:
 		conditional := node.AsConditionalExpression()
-		return l.holdsInstanceofDynamicValue(conditional.WhenTrue) || l.holdsInstanceofDynamicValue(conditional.WhenFalse)
+		return l.instanceofDynamicSource(conditional.WhenTrue, made) || l.instanceofDynamicSource(conditional.WhenFalse, made)
 	case ast.KindBinaryExpression:
 		expr := node.AsBinaryExpression()
 		switch op := expr.OperatorToken.Kind; {
 		case op == ast.KindQuestionQuestionToken || op == ast.KindBarBarToken || op == ast.KindAmpersandAmpersandToken:
-			return l.holdsInstanceofDynamicValue(expr.Left) || l.holdsInstanceofDynamicValue(expr.Right)
+			return l.instanceofDynamicSource(expr.Left, made) || l.instanceofDynamicSource(expr.Right, made)
 		case op == ast.KindCommaToken || ast.IsAssignmentOperator(op):
-			return l.holdsInstanceofDynamicValue(expr.Right)
+			return l.instanceofDynamicSource(expr.Right, made)
 		}
 	}
 	return false
+}
+
+// dynamicLocalSource reports whether symbol is a variable isInstanceofDynamicLocal holds,
+// whose value an instanceof narrowing made dynamic if made says so.
+func (l *lowerer) dynamicLocalSource(symbol *ast.Symbol, made bool) bool {
+	if symbol == nil || !l.isInstanceofDynamicLocal(symbol) {
+		return false
+	}
+	if !made {
+		return true
+	}
+	source := l.bindingSource(symbol)
+	return source != nil && l.instanceofDynamicSource(source, true)
 }
 
 // copiesInstanceofDynamicValue reports whether converting value, the lowered node, to target
@@ -215,7 +254,7 @@ func (l *lowerer) copiesInstanceofDynamicValue(value ir.Expr, target ir.Type, no
 		node = ast.SkipParentheses(node)
 	}
 	return value.Type() == ir.Value && target != ir.Value && !isCheckable(target) && !isFunction(target) &&
-		holdsDynamicValues(target, map[ir.Type]bool{}) && node != nil && l.holdsInstanceofDynamicValue(node) && !l.isReadOnlyArgument(node) && !isReadOnlyParallelView(node)
+		holdsDynamicValues(target, map[ir.Type]bool{}) && node != nil && l.madeDynamicByInstanceof(node) && !l.isReadOnlyArgument(node) && !isReadOnlyParallelView(node)
 }
 
 // isReadOnlyParallelView reports whether node is the array of a `.par` view whose method
@@ -234,7 +273,7 @@ func (l *lowerer) isInstanceofDynamicLocalRef(node *ast.Node) bool {
 	if node = ast.SkipParentheses(node); node.Kind != ast.KindIdentifier {
 		return false
 	}
-	symbol := l.checker.GetSymbolAtLocation(node)
+	symbol := l.readSymbol(node) // also `{ it }`'s variable
 	return symbol != nil && l.isInstanceofDynamicLocal(symbol)
 }
 
@@ -621,4 +660,49 @@ func (l *lowerer) mentionsPrototypeInstance(t *checker.Type) bool {
 // reportInstanceofCopy reports, at node, the copy copiesInstanceofDynamicValue finds.
 func (l *lowerer) reportInstanceofCopy(target ir.Type, node *ast.Node) {
 	l.notSupportedYet(node, fmt.Sprintf("using the object an `instanceof` narrowing holds as a dynamic value as a %s where it may be changed or kept (a copy wouldn't show the changes; one passed to a parameter that is only read is copied) is", target))
+}
+
+// callbackSource is, for a parameter declared without a type of a function or arrow written
+// as an argument of a method call (`c.items.forEach((x, i, arr) => …)`), the call's receiver,
+// whose items and self the method hands its callback; otherwise nil.
+func callbackSource(parameter *ast.Node) *ast.Node {
+	fn := parameter.Parent
+	if parameter.Type() != nil || fn.Kind != ast.KindArrowFunction && fn.Kind != ast.KindFunctionExpression {
+		return nil
+	}
+	argument := fn
+	for argument.Parent.Kind == ast.KindParenthesizedExpression {
+		argument = argument.Parent
+	}
+	call := argument.Parent
+	if call.Kind != ast.KindCallExpression || !slices.Contains(call.Arguments(), argument) {
+		return nil
+	}
+	callee := ast.SkipParentheses(call.Expression())
+	if !ast.IsAccessExpression(callee) {
+		return nil
+	}
+	return callee.Expression()
+}
+
+// isCopiedCallbackParameter reports whether parameter, declared with a type that holds
+// dynamic values (`(row: any[]) => …`), is a parameter of a callback that a method of a
+// dynamic value an instanceof narrowing makes is given (madeDynamicByInstanceof): the
+// method hands it the instance's typed objects, which its type would copy (R4-F2).
+func (l *lowerer) isCopiedCallbackParameter(parameter *ast.Node, t ir.Type) bool {
+	if parameter.Type() == nil || t == nil || t == ir.Value || isCheckable(t) || isFunction(t) || !holdsDynamicValues(t, map[ir.Type]bool{}) {
+		return false
+	}
+	fn := parameter.Parent
+	if fn.Kind != ast.KindArrowFunction && fn.Kind != ast.KindFunctionExpression {
+		return false
+	}
+	call := fn.Parent
+	for call.Kind == ast.KindParenthesizedExpression {
+		call = call.Parent
+	}
+	if call.Kind != ast.KindCallExpression || !ast.IsAccessExpression(ast.SkipParentheses(call.Expression())) {
+		return false
+	}
+	return l.madeDynamicByInstanceof(ast.SkipParentheses(call.Expression()).Expression())
 }

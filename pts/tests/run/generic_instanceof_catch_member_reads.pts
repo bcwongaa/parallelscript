@@ -1,0 +1,24 @@
+// H10a review round 4 (R4-F1), the reviewer's probe s02_catch_generic_error.pts:
+// A generic error class caught (`catch (e)`, unknown) and narrowed by instanceof, whose
+// details are returned as any[] and logged: ran as Node on the base.
+class ApiError<T> extends Error {
+  constructor(message: string, public details: T[]) {
+    super(message);
+  }
+}
+function call(fail: boolean): number {
+  if (fail) throw new ApiError<string>("bad request", ["name missing", "age < 0"]);
+  return 1;
+}
+function detailsOf(fail: boolean): any[] {
+  try {
+    call(fail);
+    return [];
+  } catch (e) {
+    if (e instanceof ApiError) return e.details;
+    throw e;
+  }
+}
+console.log(detailsOf(false), detailsOf(true));
+// expect:
+// [] [ 'name missing', 'age < 0' ]

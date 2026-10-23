@@ -1,0 +1,24 @@
+// H10a review round 4 (R4-F2: an object literal's shorthand or explicit property of a variable holding an instanceof narrowing's dynamic value would copy it into the literal's any[] field, so PTS1001, not a silent copy); the reviewer's probe s08_object_literal_forms.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+// A dynamic local (`const it = c.items`) and the member itself put into object literals:
+// shorthand, explicit property, a typed object type, then written through the object.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function check(name: string, f: (c: Cache<string, number>) => void): void {
+  const m = new MapLRU<string, number>("k", 0);
+  f(m);
+  console.log(name, m.items.length > 1);
+}
+check("shorthand", (c) => { if (c instanceof MapLRU) { const it = c.items; const o = { it }; o.it.push(1); } });
+check("shorthand typed", (c) => { if (c instanceof MapLRU) { const it = c.items; const o: { it: number[] } = { it }; o.it.push(1); } });
+check("shorthand returned", (c) => { if (c instanceof MapLRU) { const it = c.items; const mk = () => ({ it }); mk().it.push(1); } });

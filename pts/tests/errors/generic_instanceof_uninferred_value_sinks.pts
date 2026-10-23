@@ -1,4 +1,4 @@
-// H10a review round 3 (R3-F2: the same through an uninferred narrowing (a Shape source) and an unknown one); the reviewer's probe r11_uninferred_sinks.pts.
+// H10a review round 3 (R3-F2: through an uninferred narrowing, a Shape source, and an unknown one: `s.items ?? []` would copy the member array, so PTS1001, not a silent copy; the conditional and for…of destructuring sinks keep the object); the reviewer's probe r11_uninferred_sinks.pts.
 // error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
 // The conditional, ?? and for…of-destructuring sinks for an uninferred narrowing (a plain
 // base class) and an `unknown` source.

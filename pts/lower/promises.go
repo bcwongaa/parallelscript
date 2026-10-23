@@ -98,7 +98,9 @@ func (l *lowerer) awaitPoint(node *ast.Node) ([]ir.Stmt, ir.Expr) {
 		return nil, nil
 	}
 	var value ir.Expr = &ir.Resumed{}
-	if t != ir.Void && t != ir.Undefined && t != ir.Value {
+	if t != ir.Void && t != ir.Undefined && t != ir.Value && !(holdsDynamicValues(t, map[ir.Type]bool{}) && l.madeDynamicByInstanceof(node)) {
+		// (an awaited array of an instance an instanceof narrowing holds stays the array, a
+		// dynamic value that a typed place converts with D-218's check, H10a)
 		if value = l.checkedConversion(value, t, node); value == nil {
 			return nil, nil
 		}

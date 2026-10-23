@@ -1311,6 +1311,11 @@ func parameterSymbol(node *ast.Node) *ast.Symbol {
 // undefined, and a Given flag (D-055).
 func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	param := node.AsParameterDeclaration()
+	if param.Name().Kind == ast.KindIdentifier {
+		if symbol := l.checker.GetSymbolAtLocation(param.Name()); symbol != nil && l.isInstanceofDynamicLocal(symbol) {
+			return ir.Value // `arr` of `c.items.forEach((x, i, arr) => …)` (R4-F2)
+		}
+	}
 	var t *checker.Type
 	switch {
 	case param.DotDotDotToken != nil:
@@ -1329,7 +1334,12 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	if passedOrNot(node) {
 		t = l.checker.RemoveMissingOrUndefinedType(t)
 	}
-	return l.irType(t, param.Name())
+	irt := l.irType(t, param.Name())
+	if l.isCopiedCallbackParameter(node, irt) {
+		l.reportInstanceofCopy(irt, node) // `c.matrix.forEach((row: any[]) => row.push(1))` (R4-F2)
+		return nil
+	}
+	return irt
 }
 
 // passedOrNot reports whether a parameter declaration (node) holds undefined only when
