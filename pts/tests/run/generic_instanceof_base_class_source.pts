@@ -1,0 +1,81 @@
+// H10 (C10): `o instanceof Some` for an `o: Option<number>` (a generic base class) narrows o
+// in tsc's types to Some<any>, which extends Option<any>, not Option<number>: PTS1001
+// "using a `Option` as a `Some`" where Node runs. The same for a concrete generic base that
+// declares the field read (`Base<number>` as `Base<any>`, "using a `Base` as a `Base`"), a
+// two-level chain, and a subclass that passes the base other arguments (`ListBag<A>
+// extends Bag<A[]>`). The subclass's type arguments follow from the base's.
+abstract class Option<T> {
+  abstract isSome(): boolean;
+}
+class Some<T> extends Option<T> {
+  constructor(public value: T) {
+    super();
+  }
+  isSome(): boolean {
+    return true;
+  }
+  map<R>(f: (v: T) => R): Some<R> {
+    return new Some(f(this.value));
+  }
+}
+class None<T> extends Option<T> {
+  isSome(): boolean {
+    return false;
+  }
+}
+function unwrap(o: Option<number>): number {
+  if (o instanceof Some) return o.value * 2;
+  return -1;
+}
+function describe(o: Option<string>): string {
+  if (!(o instanceof Some)) return "none";
+  o.value = o.value.toUpperCase();
+  return `some(${o.value}) ${o.map((s) => s.length).value}`;
+}
+console.log(unwrap(new Some(21)), unwrap(new None<number>()), unwrap(new Some(0.25)));
+console.log(describe(new Some("abc")), describe(new None<string>()));
+
+class Base<T> {
+  constructor(public val: T) {}
+}
+class Derived<T> extends Base<T> {
+  hits = 0;
+  read(): T {
+    this.hits++;
+    return this.val;
+  }
+}
+class Leaf<T> extends Derived<T> {
+  tag = "leaf";
+}
+function viaBase(b: Base<number>): string {
+  if (b instanceof Derived) {
+    b.val += 0.5;
+    return `derived ${b.val} ${b.read()} ${b.hits}`;
+  }
+  return `base ${b.val}`;
+}
+function viaChain(b: Base<number>): string {
+  return b instanceof Leaf ? `leaf ${b.tag} ${b.read() + 1} ${b.hits}` : "not a leaf";
+}
+console.log(viaBase(new Derived(1)), viaBase(new Base(2)), viaChain(new Leaf(3)), viaChain(new Derived(4)));
+
+class Bag<T> {
+  constructor(public contents: T) {}
+}
+class ListBag<A> extends Bag<A[]> {
+  constructor(public first: A) {
+    super([first]);
+  }
+  add(a: A): number {
+    return this.contents.push(a);
+  }
+}
+function fill(b: Bag<number[]>): string {
+  if (b instanceof ListBag) {
+    b.add(b.first + 1);
+    return `${b.first} ${b.contents}`;
+  }
+  return `bag ${b.contents}`;
+}
+console.log(fill(new ListBag(10)), fill(new Bag([1, 2])));

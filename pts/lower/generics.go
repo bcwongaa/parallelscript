@@ -548,7 +548,11 @@ func (l *lowerer) typeAt(node *ast.Node) *checker.Type {
 		// marks its type as possibly undefined for the chain's sake (`s?.split(",")[0]`).
 		return l.instantiate(l.checker.GetNonOptionalType(l.checker.GetTypeAtLocation(node)))
 	}
-	return l.instantiate(l.checker.GetTypeAtLocation(node))
+	t := l.instantiate(l.checker.GetTypeAtLocation(node))
+	if instance := l.instanceofInstance(node, t); instance != nil {
+		return instance // `x` after `x instanceof C`, as its declared type implies C's type arguments (H10)
+	}
+	return t
 }
 
 func (l *lowerer) typeOfSymbol(symbol *ast.Symbol) *checker.Type {

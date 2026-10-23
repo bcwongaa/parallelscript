@@ -127,6 +127,8 @@ func effectsOf(expr ir.Expr) effects {
 		return effectsOf(x.X)
 	case *ir.InstanceOf:
 		return effectsOf(x.X) // an instance's class never changes
+	case *ir.FamilyField:
+		return effectsOf(x.X) | mayThrow // a TypeError for an object of another class
 	case *ir.Binary:
 		f := effectsOf(x.X) | effectsOf(x.Y)
 		if ir.IsInteger(x.X.Type()) && (x.Op == ir.Div || x.Op == ir.Rem || x.Op == ir.Pow) {

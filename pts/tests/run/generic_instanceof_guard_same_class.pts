@@ -1,0 +1,59 @@
+// Guard (H10): `instanceof` a generic class on a union of the class's own instance and other
+// classes (`MapLRU<string, number> | Other<string, number>`, `Box<number> | Pair<string,
+// number>`), or on the class's instance itself: tsc keeps the instance (MapLRU<string,
+// number>), every use is typed, and the value flows out of the branch (a copy, a return, an
+// array, a generic call, find and filter). These worked before H10 and must keep working.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+class Box<T> {
+  constructor(public v: T) {}
+}
+class Pair<A, B> {
+  constructor(public a: A, public b: B) {}
+}
+function ident<T>(t: T): T {
+  return t;
+}
+function pick(c: MapLRU<string, number> | Other<string, number>): MapLRU<string, number> | undefined {
+  if (c instanceof MapLRU) {
+    c.hits++;
+    c.items.push(c.val + 1);
+    const copy = c;
+    const arr = [c];
+    console.log("union", copy.val, arr[0].items, ident(c).key, c.get("k"));
+    return c;
+  }
+  return undefined;
+}
+function inferred(c: MapLRU<string, number> | Other<string, number>) {
+  return c instanceof MapLRU ? c : undefined;
+}
+function self(c: MapLRU<string, number>): number {
+  return c instanceof MapLRU ? c.val * 2 : -1;
+}
+function pair(x: Box<number> | Pair<string, number>): string {
+  if (x instanceof Pair) return `pair ${x.a} ${x.b + 1}`;
+  return `box ${x.v}`;
+}
+const m = new MapLRU("k", 1.5);
+const o = new Other<string, number>();
+console.log(pick(m)?.hits, pick(o), inferred(m)?.val, inferred(o), self(m), pair(new Box(1)), pair(new Pair("a", 2)));
+const all: (MapLRU<string, number> | Other<string, number>)[] = [o, m];
+console.log("find", all.find((c) => c instanceof MapLRU)?.val, all.filter((c) => c instanceof MapLRU).length);
+console.log("after", m.hits, m.items);

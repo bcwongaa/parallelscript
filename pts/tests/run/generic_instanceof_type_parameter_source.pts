@@ -1,0 +1,30 @@
+// H10 (C10): `x instanceof MapLRU` for an `x: S` with `S extends Cache<string, number>`
+// narrows x to `S & MapLRU<any, any>`. For S = Other<string, number> the branch can't run
+// (no object is both an Other and a MapLRU), yet its instance was PTS1001 "using a `Other`
+// as a `MapLRU`"; for S = Cache<string, number> each use threw TypeError where Node goes on.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function probe<S extends Cache<string, number>>(x: S): string {
+  if (x instanceof MapLRU) {
+    x.hits++;
+    return `lru ${x.val + 0.5} ${x.hits}`;
+  }
+  return "other";
+}
+const m = new MapLRU("k", 1);
+console.log(probe(m), probe(new Other<string, number>()));
+console.log(probe<Cache<string, number>>(m), probe<Cache<string, number>>(new Other<string, number>()));
+console.log("after", m.hits);

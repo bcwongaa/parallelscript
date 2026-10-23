@@ -1,0 +1,64 @@
+// Guard (H10): `instanceof` a non-generic class from an interface it implements, a base
+// class or Error: tsc's narrowed type is the class itself, and every use and flow out of the
+// branch is typed (checked downcasts, D-149). These worked before H10 and must keep working.
+interface NCache {
+  get(key: string): number | undefined;
+}
+class NMap implements NCache {
+  hits = 0;
+  items: number[] = [];
+  constructor(public key: string, public val: number) {
+    this.items.push(val);
+  }
+  get(key: string): number | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class NOther implements NCache {
+  get(_key: string): number | undefined {
+    return undefined;
+  }
+}
+class Shape {
+  area(): number {
+    return 0;
+  }
+}
+class Square extends Shape {
+  constructor(public side: number) {
+    super();
+  }
+  area(): number {
+    return this.side * this.side;
+  }
+}
+class NotFound extends Error {
+  constructor(public path: string) {
+    super(`not found: ${path}`);
+  }
+}
+function ident<T>(t: T): T {
+  return t;
+}
+function viaInterface(c: NCache) {
+  if (c instanceof NMap) {
+    c.hits++;
+    c.items.push(c.val + 0.5);
+    const copy = c;
+    console.log("interface", copy.val, [c][0].items, ident(c).key, c.get("k"), c.hits);
+    return c;
+  }
+  return undefined;
+}
+function viaBase(s: Shape): number {
+  return s instanceof Square ? s.side + s.area() : -1;
+}
+function viaError(e: Error): string {
+  return e instanceof NotFound ? `${e.path} ${e.message}` : e.message;
+}
+const n = new NMap("k", 2);
+console.log(viaInterface(n)?.hits, viaInterface(new NOther()), viaBase(new Square(3)), viaBase(new Shape()));
+console.log(viaError(new NotFound("/x")), viaError(new Error("plain")));
+const caches: NCache[] = [new NOther(), n];
+console.log("find", caches.find((c) => c instanceof NMap)?.val, caches.filter((c) => c instanceof NMap).length);
+console.log("after", n.hits, n.items);

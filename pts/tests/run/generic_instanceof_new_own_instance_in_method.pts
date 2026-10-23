@@ -1,0 +1,13 @@
+// H10 (found by its reproducer): a generic class's method that makes an instance of its own
+// class for other type arguments, here without `instanceof`: the lowering made the new
+// instance (and declared its methods) in the middle of the method's body, after which the
+// method's own parameter was PTS1001 "using `o` from outside the function" where Node runs.
+// This is what `instanceof` its own class inside a method meets (the instance for any).
+class Box<T> {
+  constructor(public val: T) {}
+  make(o: number): number {
+    const b = new Box<boolean>(true);
+    return o + (b.val ? 1 : 0);
+  }
+}
+console.log(new Box<number>(7).make(1));

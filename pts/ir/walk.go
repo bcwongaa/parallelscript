@@ -107,6 +107,8 @@ func children(x Expr) []Expr {
 		return []Expr{x.X}
 	case *InstanceOf:
 		return []Expr{x.X}
+	case *FamilyField:
+		return []Expr{x.X}
 	case *Binary:
 		return []Expr{x.X, x.Y}
 	case *Unary:

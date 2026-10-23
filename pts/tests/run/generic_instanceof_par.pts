@@ -1,0 +1,40 @@
+// skip: H10b: `filter` with an inferred instanceof predicate and `[c, c, c]` make MapLRU<any, any> places (values that flow out of the narrowing)
+// H10 (C10): elements narrowed by `instanceof` to a generic class from an interface, read in
+// `.par` callbacks on other threads: tsc's element type is MapLRU<any, any>, and the checked
+// conversion threw TypeError. The expected lines are Node's for the sequential twin (`.par.`
+// made `.`).
+// threads: 1 2 4
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+const caches: Cache<string, number>[] = [];
+for (let i = 0; i < 40; i++) caches.push(i % 4 === 0 ? new Other<string, number>() : new MapLRU(`k${i}`, i + 0.5));
+const lrus = caches.filter((c) => c instanceof MapLRU);
+console.log("count", lrus.length);
+console.log("vals", lrus.par.map((m) => m.val * 2).reduce((a, b) => a + b, 0));
+console.log("gets", lrus.par.map((m) => m.get(m.key)).join(",").length);
+function first(c: Cache<string, number>): number {
+  if (c instanceof MapLRU) {
+    const all = [c, c, c];
+    return all.par.map((m) => m.val + 1).reduce((a, b) => a + b, 0);
+  }
+  return 0;
+}
+console.log("first", first(caches[1]));
+// expect:
+// count 30
+// vals 1230
+// gets 142
+// first 7.5

@@ -1,0 +1,89 @@
+// H10 (C10): the class's type arguments as they relate to the source's: a class that passes
+// the interface a fixed argument (`StrCache<V> implements Cache<string, V>`), its parameters
+// in another order (`Flip<V, K> implements Cache<K, V>`), wrapped (`Sub<A> implements
+// Holder<A[]>`), through a superclass (`LeafCache<V> extends MidCache<V>`), one the source
+// doesn't mention (`Tagged<T, Extra>`), and element types other than numbers. tsc narrows each
+// to the instance for any; each use threw TypeError where Node goes on.
+class Box<T> {
+  constructor(public inner: T) {}
+}
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+interface Holder<T> {
+  first(): T | undefined;
+}
+class StrCache<V> implements Cache<string, V> {
+  constructor(public val: V) {}
+  get(_key: string): V | undefined {
+    return this.val;
+  }
+}
+class Flip<V, K> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Sub<A> implements Holder<A[]> {
+  items: A[] = [];
+  constructor(first: A) {
+    this.items.push(first);
+  }
+  first(): A[] | undefined {
+    return this.items;
+  }
+}
+class MidCache<V> implements Cache<string, V> {
+  get(_key: string): V | undefined {
+    return undefined;
+  }
+}
+class LeafCache<V> extends MidCache<V> {
+  constructor(public val: V) {
+    super();
+  }
+}
+class Tagged<T, Extra> implements Cache<string, T> {
+  extra: Extra | undefined = undefined;
+  constructor(public val: T) {}
+  get(_key: string): T | undefined {
+    return this.val;
+  }
+}
+function viaCache(c: Cache<string, number>): string {
+  if (c instanceof StrCache) return `str ${c.val + 1}`;
+  if (c instanceof Flip) return `flip ${c.key} ${c.val * 2}`;
+  if (c instanceof LeafCache) return `leaf ${c.val - 1}`;
+  if (c instanceof Tagged) return `tagged ${c.val} ${c.extra}`;
+  return "other";
+}
+console.log(viaCache(new StrCache(1.5)), viaCache(new Flip("f", 2)), viaCache(new LeafCache(3)), viaCache(new Tagged<number, boolean>(4)));
+function viaHolder(h: Holder<number[]>): string {
+  if (h instanceof Sub) {
+    h.items.push(h.items[0] + 1);
+    return `sub ${h.items}`;
+  }
+  return "other";
+}
+console.log(viaHolder(new Sub(5)));
+function strings(c: Cache<string, string>): string {
+  return c instanceof StrCache ? c.val.toUpperCase() : "";
+}
+function booleans(c: Cache<string, boolean>): boolean {
+  return c instanceof StrCache ? !c.val : false;
+}
+function objects(c: Cache<string, { id: number }>): number {
+  return c instanceof StrCache ? c.val.id + 1 : 0;
+}
+function arrays(c: Cache<string, number[]>): number {
+  return c instanceof StrCache ? c.val.reduce((a: number, b: number) => a + b, 0) : 0;
+}
+function boxes(c: Cache<string, Box<number>>): number {
+  return c instanceof StrCache ? c.val.inner * 2 : 0;
+}
+function literals(c: Cache<string, "a" | "b">): string {
+  return c instanceof StrCache ? (c.val === "a" ? "is a" : "is b") : "";
+}
+console.log(strings(new StrCache("s")), booleans(new StrCache(false)), objects(new StrCache({ id: 6 })));
+console.log(arrays(new StrCache([1, 2, 3.5])), boxes(new StrCache(new Box(7))), literals(new StrCache<"a" | "b">("b")));

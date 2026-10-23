@@ -234,6 +234,8 @@ func (l *lowerer) narrowedValue(node *ast.Node, x ir.Expr) ir.Expr {
 		switch {
 		case narrow == nil || narrow == ir.Value:
 			return x
+		case l.isMemberOfNarrowedInstance(node):
+			return x // a member of an instance, which may be a typed array: the object itself, converted where it goes (H10)
 		case isDynamicData(narrow):
 			return &ir.FromUnion{X: x, To: narrow} // `Array.isArray(json)`: the array itself, checked (D-089)
 		case l.storedDynamic(node) || isDynamicCollection(narrow):
@@ -264,7 +266,7 @@ func (l *lowerer) isContainerType(t *checker.Type) bool {
 // are, so writes reach it as in JS (D-179). `Array.isArray(json)`'s `any[]` is the array
 // itself (D-089).
 func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
-	if !l.storedDynamic(node) {
+	if !l.storedDynamic(node) && !l.isUninferredInstanceof(node) {
 		return false
 	}
 	t := l.typeAt(node)
@@ -272,7 +274,7 @@ func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
 		return false
 	}
 	narrow := l.irType(t, node)
-	return narrow != nil && narrow != ir.Value && !isDynamicData(narrow)
+	return narrow != nil && narrow != ir.Value && (!isDynamicData(narrow) || l.isMemberOfNarrowedInstance(node))
 }
 
 // narrowedMember reads `o.p` or `o[k]` (node) of a dynamic value o that tsc narrowed

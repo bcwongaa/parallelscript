@@ -1,0 +1,81 @@
+// H10 (C10): the narrowing forms that make tsc's MapLRU<any, any> for a Cache<string, number>
+// reference: an early return, a conditional, `&&`, `switch (true)`, a property (`h.c`,
+// `this.cache`), an element (`arr[0]`), a parameter captured by a closure, and a guard
+// function whose predicate TS 5.5 infers. Each use threw TypeError where Node goes on. (A
+// const copied from the narrowed parameter is a value that flows out of the narrowing, H10b:
+// generic_instanceof_flows_out.pts.)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function early(c: Cache<string, number>): string {
+  if (!(c instanceof MapLRU)) return "early: other";
+  c.hits++;
+  return `early: ${c.val} ${c.hits}`;
+}
+function conditional(c: Cache<string, number>): string {
+  return c instanceof MapLRU ? `cond: ${c.val + 0.5}` : "cond: other";
+}
+function and(c: Cache<string, number>): string {
+  return String(c instanceof MapLRU && c.val > 1 && c.key);
+}
+function switched(c: Cache<string, number>): string {
+  switch (true) {
+    case c instanceof MapLRU:
+      return `switch: ${c.get(c.key)}`;
+    default:
+      return "switch: other";
+  }
+}
+function property(h: { c: Cache<string, number> }): string {
+  if (h.c instanceof MapLRU) {
+    h.c.val = h.c.val * 3;
+    return `property: ${h.c.val}`;
+  }
+  return "property: other";
+}
+class Owner {
+  constructor(public cache: Cache<string, number>) {}
+  run(): string {
+    if (this.cache instanceof MapLRU) {
+      this.cache.hits += 2;
+      return `this: ${this.cache.hits} ${this.cache.val}`;
+    }
+    return "this: other";
+  }
+}
+function element(arr: Cache<string, number>[]): string {
+  return arr[0] instanceof MapLRU ? `element: ${arr[0].val} ${arr[0].key}` : "element: other";
+}
+function closures(c: Cache<string, number>): string {
+  if (c instanceof MapLRU) {
+    const viaParam = () => c.key + c.val;
+    const scaled = () => c.val * 10;
+    return `closures: ${scaled()} ${viaParam()}`;
+  }
+  return "closures: other";
+}
+function isLRU(c: Cache<string, number>) {
+  return c instanceof MapLRU;
+}
+function guarded(c: Cache<string, number>): string {
+  return isLRU(c) ? `guard: ${c.val} ${c.hits}` : "guard: other";
+}
+const m = new MapLRU("k", 2);
+const o = new Other<string, number>();
+for (const c of [m, o]) {
+  console.log(early(c), conditional(c), and(c), switched(c), property({ c }), new Owner(c).run());
+  console.log(element([c]), closures(c), guarded(c));
+}
+console.log("after", m.val, m.hits);

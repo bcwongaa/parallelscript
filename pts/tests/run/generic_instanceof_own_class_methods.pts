@@ -1,0 +1,27 @@
+// H10 (C10): `instanceof` its own class inside a generic class's method (`equals(o: object)`,
+// `peek(o: Cache<K, V>)` reading a #private field): tsc's narrowed type is the class's
+// instance for any, which the lowering made in the middle of the method's body, and the
+// method's parameter then failed: PTS1001 "using `o` from outside the function" where Node
+// runs. (Any instance of the class made in the middle of one of its methods did that:
+// generic_instanceof_new_own_instance_in_method.pts.)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  #secret: V;
+  constructor(public key: K, public val: V) {
+    this.#secret = val;
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  equals(o: object): boolean {
+    return o instanceof MapLRU && o.key === this.key && o.val === this.val;
+  }
+  peek(o: Cache<K, V>): V | undefined {
+    return o instanceof MapLRU ? o.#secret : undefined;
+  }
+}
+const a = new MapLRU("k", 1.5);
+console.log(a.equals(new MapLRU("k", 1.5)), a.equals(new MapLRU("k", 2)), a.equals({}));
+console.log(a.peek(a), a.peek({ get: () => 3 }));

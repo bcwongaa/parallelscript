@@ -1079,6 +1079,48 @@ console.log(one.value, new Holder<1>(1).pick(new Box("s")).value, new Holder<num
 	assert.Equal(t, strings.Count(shared.String(), "class Holder {"), 1)
 }
 
+func TestInstanceofNarrowsToTheInstanceTheDeclaredTypeImplies(t *testing.T) {
+	t.Parallel()
+	// H10: `x instanceof C` for a generic class C narrows x to C<any, …> in tsc's types
+	// where x's declared type isn't C or derived from it. The reference is the instance of C
+	// for the type arguments the declared type implies, through an implements clause
+	// (MapLRU<string, number> for a Cache<string, number>) or an extends clause
+	// (Some<number> for an Option<number>), and no instance for any is made.
+	source := `interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  evictions: K[] = [];
+  constructor(private key: K, private value: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.value : undefined;
+  }
+}
+abstract class Option<T> {}
+class Some<T> extends Option<T> {
+  constructor(public value: T) {
+    super();
+  }
+}
+function read(cache: Cache<string, number>, o: Option<number>): number {
+  if (cache instanceof MapLRU && o instanceof Some) return cache.evictions.length + o.value;
+  return 0;
+}
+console.log(read(new MapLRU("a", 1), new Some(2)));
+`
+	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	program, errors := frontend.Load(t.Context(), fs, "/p/main.pts")
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	info, errors := check.Program(t.Context(), program)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	lowered, errors, _ := lower.ProgramWith(t.Context(), program, info, lower.AllInstances, nil)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	got := lowered.String()
+	assert.Equal(t, strings.Count(got, "class MapLRU {"), 1, got)
+	assert.Assert(t, strings.Contains(got, "class MapLRU { key: string; value: number; evictions: string[] }"), got)
+	assert.Equal(t, strings.Count(got, "class Some extends Option { value: number }"), 1, got)
+}
+
 func TestParametersWithDefaultsTakeAFlagThatSaysWhetherTheCallPassedThem(t *testing.T) {
 	t.Parallel()
 	got := lowerValid(t, `function greet(name: string, greeting = "Hello"): string {

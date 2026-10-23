@@ -1,0 +1,27 @@
+// H10 (C10): an `x: unknown` narrowed by `instanceof` to Box<any> stays a dynamic value whose
+// members are found at run time (D-179), but each read of its typed array field converted
+// the field (a number[]) to the any instance's any[], a copy: `x.items.push(8)` and
+// `x.items[0] = 70` changed the copy and were lost, and `x.items === x.items` was false,
+// silently, where Node changes the object's array. (Binding the field to a local, `const it
+// = x.items`, converts it to any[] by a copy, as D-179 specifies for dynamic values bound to
+// typed locals: generic_instanceof_dynamic_member_copies.pts.)
+class Box<T> {
+  items: T[] = [];
+  index = new Map<string, T>();
+  constructor(v: T) {
+    this.items.push(v);
+    this.index.set("first", v);
+  }
+}
+const b = new Box<number>(7);
+function f(x: unknown): void {
+  if (x instanceof Box) {
+    x.items.push(8);
+    console.log("same", x.items === x.items, x.items.length);
+    x.items[0] = 70;
+    x.index.set("second", 8);
+    console.log("index", x.index.size);
+  }
+}
+f(b);
+console.log("after", b.items, b.index.size);

@@ -1,0 +1,43 @@
+// Guard (H10, D-149): a type predicate that lies about a generic class instance, or a cast
+// that does, still converts with a check: TypeError, not a read of fields the object
+// doesn't have, while an honest predicate's elements are the class's own instance. Node
+// reads undefined for the missing field instead, so the output is ParallelScript's.
+// no-diff: Node reads the missing field as undefined where the checked downcast throws TypeError (D-149)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function isLRU(_c: Cache<string, number>): _c is MapLRU<string, number> {
+  return true; // lies for an Other
+}
+const caches: Cache<string, number>[] = [new MapLRU("k", 1.5), new Other<string, number>()];
+for (const c of caches) {
+  try {
+    if (isLRU(c)) console.log("guard", c.val + 1);
+  } catch (error: any) {
+    console.log("guard", error.name, error.message);
+  }
+  try {
+    console.log("as", (c as MapLRU<string, number>).val * 2);
+  } catch (error: any) {
+    console.log("as", error.name, error.message);
+  }
+}
+const honest = caches.filter((c): c is MapLRU<string, number> => c instanceof MapLRU);
+console.log("honest", honest.length, honest[0].val);
+// expect:
+// guard 2.5
+// as 3
+// guard TypeError Expected MapLRU<string, number>, got Other<string, number>
+// as TypeError Expected MapLRU<string, number>, got Other<string, number>
+// honest 1 1.5

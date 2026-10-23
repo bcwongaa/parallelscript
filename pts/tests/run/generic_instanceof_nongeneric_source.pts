@@ -1,0 +1,58 @@
+// H10 (C10): `instanceof` a generic class from a source that says nothing of its type
+// arguments (a non-generic base class, Error, `object`, `{}`): tsc's narrowed type is the
+// instance for any, and every typed use of the value in the branch threw `TypeError:
+// Expected Tagged<any>, got Tagged<number>` (fields of `object` and `{}` sources were read
+// at run time, but their methods, getters and writes took the checked conversion). The
+// type arguments can't be inferred here; the value is what it holds.
+class Shape {
+  area(): number {
+    return 0;
+  }
+}
+class Tagged<T> extends Shape {
+  count = 0;
+  constructor(public tag: T) {
+    super();
+  }
+  get label(): string {
+    return `#${this.tag}`;
+  }
+  bump(by: number): number {
+    this.count += by;
+    return this.count;
+  }
+}
+function viaShape(s: Shape): string {
+  if (s instanceof Tagged) {
+    s.count++;
+    return `${s.tag} ${s.label} ${s.bump(0.5)} ${s.count}`;
+  }
+  return `shape ${s.area()}`;
+}
+console.log(viaShape(new Tagged(7)), viaShape(new Tagged("t")), viaShape(new Shape()));
+
+class HttpError<T> extends Error {
+  constructor(public status: number, public body: T) {
+    super(`http ${status}`);
+  }
+  get retryable(): boolean {
+    return this.status >= 500;
+  }
+}
+function handle(e: Error): string {
+  if (e instanceof HttpError) return `${e.message} ${e.status + 1} ${e.retryable} ${JSON.stringify(e.body)}`;
+  return `error ${e.message}`;
+}
+console.log(handle(new HttpError(503, { reason: "busy" })), handle(new HttpError(404, 4.5)), handle(new Error("plain")));
+
+function viaObject(o: object): string {
+  if (o instanceof Tagged) {
+    o.tag = o.tag * 10;
+    return `${o.tag} ${o.label} ${o.bump(2)}`;
+  }
+  return "plain object";
+}
+function viaEmpty(o: {}): string {
+  return o instanceof Tagged ? `${o.label} ${o.bump(1)}` : `other ${typeof o}`;
+}
+console.log(viaObject(new Tagged(1)), viaObject({ x: 1 }), viaEmpty(new Tagged(2.5)), viaEmpty(42));

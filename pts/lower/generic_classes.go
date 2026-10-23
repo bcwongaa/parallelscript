@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -112,6 +113,9 @@ func (l *lowerer) receiverClass(receiver *ast.Node) *ir.Class {
 		if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {
 			t = constraint
 		}
+	}
+	if instance := l.instanceofInstance(receiver, l.instantiate(t)); instance != nil {
+		t = instance
 	}
 	class, _ := l.irType(t, receiver).(*ir.Class)
 	return class
@@ -554,11 +558,29 @@ func (l *lowerer) ensureMembers(class *ir.Class) {
 	l.ensureMembers(class.Parent)
 	outerSubst, outerDeclaring, outerFunction := l.subst, l.declaring, l.function
 	l.subst, l.declaring, l.function = nil, nil, class.Module.Init
-	if inst := l.classInstances[class]; inst != nil {
+	inst := l.classInstances[class]
+	var outerParams map[*ast.Symbol]*ir.Local
+	if inst != nil {
 		l.subst, l.declaring = inst.subst, inst.members
+		outerParams = l.memberParameterLocals(l.classNodes[class])
 	}
 	l.declareMembers(l.classNodes[class], class)
 	l.subst, l.declaring, l.function = outerSubst, outerDeclaring, outerFunction
+	maps.Copy(l.locals, outerParams) // a method being lowered may be another instance's of this class (R4, H10)
+}
+
+// memberParameterLocals are the locals that the parameters of a class's constructor,
+// methods and accessors have now, by symbol: an instance whose members are declared while
+// another instance's method is lowered (`new Box<boolean>(…)` or `o instanceof Box` in
+// Box<number>'s) declares its own for the same symbols, as declareInstance's do.
+func (l *lowerer) memberParameterLocals(node *ast.Node) map[*ast.Symbol]*ir.Local {
+	locals := map[*ast.Symbol]*ir.Local{}
+	for _, member := range node.Members() {
+		if ast.IsFunctionLike(member) {
+			maps.Copy(locals, l.parameterLocals(member))
+		}
+	}
+	return locals
 }
 
 // classInstanceBody lowers the constructor and methods of a generic class's instance.

@@ -5,6 +5,8 @@ package checker
 // getUnaryResultType and checkBinaryLikeExpression.
 
 import (
+	"slices"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/pts/lib"
 	"github.com/microsoft/typescript-go/pts/numeric"
@@ -197,4 +199,114 @@ func (c *Checker) PtsInferTypeArgumentsFromResult(signature *Signature, target *
 		arguments[i] = c.getInferredType(context, i)
 	}
 	return arguments
+}
+
+// PtsInferInstanceTypeArguments returns instance, a reference to a generic class (the
+// `C<any, …>` that `x instanceof C` narrows x to where x's declared type isn't derived from
+// C), with the type arguments tsc infers from source, a type C's objects are held as: from
+// source to the class's `extends` and `implements` clauses and their ancestors', which
+// relate type arguments one to one (`Option<number>` to `Some<T> extends Option<T>`), then,
+// for type parameters those leave open, structurally (members typed with them); from each
+// member of a union source alone. It returns nil if a type parameter gets no inference, the
+// instance isn't assignable to source, or a union's members imply different instances: the
+// object may then be an instance of C for other type arguments. ParallelScript makes an
+// instance of a generic class per type arguments (D-050), and the object in a branch of
+// `x instanceof C` is the instance its declared type implies, not C<any, …> (H10).
+func (c *Checker) PtsInferInstanceTypeArguments(source *Type, instance *Type) *Type {
+	if instance.flags&TypeFlagsObject == 0 || instance.objectFlags&ObjectFlagsReference == 0 {
+		return nil
+	}
+	target := instance.AsTypeReference().target
+	if target.objectFlags&ObjectFlagsClassOrInterface == 0 {
+		return nil
+	}
+	typeParameters := target.AsInterfaceType().TypeParameters()
+	if len(typeParameters) == 0 {
+		return nil
+	}
+	if source.flags&TypeFlagsUnion == 0 {
+		return c.ptsInferInstance(source, target, typeParameters)
+	}
+	// Each member implies an instance of its own (`Sink<number> | Sink<string>`), or none
+	// (`undefined`, an unrelated interface): the one they imply, if they agree.
+	var result *Type
+	for _, member := range source.Types() {
+		switch inferred := c.ptsInferInstance(member, target, typeParameters); {
+		case inferred == nil:
+		case result == nil:
+			result = inferred
+		case inferred != result:
+			return nil
+		}
+	}
+	return result
+}
+
+// ptsInferInstance is PtsInferInstanceTypeArguments's instance of target, a generic class
+// declaration with typeParameters, for source, a type that isn't a union.
+func (c *Checker) ptsInferInstance(source *Type, target *Type, typeParameters []*Type) *Type {
+	heritage := c.newInferenceContext(typeParameters, nil, InferenceFlagsNone, nil)
+	for _, base := range c.ptsHeritageTypes(target, nil, map[*Type]bool{}) {
+		c.inferTypes(heritage.inferences, source, base, InferencePriorityNone, false)
+	}
+	structural := c.newInferenceContext(typeParameters, nil, InferenceFlagsNone, nil)
+	c.inferTypes(structural.inferences, source, target, InferencePriorityNone, false)
+	arguments := make([]*Type, len(typeParameters))
+	for i := range typeParameters {
+		switch {
+		case ptsHasCandidates(heritage.inferences[i]):
+			arguments[i] = c.getInferredType(heritage, i)
+		case ptsHasCandidates(structural.inferences[i]):
+			arguments[i] = c.getInferredType(structural, i)
+		default:
+			return nil
+		}
+	}
+	result := c.createTypeReference(target, arguments)
+	if !c.isTypeAssignableTo(result, source) {
+		return nil
+	}
+	return result
+}
+
+func ptsHasCandidates(inference *InferenceInfo) bool {
+	return len(inference.candidates) != 0 || len(inference.contraCandidates) != 0
+}
+
+// ptsHeritageTypes lists the types a class or interface declaration (target) extends and
+// implements, and theirs in turn, in terms of target's type parameters; mapper instantiates
+// an ancestor's in terms of its own.
+func (c *Checker) ptsHeritageTypes(target *Type, mapper *TypeMapper, seen map[*Type]bool) []*Type {
+	if seen[target] {
+		return nil
+	}
+	seen[target] = true
+	direct := slices.Clone(c.getBaseTypes(target))
+	for _, declaration := range target.symbol.Declarations {
+		if ast.IsClassLike(declaration) {
+			for _, node := range ast.GetImplementsTypeNodes(declaration) {
+				direct = append(direct, c.getTypeFromTypeNode(node.AsNode()))
+			}
+		}
+	}
+	var all []*Type
+	for _, base := range direct {
+		if mapper != nil {
+			base = c.instantiateType(base, mapper)
+		}
+		all = append(all, base)
+		if base.flags&TypeFlagsObject == 0 || base.objectFlags&ObjectFlagsReference == 0 {
+			continue
+		}
+		ancestor := base.AsTypeReference().target
+		if ancestor.objectFlags&ObjectFlagsClassOrInterface == 0 {
+			continue
+		}
+		var inner *TypeMapper
+		if parameters := ancestor.AsInterfaceType().TypeParameters(); len(parameters) > 0 {
+			inner = newTypeMapper(parameters, c.getTypeArguments(base)[:len(parameters)])
+		}
+		all = append(all, c.ptsHeritageTypes(ancestor, inner, seen)...)
+	}
+	return all
 }

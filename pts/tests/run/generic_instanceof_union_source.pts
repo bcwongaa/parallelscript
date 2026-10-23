@@ -1,0 +1,48 @@
+// H10 (C10): `instanceof` a generic class on a union holding an interface the class
+// implements (`Cache<string, number> | undefined`, `| string`, `| null`, or a union of two
+// interfaces): tsc narrows to MapLRU<any, any>, which isn't a member of the union, and every
+// use was PTS1001 "converting undefined | {get(string): number | undefined} to MapLRU". The
+// type arguments follow from the union's Cache member.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+interface Store<T> {
+  all(): T[];
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    this.hits++;
+    return key === this.key ? this.val : undefined;
+  }
+}
+class ArrStore<T> implements Store<T> {
+  all(): T[] {
+    return [];
+  }
+}
+function maybe(c: Cache<string, number> | undefined): string {
+  if (c instanceof MapLRU) {
+    c.val *= 2;
+    return `${c.key} ${c.val} ${c.get("k")} ${c.hits}`;
+  }
+  return `no cache ${c}`;
+}
+function orName(c: Cache<string, number> | string): string {
+  return c instanceof MapLRU ? `${c.get("k")! + 1} ${c.hits}` : `name ${typeof c === "string" ? c : "?"}`;
+}
+function orNull(c: Cache<string, number> | null): number {
+  if (!(c instanceof MapLRU)) return -1;
+  c.hits += 10;
+  return c.hits + c.val;
+}
+function either(c: Cache<string, number> | Store<number>): string {
+  if (c instanceof MapLRU) return `cache ${c.val} ${c.key}`;
+  return "get" in c ? "other cache" : `store ${c.all().length}`;
+}
+const m = new MapLRU("k", 1.5);
+console.log(maybe(m), maybe(undefined));
+console.log(orName(m), orName("plain"));
+console.log(orNull(m), orNull(null));
+console.log(either(m), either(new ArrStore<number>()));

@@ -1,0 +1,89 @@
+// H10 (C10): `c instanceof MapLRU` for a `c: Cache<string, number>`, an interface the class
+// implements, narrows c in tsc's types to MapLRU<any, any>, the instance for any, which the
+// object (a MapLRU<string, number>) isn't: every use of c in the branch threw `TypeError:
+// Expected MapLRU<any, any>, got MapLRU<string, number>` where Node goes on. The class's
+// type arguments follow from the declared type (Cache<K, V> with K = string, V = number);
+// numbers matter, since reading a double field as the any instance's dynamic value is the
+// unsafety D-149's check closed.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+  put(key: K, value: V): void;
+  readonly size: number;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  private store = new Map<K, V>();
+  evictions: K[] = [];
+  hits = 0;
+  ratio = 0.5;
+  constructor(private readonly capacity: number) {}
+  get(key: K): V | undefined {
+    if (!this.store.has(key)) return undefined;
+    const v = this.store.get(key) as V;
+    this.store.delete(key);
+    this.store.set(key, v);
+    this.hits++;
+    return v;
+  }
+  put(key: K, value: V): void {
+    if (this.store.has(key)) this.store.delete(key);
+    else if (this.store.size >= this.capacity) {
+      const oldest = this.store.keys().next().value as K;
+      this.store.delete(oldest);
+      this.evictions.push(oldest);
+    }
+    this.store.set(key, value);
+  }
+  get size(): number {
+    return this.store.size;
+  }
+  keys(): K[] {
+    return [...this.store.keys()];
+  }
+  newest(): V | undefined {
+    return [...this.store.values()].pop();
+  }
+  mapValues<R>(f: (v: V) => R): R[] {
+    return [...this.store.values()].map(f);
+  }
+}
+class Fixed<K, V> implements Cache<K, V> {
+  constructor(private readonly key: K, private readonly value: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.value : undefined;
+  }
+  put(_key: K, _value: V): void {}
+  get size(): number {
+    return 1;
+  }
+}
+
+function report(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    console.log("evictions", c.evictions, "size", c.size, "keys", c.keys());
+    console.log("get", c.get("c"), "newest", c.newest(), "doubled", c.mapValues((v) => v * 2));
+    c.hits++;
+    c.hits += 2;
+    c.ratio = c.hits / 10;
+    c.evictions.push("z");
+    for (const k of c.evictions) console.log("evicted", k);
+    console.log(`template ${c.hits} ${c.ratio} ${c.get("d")! + 0.5}`);
+    console.log(c);
+  } else {
+    console.log("not a MapLRU", c.get("k"));
+  }
+}
+
+const lru = new MapLRU<string, number>(2);
+for (const [k, v] of [["a", 1.5], ["b", 2], ["c", 3.25], ["d", 4]] as [string, number][]) lru.put(k, v);
+report(lru);
+report(new Fixed("k", 9));
+console.log("after", lru.hits, lru.ratio, lru.evictions, lru.keys());
+
+// Another instance of the class at a Cache place of its own.
+function names(c: Cache<number, string>): string {
+  return c instanceof MapLRU ? c.keys().map((k) => `${k}:${c.get(k)}`).join(",") : "none";
+}
+const byId = new MapLRU<number, string>(3);
+byId.put(1, "one");
+byId.put(2, "two");
+console.log(names(byId), names(new Fixed(0, "zero")));

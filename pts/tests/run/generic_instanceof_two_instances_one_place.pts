@@ -1,0 +1,26 @@
+// H10 (C10): two instances of the class reach one place, `Cache<string, number> |
+// Cache<number, string>`, so its declared type doesn't decide which instance a MapLRU there
+// is: tsc's MapLRU<any, any> was PTS1001 "converting {get(number): string | undefined} |
+// {get(string): number | undefined} to MapLRU". Inference can't pick one; the value is what
+// it holds.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function show(c: Cache<string, number> | Cache<number, string>): string {
+  if (c instanceof MapLRU) {
+    c.hits++;
+    return `${typeof c.key} ${c.key} ${c.val} ${c.hits}`;
+  }
+  return "other";
+}
+const byName = new MapLRU("k", 1.5);
+const byId = new MapLRU(2, "two");
+console.log(show(byName), show(byId), show(byName));
+console.log("after", byName.hits, byId.hits);

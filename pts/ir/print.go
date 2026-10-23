@@ -374,6 +374,8 @@ func FormatExpr(expr Expr) string {
 			return "(" + FormatExpr(e.X) + " instanceof <generic>)"
 		}
 		return "(" + FormatExpr(e.X) + " instanceof " + e.Class.Name + ")"
+	case *FamilyField:
+		return FormatExpr(e.X) + "." + e.Name + " (of <generic>)"
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", expr))
 	}

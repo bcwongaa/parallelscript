@@ -1,0 +1,40 @@
+// skip: H10b: a dynamic value narrowed by instanceof to Box<any> that flows out of the branch goes into Box<any> places, a checked conversion that throws for a Box<number>
+// H10 (C10): `x instanceof Box` for an `x: unknown` (or any) narrows to Box<any>. Its member
+// reads and calls are found at run time (D-179) and work, but the value narrowed doesn't
+// flow out of the branch: `const y = x`, `[x]`, `ident(x)`, an inferred return and the
+// element `find` gives make Box<any> places, and the checked conversion of the object, a
+// Box<number>, threw `TypeError: Expected Box<any>, got Box<number>` where Node goes on.
+class Box<T> {
+  constructor(public v: T) {}
+  get(): T {
+    return this.v;
+  }
+}
+function ident<T>(t: T): T {
+  return t;
+}
+function asInferred(x: unknown) {
+  return x instanceof Box ? x : undefined;
+}
+function flows(x: unknown): void {
+  if (x instanceof Box) {
+    console.log("read", x.v, x.get());
+    const y = x;
+    console.log("copy", y.v);
+    const arr = [x];
+    console.log("array", arr[0].get());
+    console.log("ident", ident(x).v);
+  }
+}
+function flowsAny(a: any): void {
+  if (a instanceof Box) {
+    const y = a;
+    console.log("any copy", y.v);
+  }
+}
+flows(new Box(41.5));
+flows(new Box("s"));
+flowsAny(new Box(true));
+console.log("inferred", asInferred(new Box(1))?.v, asInferred(2));
+const values: unknown[] = [1, new Box(2), "three"];
+console.log("found", values.find((v) => v instanceof Box)?.v);

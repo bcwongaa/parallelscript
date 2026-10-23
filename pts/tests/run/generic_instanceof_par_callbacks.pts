@@ -1,0 +1,46 @@
+// H10a: `instanceof` narrowing to a generic class inside `.par` callbacks, which run on
+// other threads. Each element's reference is the instance its declared type implies
+// (MapLRU<string, number> for a Cache<string, number>, Some<number> for an Option<number>),
+// or, where its declared type implies none (`object`), a dynamic value. Before H10, the
+// checked conversion to tsc's MapLRU<any, any> threw TypeError and Option to Some was
+// PTS1001. The expected lines are Node's for the sequential twin (`.par.` made `.`).
+// threads: 1 2 4
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+abstract class Option<T> {}
+class Some<T> extends Option<T> {
+  constructor(public value: T) {
+    super();
+  }
+}
+class None<T> extends Option<T> {}
+const caches: Cache<string, number>[] = [];
+const options: Option<number>[] = [];
+const objects: object[] = [];
+for (let i = 0; i < 64; i++) {
+  caches.push(i % 3 === 0 ? new Other<string, number>() : new MapLRU(`k${i}`, i + 0.5));
+  options.push(i % 5 === 0 ? new None<number>() : new Some(i));
+  objects.push(i % 2 === 0 ? new MapLRU(i, `v${i}`) : { i });
+}
+const vals = caches.par.map((c) => (c instanceof MapLRU ? c.val + (c.get(c.key) ?? 0) : -1));
+console.log("caches", vals.reduce((a, b) => a + b, 0), vals.filter((v) => v < 0).length);
+const somes = options.par.map((o) => (o instanceof Some ? o.value * 2 : 0));
+console.log("options", somes.reduce((a, b) => a + b, 0));
+const keys = objects.par.map((o) => (o instanceof MapLRU ? `${o.key}:${o.val}` : "-"));
+console.log("objects", keys.filter((k) => k !== "-").length, keys[2], keys[3]);
+// expect:
+// caches 2666 22
+// options 3252
+// objects 32 2:v2 -

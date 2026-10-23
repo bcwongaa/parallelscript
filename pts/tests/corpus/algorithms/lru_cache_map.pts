@@ -1,4 +1,3 @@
-// skip: bug: `m instanceof MapLRU` narrows a Cache<string, number> to MapLRU<any, any> (tsc's type), which the object isn't, so the checked downcast throws (D-149; before, it read the object as the other instance, which is unsafe for some type arguments)
 // LRU caches: one built on Map insertion order, one on a hand-written doubly linked list, plus LFU.
 
 interface Cache<K, V> {

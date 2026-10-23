@@ -1,0 +1,59 @@
+// skip: H10b: values narrowed by instanceof that flow out of the branch keep tsc's MapLRU<any, any> places (PTS1001 `using a MapLRU as a MapLRU`)
+// H10 (C10): a value narrowed by `instanceof` to a generic class from an interface source
+// flows out of the branch: tsc types `const m2 = c`, an inferred return, `[c]`, `ident(c)`
+// and the element `find` and `filter` give (TS 5.5's inferred predicate) as MapLRU<any, any>,
+// while the object is a MapLRU<string, number>. Each threw TypeError (or, passed to a
+// MapLRU<string, number> parameter or returned as one, was PTS1001) where Node goes on.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    this.hits++;
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function ident<T>(t: T): T {
+  return t;
+}
+function takeActual(m: MapLRU<string, number>): number {
+  return m.val + m.hits;
+}
+function asActual(c: Cache<string, number>): MapLRU<string, number> | undefined {
+  if (c instanceof MapLRU) return c;
+  return undefined;
+}
+function asInferred(c: Cache<string, number>) {
+  if (c instanceof MapLRU) return c;
+  return undefined;
+}
+function flows(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const m2 = c;
+  m2.hits++;
+  console.log("copy", m2.val, m2.get("k"), m2.hits);
+  const arr = [c, m2];
+  arr[0].val += 0.25;
+  console.log("array", arr.length, arr[1].val);
+  const g = ident(c);
+  console.log("ident", g.key, g.val * 2);
+  console.log("actual", takeActual(c));
+  const viaConst = () => m2.val * 10;
+  console.log("closure", viaConst());
+}
+const m = new MapLRU("k", 7);
+flows(m);
+console.log("declared", asActual(m)?.val, asActual(new Other<string, number>()));
+console.log("inferred", asInferred(m)?.get("k"), asInferred(new Other<string, number>()));
+const caches: Cache<string, number>[] = [new Other<string, number>(), m];
+const found = caches.find((c) => c instanceof MapLRU);
+console.log("found", found?.val, found?.hits);
+for (const f of caches.filter((c) => c instanceof MapLRU)) console.log("filtered", f.key, f.val + 1);
+console.log("after", m.val, m.hits);

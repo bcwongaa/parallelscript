@@ -1,0 +1,30 @@
+// H10a: `s instanceof Collector` for an `s: Sink<number> | Sink<string>`, where the union's
+// members imply different instances of Collector. Inferring from the union as a whole would
+// give Collector<string | number>, which the checked downcast rejects for both objects (and
+// which only Sink's parameter types let past the check that the instance fits the declared
+// type); the members disagree, so the reference stays a dynamic value. On the base: PTS1001
+// `converting {put(number): void} | {put(string): void} to Collector`.
+interface Sink<T> {
+  put(v: T): void;
+}
+class Collector<T> implements Sink<T> {
+  items: T[] = [];
+  put(v: T): void {
+    this.items.push(v);
+  }
+}
+class Discard implements Sink<number> {
+  put(_v: number): void {}
+}
+function drain(s: Sink<number> | Sink<string>): string {
+  if (s instanceof Collector) return `${s.items.length} ${s.items.join("+")}`;
+  return "other";
+}
+const a = new Collector<number>();
+a.put(1);
+const b = new Collector<string>();
+b.put("x");
+b.put("y");
+console.log(drain(a), drain(b), drain(new Discard()));
+// expect:
+// 1 1 2 x+y other

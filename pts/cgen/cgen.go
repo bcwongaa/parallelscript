@@ -943,6 +943,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 			return "pts_value_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 		}
 		return "pts_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
+	case *ir.FamilyField:
+		return e.familyField(x)
 	case *ir.Binary:
 		if x.Op == ir.Eq || x.Op == ir.Ne { // an unset field is NULL, which is no object, as undefined is none
 			e.unsetAllowed[x.X], e.unsetAllowed[x.Y] = true, true
@@ -1072,6 +1074,28 @@ func (e *emitter) familyInstanceOf(x *ir.InstanceOf) string {
 		tests = append(tests, test+"("+tmp+", "+e.descriptor(class)+")")
 	}
 	return fmt.Sprintf("({ %s%s = %s; %s; })", declarator, tmp, e.expr(x.X), strings.Join(tests, " || "))
+}
+
+// familyField writes `o.#f` for o, a dynamic value narrowed to a generic class C: the
+// private field of whichever of C's instances o is, boxed, tested in turn, or the TypeError
+// JS throws for an object of another class (H10).
+func (e *emitter) familyField(x *ir.FamilyField) string {
+	value := e.expr(x.X)
+	object := &ir.Local{Name: "object", Type: ir.Value}
+	name := e.declareLocal(object)
+	message := "Cannot read private member " + x.Name + " from an object whose class did not declare it"
+	read := "(pts_throw_new(&pts_type_builtin_TypeError, \"%s\", " + cString(message) + "), PTS_VALUE_UNDEFINED)"
+	for i := len(*x.Family) - 1; i >= 0; i-- {
+		class := (*x.Family)[i]
+		for _, field := range class.Fields {
+			if field.Name == x.Name {
+				test := e.expr(&ir.InstanceOf{X: &ir.LocalRef{Local: object}, Class: class})
+				field := e.expr(&ir.Box{X: &ir.FieldRef{X: &ir.FromUnion{X: &ir.LocalRef{Local: object}, To: class}, Field: field}})
+				read = "(" + test + " ? " + field + " : " + read + ")"
+			}
+		}
+	}
+	return fmt.Sprintf("({ pts_value %s = %s; %s; })", name, value, read)
 }
 
 // fromUnion writes a union's value as the type the checker narrowed it to (D-062).

@@ -1,0 +1,67 @@
+// Guard (H10): `instanceof` a generic class on a value declared unknown or any, or caught,
+// narrows it to the instance for any, and the value stays dynamic: its fields, getters and
+// methods (a generic one too) are found at run time, writes reach the object, and testing
+// it again works (D-179). These worked before H10 and must keep working.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get current(): V {
+    return this.val;
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  map<R>(f: (v: V) => R): R {
+    return f(this.val);
+  }
+}
+class HttpError<T> extends Error {
+  constructor(public status: number, public body: T) {
+    super(`http ${status}`);
+  }
+}
+class Unrelated {
+  u = 1;
+}
+function viaUnknown(x: unknown): string {
+  if (x instanceof MapLRU) {
+    x.hits++;
+    x.hits += 2;
+    x.val = x.val * 2;
+    return `${x.key} ${x.val} ${x.current} ${x.get(x.key)} ${x.map((v) => [v, v])} ${x.hits} ${x instanceof MapLRU} ${x instanceof Unrelated}`;
+  }
+  return `not ${typeof x}`;
+}
+function viaAny(a: any): string {
+  if (a instanceof MapLRU) {
+    a.hits--;
+    return `${a.val} ${a.get("k")} ${a.hits}`;
+  }
+  return "not";
+}
+const m = new MapLRU("k", 1.5);
+console.log(viaUnknown(m), viaUnknown(3), viaAny(m), viaAny("s"));
+console.log("after", m.val, m.hits);
+
+function fetchIt(fail: boolean): number {
+  if (fail) throw new HttpError(503, { reason: "busy" });
+  return 1;
+}
+for (const fail of [false, true]) {
+  try {
+    console.log("ok", fetchIt(fail));
+  } catch (e) {
+    if (e instanceof HttpError) console.log("caught", e.message, e.status + 1, e.body);
+    else throw e;
+  }
+}
+try {
+  throw new MapLRU("thrown", 9);
+} catch (e: any) {
+  if (e instanceof MapLRU) console.log("caught any", e.key, e.val + 1);
+}
+const values: unknown[] = [1, m, "x"];
+for (const v of values.filter((v): v is MapLRU<string, number> => v instanceof MapLRU)) console.log("guarded", v.val, v.key);

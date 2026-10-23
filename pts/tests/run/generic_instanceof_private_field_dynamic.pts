@@ -1,0 +1,22 @@
+// H10 (C10): a #private field read on an `object` (or unknown) that `instanceof` narrowed to
+// its generic class, inside the class: the value stays dynamic, and the field was looked up
+// at run time by the name `#secret`, which no object has, so it read undefined where Node
+// reads the field (no error). The instance for any already exists here (`peekAny`'s type).
+class Box<T> {
+  #secret: T;
+  constructor(public val: T) {
+    this.#secret = val;
+  }
+  peekAny(o: Box<any>): unknown {
+    return o.#secret;
+  }
+  peekObject(o: object): unknown {
+    return o instanceof Box ? o.#secret : "not a box";
+  }
+  peekUnknown(o: unknown): unknown {
+    if (o instanceof Box) return o.#secret;
+    return "not a box";
+  }
+}
+const b = new Box<number>(7);
+console.log(b.peekAny(new Box<any>("any")), b.peekObject(b), b.peekObject({}), b.peekUnknown(new Box("s")), b.peekUnknown(1));

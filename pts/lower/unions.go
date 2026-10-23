@@ -134,6 +134,12 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	if x.Type() == ir.Value {
 		return l.narrowedValue(node, x)
 	}
+	if l.isUninferredInstanceof(node) {
+		return box(x) // a C of any type arguments, found at run time (H10)
+	}
+	if class := l.instanceofClass(node); class != nil && x.Type() != class {
+		return downcast(x, class) // the C its declared type implies, also from a union (`Cache<K, V> | undefined`) (H10)
+	}
 	if l.narrowsReadToNoValue(node) {
 		if l.readsAsItsDeclaredType(node) {
 			return x

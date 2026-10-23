@@ -1064,6 +1064,16 @@ type InstanceOf struct {
 	Family *[]*Class
 }
 
+// FamilyField reads the private field Name (`#f`) of X, a dynamic value that tsc narrowed
+// to a generic class whose instances are Family (the program's when it is complete): the
+// field of whichever of them X is, as a dynamic value, or for another object the TypeError
+// JS throws. A dynamic value's properties don't hold private names (H10).
+type FamilyField struct {
+	X      Expr
+	Family *[]*Class
+	Name   string
+}
+
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
 
@@ -1608,6 +1618,7 @@ func (e *ArrayCall) Type() Type {
 }
 func (e *ClassCast) Type() Type { return e.To }
 func (*InstanceOf) Type() Type  { return Bool }
+func (*FamilyField) Type() Type { return Value }
 func (e *Unary) Type() Type     { return e.X.Type() }
 func (e *IntConst) Type() Type  { return e.Ty }
 func (e *Convert) Type() Type   { return e.To }
