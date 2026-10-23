@@ -1,0 +1,35 @@
+// C177 (H09b5d): instances for type arguments of one IR type that differ by checker type
+// are told apart now, so `arrays<Promise<number>>` no longer runs `arrays<unknown>`'s
+// instance. In its own instance, Array.isArray(x) narrows `Promise<number> & any[]`, which
+// no value has, but the widest type of the argument's IR type (unknown) does (D-195): the
+// branch is code the instance may run, and reads x as unknown's narrowing types it
+// (`any[]`, `Box<any>`, a string), not as never, whose members didn't lower (`x.length`,
+// `x.map`, `x[0]`, `x.value`: PTS1001 where the shared instance had compiled).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function arrays<T>(x: T): string {
+  if (Array.isArray(x)) {
+    return "array " + x.length + " " + x.map(String).join("+") + " " + String(x[0]);
+  }
+  return "other";
+}
+function boxes<T>(x: T): string {
+  if (x instanceof Box) {
+    return "box " + String(x.value);
+  }
+  return "other";
+}
+function strings<T>(x: T): string {
+  if (typeof x === "string") {
+    return "string " + x.toUpperCase() + " " + x.length;
+  }
+  return "other";
+}
+console.log(arrays<unknown>([1, 2]), boxes<unknown>(new Box(3)), strings<unknown>("ab"));
+console.log(arrays<Promise<number>>(Promise.resolve(1)), boxes<Promise<number>>(Promise.resolve(1)), strings<Promise<number>>(Promise.resolve(1)));
+console.log(arrays<number>(4), boxes<number>(5), strings<number>(6));
+// expect:
+// array 2 1+2 1 box 3 string AB 2
+// other other other
+// other other other

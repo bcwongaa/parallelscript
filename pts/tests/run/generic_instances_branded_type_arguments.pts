@@ -1,4 +1,3 @@
-// skip: known issue (H09b5d, C177): a branded type argument gets its primitive's instance, whose R<T> isn't the call's: PTS1001 `using a Box as a Box`
 // C177 (H09b5): pick<Id> (Id a branded number, IR number) gets an instance whose R<T> isn't
 // Box<string> (the reproducer suspects instantiate's unbranded, generics.go, which makes the
 // instance's type argument number), so the call's Box<string> was PTS1001 `using a Box as a Box`;

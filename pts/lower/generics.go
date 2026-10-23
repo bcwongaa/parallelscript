@@ -148,11 +148,6 @@ func (l *lowerer) copiesFromDynamic(t *checker.Type, seen map[*checker.Type]bool
 	return t.Symbol() == nil || !class && !genericClass
 }
 
-// maxDynamicVariants bounds the instances of one generic function for the same IR types
-// that calls with dynamic results tell apart by checker types (genericInstanceFor), which
-// pairing every such call with every value of its function type would multiply.
-const maxDynamicVariants = 4
-
 // genericFunc is a generic function or method declaration and its instances so far.
 type genericFunc struct {
 	node       *ast.Node
@@ -293,8 +288,8 @@ func (l *lowerer) calledOnlyName(node *ast.Node) *ast.Symbol {
 type instance struct {
 	generic   *genericFunc
 	arguments []ir.Type
-	literals  []*checker.Type // the type arguments that are literal types, which `T[K]` can tell apart (D-089)
-	fn        *ir.Func        // nil if it failed, which was reported
+	identity  string   // its type arguments' typeArgumentsIdentity
+	fn        *ir.Func // nil if it failed, which was reported
 	subst     *substitution
 }
 
@@ -370,6 +365,29 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	return l.withoutArrayIntersection(t)
 }
 
+// typeArgument is t, a type argument of an instance being made (in terms of the instance
+// being lowered, if any), as instantiate gives it, but a branded primitive keeps its brand
+// (`Id`, `number & { __brand: "id" }`): the instance's types may tell it from its
+// primitive (`T extends Id ? string : number`), and instantiate makes it the primitive
+// wherever an IR type is made of it (C177).
+func (l *lowerer) typeArgument(t *checker.Type) *checker.Type {
+	switch {
+	case l.subst == nil:
+	case l.mentionsErased(t):
+		return l.checker.GetAnyType()
+	case len(l.subst.parameters) > 0:
+		if narrowed := l.narrowedInstance(t); narrowed != nil {
+			t = narrowed
+		} else {
+			t = l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
+		}
+	}
+	if l.unbranded(t) != nil {
+		return t
+	}
+	return l.instantiate(t)
+}
+
 // narrowedInstance is t, an intersection of one of the instance's type parameters with other
 // types, which tsc narrows a value of the parameter's type to (`T & any[]` after
 // Array.isArray(x) for an x of type T), for the instance's type arguments: each member of
@@ -411,6 +429,18 @@ func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
 		arguments[index] = member
 		if narrowed := l.checker.PtsInstantiateType(t, l.subst.parameters, arguments); !l.uninhabited(narrowed) {
 			left = append(left, l.withoutArrayIntersection(narrowed))
+		}
+	}
+	if len(left) == 0 && argument.Flags()&checker.TypeFlagsUnknown == 0 && l.isDynamicIRType(argument, l.subst.declaration) {
+		// No value of the type argument is left (`Promise<number> & any[]` after
+		// Array.isArray), but its values are dynamic ones, and code is dead only if it is
+		// for unknown, the widest type of that IR type (deadTest, D-195): where unknown's
+		// values pass (its `any[]`), the code reads the value as that narrows it, converted
+		// with a check, not as never, whose members it couldn't read (`x.length`).
+		arguments := slices.Clone(l.subst.arguments)
+		arguments[index] = l.checker.GetUnknownType()
+		if narrowed := l.checker.PtsInstantiateType(t, l.subst.parameters, arguments); !l.uninhabited(narrowed) {
+			return l.withoutArrayIntersection(narrowed)
 		}
 	}
 	return l.checker.GetUnionType(left)
@@ -686,7 +716,7 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 	if fromResult := l.resultTypeArguments(call, generic, arguments); fromResult != nil {
 		arguments = fromResult
 	}
-	fn, limit := l.genericInstanceFor(generic, arguments, call.AsNode(), false)
+	fn, limit := l.genericInstanceFor(generic, arguments, call.AsNode())
 	if (limit == pastDepth || limit == pastCount) && !l.erasedResultCopies(generic, call.AsNode()) {
 		// Polymorphic recursion: the call maxInstanceDepth instances deep, or past its root's
 		// budget, calls the erased copy, its result checked (fromErasedCall), which only a
@@ -1140,57 +1170,58 @@ func (l *lowerer) inheritedGenericMethod(class *ir.Class, name string) *genericF
 // arguments (in terms of the instance being lowered, if any), making it if it is new; nil
 // if it failed or would be past an instance limit (reported at node).
 func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node) *ir.Func {
-	fn, limit := l.genericInstanceFor(generic, typeArguments, node, false)
+	fn, limit := l.genericInstanceFor(generic, typeArguments, node)
 	if limit != withinLimits {
 		l.reportInstanceLimit(limit, generic.name, node)
 	}
 	return fn
 }
 
-// genericInstanceFor is genericInstance, and for a call with a dynamic result (dynamic)
-// an instance made for the same checker types where the type arguments are or hold
-// dynamic values (madeFor). Instances are told apart by IR types, but those for
-// `Promise<number>` and for `any`, or `Promise<number>[]` and `any[]`, make other objects
-// (`Box<Awaited<T>>`): a call with a typed result tells them apart by the instance's
-// result, and one with a dynamic result can't (D-190). Past maxDynamicVariants such
-// instances of the same IR types, or past an instance limit (which limit, unreported:
-// the caller decides, D-198), it is nil: the call keeps the erased copy.
-func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node, dynamic bool) (*ir.Func, instanceLimit) {
+// genericInstanceFor is genericInstance, or past an instance limit nil and which limit,
+// unreported: the caller decides (D-198), and the call keeps the erased copy. Instances are
+// told apart by their type arguments' IR types and, where those are the same, by their
+// checker types (typeArgumentsIdentity): `Promise<number>` and `Promise<string>` are both
+// dynamic values, but an instance's `Box<Awaited<T>>` is a Box<number> for one and a
+// Box<string> for the other, as `T extends { kind: "a" } ? …` tells `{ kind: "a" }` from
+// `{ kind: "b" }`, one shape, and a branded Id from its number (C177).
+func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node) (*ir.Func, instanceLimit) {
 	if t := l.trial; t != nil {
 		t.making++ // what it reports is the trial's (D-190)
 		defer func() { t.making-- }()
 	}
 	arguments := make([]ir.Type, len(typeArguments))
 	concrete := make([]*checker.Type, len(typeArguments))
-	literals := make([]*checker.Type, len(typeArguments))
 	for i, t := range typeArguments {
-		concrete[i] = l.instantiate(t)
+		concrete[i] = l.typeArgument(t)
 		if arguments[i] = l.irType(concrete[i], node); arguments[i] == nil {
 			return nil, withinLimits
 		}
-		if isLiteralType(concrete[i]) {
-			literals[i] = concrete[i] // `pick(o, "a")` and `pick(o, "b")` return different types
-		}
 	}
-	variants := 0
+	identity := ""
 	for _, existing := range generic.instances {
-		if slices.Equal(existing.arguments, arguments) && slices.Equal(existing.literals, literals) {
-			if !dynamic || l.madeFor(existing, concrete, node) {
-				if t := l.trial; t != nil && t.root == nil {
-					t.root = existing.subst
-				}
-				l.use(existing.subst)
-				return existing.fn, withinLimits
-			}
-			variants++
+		if !slices.Equal(existing.arguments, arguments) {
+			continue
 		}
+		if !slices.Equal(existing.subst.arguments[len(existing.subst.arguments)-len(concrete):], concrete) { // after an enclosing instance's
+			if identity == "" {
+				identity = l.typeArgumentsIdentity(concrete, node)
+			}
+			if existing.identity != identity {
+				continue
+			}
+		}
+		if t := l.trial; t != nil && t.root == nil {
+			t.root = existing.subst
+		}
+		l.use(existing.subst)
+		return existing.fn, withinLimits
 	}
 	limit, recursive := l.instanceLimitAt(generic.node, false)
-	if variants > 0 && (variants == maxDynamicVariants || limit != withinLimits) {
-		return nil, withinLimits
-	}
 	if limit != withinLimits {
 		return nil, limit
+	}
+	if identity == "" {
+		identity = l.typeArgumentsIdentity(concrete, node)
 	}
 	if recursive {
 		l.countInstance(generic.node, false)
@@ -1200,7 +1231,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
 	}
-	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
+	inst := &instance{generic: generic, arguments: arguments, identity: identity, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	if t := l.trial; t != nil && t.root == nil {
 		t.root = subst
@@ -1216,22 +1247,16 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	return inst.fn, withinLimits
 }
 
-// madeFor reports whether inst was made for concrete type arguments, of its IR types, of
-// the same dynamic values too: their keyParts are the same.
-func (l *lowerer) madeFor(inst *instance, concrete []*checker.Type, node *ast.Node) bool {
-	made := inst.subst.arguments[len(inst.subst.arguments)-len(concrete):] // after an enclosing instance's
-	for i, t := range concrete {
-		if made[i] == t {
-			continue
-		}
-		madeKey, key := &keyIdentity{budget: maxKeyParts}, &keyIdentity{budget: maxKeyParts}
-		l.keyPart(madeKey, made[i], node)
-		l.keyPart(key, t, node)
-		if madeKey.String() != key.String() {
-			return false
-		}
+// typeArgumentsIdentity is what tells apart instances for type arguments (concrete) of the
+// same IR types: their keyParts, brands included, which are the same for types of the
+// same IR types, literals and brands but for dynamic values, as instanceKey's (C177). A
+// literal type is itself (`pick(o, "a")` and `pick(o, "b")` return different types, D-089).
+func (l *lowerer) typeArgumentsIdentity(concrete []*checker.Type, node *ast.Node) string {
+	identity := &keyIdentity{budget: maxKeyParts, brands: true}
+	for _, t := range concrete {
+		l.keyPart(identity, t, node)
 	}
-	return true
+	return identity.String()
 }
 
 // isLiteralType reports whether t is a literal type or a union of them.

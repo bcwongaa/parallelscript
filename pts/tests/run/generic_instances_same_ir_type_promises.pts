@@ -1,4 +1,3 @@
-// skip: known issue (H09b5d, C177): direct calls whose type arguments have the same IR types share an instance whose Box<Awaited<T>> is the first call's: PTS1001 `using a Box as a Box`
 // C177 (H09b5): instances are keyed by their type arguments' IR types (D-049), so the direct calls
 // pick<Promise<number>> and pick<Promise<string>> (both IR value) shared one instance, made for the
 // first, whose parameter and result are Box<number>: the second call's Box<string> was PTS1001

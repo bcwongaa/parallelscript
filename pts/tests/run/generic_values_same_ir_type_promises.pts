@@ -1,4 +1,3 @@
-// skip: known issue (H09b5d, C177): the second value call's demand shares the first's instance, which doesn't fit, so it keeps the erased copy and throws
 // C177 (H09b5): value calls f<Promise<number>> and f<Promise<string>> of one generic declaration: the
 // instance made for the first (IR value) is the one genericInstanceFor returns for the second too,
 // which doesn't fit its signature, so its trial is dropped and the second call took the erased copy,

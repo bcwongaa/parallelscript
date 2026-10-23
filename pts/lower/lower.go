@@ -179,7 +179,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
-		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
+		genericClasses: map[*ast.Symbol]*genericClass{}, classIdentities: map[string]string{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
 		genericConstNodes: map[*ast.Node]*genericFunc{}, instanceCounts: map[recursionBudget]int{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}, funcUses: map[*ir.Func]use{}}
@@ -301,6 +301,7 @@ type lowerer struct {
 	allMethodsInTables  bool                             // every generic method has its erased copy in its class's method table
 	subst               *substitution                    // the instance being lowered or declared, or nil
 	genericClasses      map[*ast.Symbol]*genericClass    // every generic class declaration, whose instances types make; nil if it failed
+	classIdentities     map[string]string                // classMembersIdentity's, by generic class and type arguments
 	classInstances      map[*ir.Class]*classInstance     // the generic class instance each instance's class is
 	instanceClasses     []*ir.Class                      // the classes of generic class instances, in the order they were made
 	classInstanceBodies []*classInstance                 // the class instances whose constructors and methods are still to be lowered

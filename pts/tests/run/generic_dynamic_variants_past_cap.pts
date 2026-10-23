@@ -1,4 +1,3 @@
-// skip: known issue (H09b5d, C172): past maxDynamicVariants (4) a call with a dynamic result keeps the erased copy, whose Box<any> throws
 // C172 (H09b5): calls of a dynamic-result generic value for Promise<1> ... Promise<6> make instances
 // of one IR type told apart by checker types, up to maxDynamicVariants (4, D-190); past them the
 // 5th and 6th calls kept the erased copy and threw `Expected Box<1>, got Box<any>`, though the

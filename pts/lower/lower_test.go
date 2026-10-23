@@ -1006,6 +1006,37 @@ func wrap_string.inner(y: string) string closure [] {
 `)
 }
 
+func TestInstancesForTypeArgumentsOfOneIRTypeAreToldApartWhereTheirTypesDiffer(t *testing.T) {
+	t.Parallel()
+	// C177: Promise<number> and Promise<string> are both dynamic values, but what the
+	// instances make for them differs (Box<Awaited<T>>); a function has an instance for each
+	// (and none past four was the erased copy), a call for the same types shares one. A
+	// generic class has two only where its members' types differ (Holder's R<T>), so
+	// Box<1>, which converts to Box<number>, is Box<number>'s class.
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return v;
+  }
+}
+function same<T>(x: T): T {
+  return x;
+}
+same(Promise.resolve(1));
+same<Promise<number>>(Promise.resolve(2));
+same(Promise.resolve("s"));
+const one: Box<number> = new Box<1>(1);
+console.log(one.value, new Holder<1>(1).pick(new Box("s")).value, new Holder<number>(2).pick(new Box(3)).value);
+`)
+	assert.Equal(t, strings.Count(got, "\nfunc same_value("), 2, got)
+	assert.Equal(t, strings.Count(got, "class Box { value: number }"), 1, got)
+	assert.Equal(t, strings.Count(got, "class Holder {"), 2, got)
+}
+
 func TestParametersWithDefaultsTakeAFlagThatSaysWhetherTheCallPassedThem(t *testing.T) {
 	t.Parallel()
 	got := lowerValid(t, `function greet(name: string, greeting = "Hello"): string {

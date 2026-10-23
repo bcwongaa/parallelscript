@@ -1,4 +1,3 @@
-// skip: known issue (H09b5d, C177): a generic class's instances don't tell a literal type argument from its base: PTS1001 `using a Box as a Box`
 // C177 (H09b5): a generic function's instances tell a literal type argument from its base (D-089's
 // literals), a generic class's don't: Holder<1> and Holder<number> were one class, whose pick returns
 // Box<string>, so Holder<number>'s Box<number> was PTS1001 `using a Box as a Box`.

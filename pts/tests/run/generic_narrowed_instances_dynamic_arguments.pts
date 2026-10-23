@@ -1,0 +1,28 @@
+// A dynamic type argument's own instance (Promise<number>, a recursive union) whose
+// Array.isArray or instanceof branch no value of the argument reaches, called first or
+// alone: the branch reads x as the widest type of the argument's IR type narrows it (D-195),
+// where it was never and its members didn't lower (`x.length`, `x.value`: PTS1001, before
+// and after C177's instances, H09b5d).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Json = string | number | null | Json[] | { [k: string]: Json };
+function lengths<T>(x: T): string {
+  if (Array.isArray(x)) {
+    return "length " + x.length;
+  }
+  return "none";
+}
+function values<T>(x: T): string {
+  if (x instanceof Box) {
+    return "value " + String(x.value);
+  }
+  return "none";
+}
+console.log(lengths<Promise<string>>(Promise.resolve("p")), values<Promise<string>>(Promise.resolve("p")));
+console.log(lengths<Json>([1, "a"]), lengths<Json>(3), values<Json>(4));
+console.log(lengths<unknown>(["a"]), values<unknown>(new Box("b")));
+// expect:
+// none none
+// length 2 none none
+// length 1 value b

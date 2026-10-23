@@ -1,4 +1,3 @@
-// skip: known issue (H09b5d, C177): structural twins are one shape, so the calls share an instance whose result is the first call's: PTS1001 `using a Box as a Box`
 // C177 (H09b5): { kind: "a" } and { kind: "b" } are one shape (IR type), so pick's two calls shared
 // one instance, made for the first, whose R<T> is Box<number>: the second call's Box<string> was
 // PTS1001 `using a Box as a Box`. Each call alone matches Node.

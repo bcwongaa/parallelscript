@@ -184,13 +184,14 @@ func (l *lowerer) fromErasedFor(d *demand, value ir.Expr, node *ast.Node) ir.Exp
 
 // instanceKey is the key (ir.Instance.Key) of the entries a call with a dynamic result
 // finds, resolved: the same for calls through the same function type whose type
-// arguments, parameters and result are the same types (keyPart), else another one. The
+// arguments, parameters and result are the same types (keyPart, brands included, as an
+// instance's type arguments are told apart: typeArgumentsIdentity), else another one. The
 // value's instance depends on all of them: a type argument can reach it from outside the
 // call's own (a type alias's, `Loader<U>`, or an enclosing instance's, `outer<U>`),
 // through the result or a parameter whose IR type is or holds a dynamic value
 // (`Promise<U>`). The key names the first such call's result type, for reading the IR.
 func (l *lowerer) instanceKey(resolved *checker.Signature, node *ast.Node) string {
-	identity := &keyIdentity{budget: maxKeyParts}
+	identity := &keyIdentity{budget: maxKeyParts, brands: true}
 	fmt.Fprintf(identity, "%p", resolved.Declaration())
 	for _, t := range l.checker.PtsTypeArgumentsOfSignature(resolved) {
 		l.keyPart(identity, t, node)
@@ -223,12 +224,14 @@ type keyIdentity struct {
 	path    []*checker.Type   // the types being written, outermost first
 	budget  int               // the types it may still write by their parts
 	binders [][]*checker.Type // the type parameters of the signatures being written, outermost first
+	brands  bool              // whether a branded primitive is written with its brand (typeArgument), not as its primitive
 }
 
-// keyPart writes t's identity for instanceKey and madeFor: the same for types of the
-// same IR types and literals, but for dynamic values, which `Promise<number>` and `any`
-// both are, and anything holding them, and never the same for other IR types. So it
-// writes a literal type by itself, a union's or an intersection's members, a type
+// keyPart writes t's identity for instanceKey and typeArgumentsIdentity: the same for
+// types of the same IR types and literals (and brands, where identity.brands), but for
+// dynamic values, which `Promise<number>` and `any` both are, and anything holding them,
+// and never the same for other IR types. So it writes a literal type by itself, a
+// branded primitive by its primitive and its brand's properties, a union's or an intersection's members, a type
 // reference's (`Promise<Box<T>>`, `Pair<K, V>`, an array) target and type arguments,
 // without making a class instance for it, a class or a library interface by its IR type,
 // another object type (a literal's, an interface's, a mapped type's, a function type's)
@@ -238,7 +241,11 @@ type keyIdentity struct {
 // inside itself is written by how far out it is, and past maxKeyDepth or maxKeyParts a
 // type by its IR type alone, so a dynamic value deeper than that isn't told apart.
 func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node) {
-	t = l.instantiate(t)
+	if identity.brands {
+		t = l.typeArgument(t)
+	} else {
+		t = l.instantiate(t)
+	}
 	if i := slices.Index(identity.path, t); i >= 0 {
 		fmt.Fprintf(identity, ",^%d", len(identity.path)-i)
 		return
@@ -263,6 +270,19 @@ func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node
 	switch {
 	case isLiteralType(t):
 		fmt.Fprintf(identity, ",=%d", t.Id())
+	case identity.brands && l.brandedPrimitive(t) != nil:
+		identity.WriteString(",b(") // its brands' properties, without the IR type an object type's would make
+		for _, member := range t.Types() {
+			if member.Flags()&checker.TypeFlagsPrimitive != 0 {
+				l.keyPart(identity, member, node)
+				continue
+			}
+			for _, property := range l.checker.GetPropertiesOfType(member) {
+				identity.WriteString("," + property.Name)
+				l.keyPart(identity, l.checker.GetTypeOfSymbol(property), node)
+			}
+		}
+		identity.WriteString(")")
 	case t.Flags()&(checker.TypeFlagsUnion|checker.TypeFlagsIntersection) != 0:
 		fmt.Fprintf(identity, ",(%d", t.Flags()&(checker.TypeFlagsUnion|checker.TypeFlagsIntersection))
 		for _, member := range t.Types() {
@@ -936,7 +956,7 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	reports := reported.reports
 	lowered, demands, values := len(l.lowered), len(l.demands), len(l.erasedValues)
 	l.trial = t
-	fn, limit := l.genericInstanceFor(generic, arguments, d.node, d.key != "") // past a limit, the trial's own failure (D-198)
+	fn, limit := l.genericInstanceFor(generic, arguments, d.node) // past a limit, the trial's own failure (D-198)
 	if limit == pastTotal {
 		l.reportInstanceLimit(limit, generic.name, d.node)
 	}
