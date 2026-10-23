@@ -1,0 +1,15 @@
+// H10a review round 5 (R5-F3: a `.par` view of a member array of an uninferred instanceof narrowing, whose element types aren't known, would be a copy that writes to its elements could miss, so PTS1001, not a possibly silent copy); from the reviewer's probe p24_unknown_member_par.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+class Shape {}
+class Box<T> extends Shape {
+  items: T[] = [];
+  constructor(n: number, f: (i: number) => T) {
+    super();
+    for (let i = 0; i < n; i++) this.items.push(f(i));
+  }
+}
+function viaShape(s: Shape): number {
+  if (s instanceof Box) return s.items.par.map((v) => v + 1).length;
+  return -1;
+}
+console.log(viaShape(new Box<number>(100, (i) => i)));

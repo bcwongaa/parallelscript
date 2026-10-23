@@ -1,6 +1,8 @@
 // H10a review round 1 (R1-F4), the reviewer's probe p24_unknown_member_par.pts:
-// x: unknown narrowed to Box<any>: `.par` over its any[] member (the instance's number[]),
-// and over a Shape-held (dynamic with H10a) instance's member.
+// x: unknown narrowed to Box<any>: `.par` over its any[] member (the instance's number[]).
+// (Over a Shape-held instance's member, whose element types an uninferred narrowing doesn't
+// know, `.par` would be a copy writes to its elements could miss: review round 5's R5-F3,
+// errors/generic_instanceof_par_uninferred_member.pts.)
 // threads: 1 2 4
 class Shape {}
 class Box<T> extends Shape {
@@ -14,11 +16,7 @@ function viaUnknown(x: unknown): number {
   if (x instanceof Box) return x.items.par.map((v) => v * 2).reduce((a, b) => a + b, 0);
   return -1;
 }
-function viaShape(s: Shape): number {
-  if (s instanceof Box) return s.items.par.map((v) => v + 1).length;
-  return -1;
-}
 const b = new Box<number>(100, (i) => i);
-console.log(viaUnknown(b), viaShape(b));
+console.log(viaUnknown(b));
 // expect:
-// 9900 100
+// 9900

@@ -158,6 +158,9 @@ func (l *lowerer) bindingSource(symbol *ast.Symbol) *ast.Node {
 	for declaration.Kind == ast.KindBindingElement {
 		declaration = declaration.Parent.Parent // the pattern's declaration or binding element; a default is a new value (R4-F2)
 	}
+	if declaration.Kind == ast.KindParameter {
+		return callbackSource(declaration) // `forEach(({ list }) => …)` (R5-F2)
+	}
 	if declaration.Kind != ast.KindVariableDeclaration || declaration.Type() != nil {
 		return nil
 	}
@@ -254,7 +257,38 @@ func (l *lowerer) copiesInstanceofDynamicValue(value ir.Expr, target ir.Type, no
 		node = ast.SkipParentheses(node)
 	}
 	return value.Type() == ir.Value && target != ir.Value && !isCheckable(target) && !isFunction(target) &&
-		holdsDynamicValues(target, map[ir.Type]bool{}) && node != nil && l.madeDynamicByInstanceof(node) && !l.isReadOnlyArgument(node) && !isReadOnlyParallelView(node)
+		holdsDynamicValues(target, map[ir.Type]bool{}) && node != nil && l.madeDynamicByInstanceof(node) && !l.isReadOnlyArgument(node) &&
+		!(isReadOnlyParallelView(node) && l.holdsPrimitiveElements(node))
+}
+
+// holdsPrimitiveElements reports whether node, an array an instanceof narrowing holds as a
+// dynamic value, holds primitives in the instance (`c.items` of a MapLRU<string, number>):
+// a copy of it is the array's values, where a copy of arrays or objects is of them too, so
+// writes to its elements would miss the instance's (R5-F3).
+func (l *lowerer) holdsPrimitiveElements(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind == ast.KindIdentifier {
+		if symbol := l.readSymbol(node); symbol != nil && l.isInstanceofDynamicLocal(symbol) {
+			if source := l.bindingSource(symbol); source != nil {
+				return l.holdsPrimitiveElements(source)
+			}
+		}
+		return false
+	}
+	if node.Kind != ast.KindPropertyAccessExpression {
+		return false
+	}
+	receiver := ast.SkipParentheses(node.Expression())
+	instance := l.instanceofInstance(receiver, l.instantiate(l.checker.GetTypeAtLocation(receiver)))
+	if instance == nil {
+		return false
+	}
+	member := l.checker.GetTypeOfPropertyOfType(instance, node.AsPropertyAccessExpression().Name().Text())
+	if member == nil || !l.checker.IsArrayType(member) {
+		return false
+	}
+	elem, ok := l.irType(member, node).(*ir.Array)
+	return ok && isPrimitive(elem.Elem) || ok && ir.IsNumeric(elem.Elem)
 }
 
 // isReadOnlyParallelView reports whether node is the array of a `.par` view whose method
@@ -701,8 +735,30 @@ func (l *lowerer) isCopiedCallbackParameter(parameter *ast.Node, t ir.Type) bool
 	for call.Kind == ast.KindParenthesizedExpression {
 		call = call.Parent
 	}
-	if call.Kind != ast.KindCallExpression || !ast.IsAccessExpression(ast.SkipParentheses(call.Expression())) {
+	if call.Kind != ast.KindCallExpression {
 		return false
 	}
-	return l.madeDynamicByInstanceof(ast.SkipParentheses(call.Expression()).Expression())
+	callee := ast.SkipParentheses(call.Expression())
+	if callee.Kind != ast.KindPropertyAccessExpression {
+		return false
+	}
+	if parameter.Name().Kind == ast.KindIdentifier && l.onlyReads(fn, l.checker.GetSymbolAtLocation(parameter.Name())) {
+		return false // a copy only read can't be told apart from the object (D-094; R5-F1)
+	}
+	// Only where an array method hands its callback the receiver's objects: an element and
+	// the array itself; not reduce's accumulator, which is the callback's own (R5-F1).
+	index := slices.Index(fn.Parameters(), parameter)
+	switch method := callee.AsPropertyAccessExpression().Name().Text(); {
+	case method == "reduce" || method == "reduceRight":
+		if index != 1 && index != 3 {
+			return false
+		}
+	case readOnlyArrayMethods[method] || method == "sort" || method == "toSorted":
+		if index != 0 && index != 2 && !(method == "sort" || method == "toSorted") {
+			return false
+		}
+	default:
+		return false
+	}
+	return l.madeDynamicByInstanceof(callee.Expression())
 }

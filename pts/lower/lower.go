@@ -1315,6 +1315,12 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 		if symbol := l.checker.GetSymbolAtLocation(param.Name()); symbol != nil && l.isInstanceofDynamicLocal(symbol) {
 			return ir.Value // `arr` of `c.items.forEach((x, i, arr) => …)` (R4-F2)
 		}
+	} else if source := callbackSource(node); source != nil && l.holdsInstanceofDynamicValue(source) {
+		// `c.groups.forEach(({ list }) => …)`: the element the pattern takes apart, as it
+		// is, so that its names hold its own members (R5-F2)
+		if t := l.irType(l.typeOfSymbol(node.Symbol()), param.Name()); t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t) {
+			return ir.Value
+		}
 	}
 	var t *checker.Type
 	switch {

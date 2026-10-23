@@ -369,3 +369,66 @@ Every line here is Node `true`, fix4 `false`. The base threw `Expected MapLRU<an
 - That file's header says every listed sink is PTS1001. In fact the conditional, `||`, `satisfies`, for…of destructuring and local-conditional sinks now compile and run as Node (`s07`), and the shorthand one copies.
 - Splitting it into one error test per sink, plus run tests for the sinks that now work, would catch both.
 - Nothing tests R4-F1's read-only `unknown`, `catch` and `any` sources. `s01`, `s02` and `s05` are ready as run tests with Node's output; all three pass on the base and fix3.
+
+## Round 5: `253d98b2c`
+
+NOT READY
+
+# H10a review, round 5: commit `253d98b2c` (against `77a63f2f6`)
+
+**Not ready yet.** I'd accept H10a with D-218's recorded gaps and with H10b's scope (values flowing into tsc's `C<any, …>` places), but three things block it:
+- **Silent lost writes:** there are still three ways to lose writes silently in programs where the base threw a checked TypeError.
+- **New false-positive PTS1001s:** some code that ran as Node on fix4 no longer compiles.
+- **Not recorded:** none of these is in D-218's known gaps.
+
+All of them sit in callback and `.par` parameter handling, so the remaining work is narrow.
+
+All runs used `/tmp/h10/pts-fix5`, `pts-fix4` and `pts-base` (with `PTS_HOME` set) against Node on a `.mts` copy.
+- **Probes:** `/tmp/h10/review5/p/t*.pts`. `/tmp/h10/review5/bin/cmp.sh FILE [versions]` reprints the outputs; programs with a `// threads:` line run at 1, 2 and 4.
+- **Archive:** `/tmp/h10/review5-probes.tar.gz`.
+
+## What holds (verified)
+- **R4-F1 is fixed:** s01, s02 and s05 (read-only `unknown`, `catch` and `any` sources) print Node's output again.
+- **Round-4 silent paths now fixed:**
+  - Dynamic keeps the write: `forEach`/`map`/`filter`'s `arr`, a destructuring default, `await Promise.resolve(c.items)`. Nested, reassigned, captured, async and defaulted callback parameters also keep their writes (t02).
+  - PTS1001: shorthand `{ it }` and `{ it: it }`, and an annotated `(row: any[])`.
+  - Typed `{ it: number[] }` and callbacks annotated with the instance's own types keep the object (t05, t06).
+- **Probe rerun:** I re-ran all round 1–4 probes on fix5 (`review5/rerun/`). Everything matches Node or is an honest PTS1001, except your listed pre-existing cases and s04b.
+- **Matrix (`review5/matrix/fix5.jsonl`):** 622 OK, identical to fix4 case by case, none worse, no WRONG.
+- **emit-c sweep:** base vs fix5 over 488 generic-class and instanceof programs; only round 4's four benign diffs change.
+
+## Findings
+
+### R5-F2 (High, regression: a checked TypeError became silently lost writes): callbacks the syntactic rules miss
+- **Destructured callback parameters** (`t02_callback_param_forms.pts`):
+  - `c.groups.forEach(({ list }) => list.push(1))` gives `destructured element false`. Node: `true`. Base: TypeError.
+  - Cause: `bindingSource` walks a binding element up to its `Parameter` and then returns nil, because only a direct parameter takes the `callbackSource` branch.
+- **Callbacks given by reference** (`t04_callback_references.pts`): `c.items.forEach(pushOne)` with a function declaration, with a `const` arrow, and with an object method `keeper.push`.
+  - Each one's `arr: any[]` parameter gets a copy: fix5 prints `false` three times. Node: `true`. Base: TypeError.
+  - Only an inline arrow or function expression is handled (`function expression true`).
+- **What would cover all of these:** check at the call site instead of at the callback. When a function value whose parameter types hold dynamic values is passed to a method of a value `madeDynamicByInstanceof`, report PTS1001 unless those parameters are Value.
+
+### R5-F3 (High, silent): `.par` callbacks lose writes to the elements
+- **Where:** `instanceof.go`, `isReadOnlyParallelView`. It exempts `x.items.par.map/filter(…)` from the guard on the grounds that the method only reads the array. But the conversion copies deeply, so a callback that writes to its element writes to a copy.
+- **`t03_par_callback_params.pts`** (threads 1, 2 and 4):
+  - `c.rows.par.map((row) => { row.push(0); return row.length; })` leaves `c.rows[63].length` at `2`. Node: `3`. The same on fix4.
+- **`t07_par_local_element_writes.pts`:** through a dynamic local and through `.par.filter`. Node: `[ 0, 1, 2 ] [ 31, 1, 2 ]`. fix5: `[ 0 ] [ 31 ]` at every thread count.
+- **Control:** `t03b_par_typed_control.pts`, the same over a typed `number[][]` and an `any[][]` without instanceof, keeps the writes on the base and on fix5, so this is H10-specific.
+- **Fix:** keep the exemption only where the element type is checkable (no nested arrays or objects).
+
+### R5-F1 (Medium, regression against fix4; base: TypeError, and it compiled unreached code): false-positive PTS1001s on annotated callback parameters
+- **Where:** `isCopiedCallbackParameter` flags every annotated parameter whose type holds dynamic values in a callback to a method of a made-dynamic receiver, even when the method doesn't hand it the receiver's objects, or when the parameter is only read.
+- **Repro:** `t01_annotated_callback_false_positives.pts`.
+  - `c.items.reduce((acc: any[], x) => { acc.push(x * 2); return acc; }, [])`: the accumulator is a new array.
+  - `c.matrix.map((row: any[]) => row.length)`: only read.
+  - Node and fix4: `[ 4, 6, 2 ] [ 2, 1 ] [ 1, 2, 3 ]`. fix5: two PTS1001s.
+
+## Test quality
+- No test covers destructured or by-reference callbacks, `.par` element writes, or annotated callback parameters that aren't the receiver's objects.
+- t01, t02 (the destructured line), t03, t04 and t07 have Node's output and are ready as RED tests.
+- The per-sink error tests are now one PTS1001 per file, as asked.
+
+## What READY would take
+1. Fix or reject R5-F2 and R5-F3.
+2. Narrow R5-F1 to the parameters the array methods hand their receiver's objects: elements of array-typed elements, and `arr`.
+3. Add D-218 known-gap lines for anything left deliberately. At that point every remaining divergence is a recorded known gap or H10b's, and I'd call it READY.

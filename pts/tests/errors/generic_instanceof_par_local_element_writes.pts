@@ -1,0 +1,24 @@
+// H10a review round 5 (R5-F3: a `.par` view of an instanceof narrowing's member array of arrays would be a deep copy, so writes to its elements would be lost; PTS1001, not a silent copy); the reviewer's probe t07_par_local_element_writes.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[][] where it may be changed or kept
+// threads: 1 2 4
+// `.par.map` over a dynamic local holding a member tsc types any[][] (inferred narrowing),
+// whose callback writes to its row; and `.par.filter` doing the same.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  rows: V[][] = [];
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  for (let i = 0; i < 32; i++) c.rows.push([i]);
+  const rows = c.rows;
+  rows.par.map((row) => row.push(1));
+  c.rows.par.filter((row) => row.push(2) > 0);
+  console.log(c.rows[0], c.rows[31]);
+}
+run(new MapLRU<string, number>("k", 0));

@@ -1,0 +1,53 @@
+// H10a review round 5 (R5-F2), the reviewer's probe t02_callback_param_forms.pts:
+// Callback parameters of methods on members tsc types with any (inferred narrowing): a
+// destructured element, nested callbacks, a reassigned parameter, a captured one, an async
+// callback, a default. Node: every line "true".
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  groups: { list: V[] }[] = [];
+  matrix: V[][] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+    this.groups.push({ list: [val] });
+    this.matrix.push([val]);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+async function check(name: string, f: (c: Cache<string, number>) => Promise<void> | void, seen: (m: MapLRU<string, number>) => boolean): Promise<void> {
+  const m = new MapLRU<string, number>("k", 0);
+  try {
+    await f(m);
+    console.log(name, seen(m));
+  } catch (e: any) {
+    console.log(name, "threw", e.message);
+  }
+}
+async function main(): Promise<void> {
+  await check("destructured element", (c) => { if (c instanceof MapLRU) c.groups.forEach(({ list }) => list.push(1)); }, (m) => m.groups[0].list.length === 2);
+  await check("nested callbacks", (c) => { if (c instanceof MapLRU) c.matrix.forEach((row) => row.forEach((_x, _j, r) => r.push(1))); }, (m) => m.matrix[0].length === 2);
+  await check("reassigned parameter", (c) => { if (c instanceof MapLRU) c.items.forEach((_x, _i, arr) => { arr.push(1); arr = []; arr.push(2); }); }, (m) => m.items.length === 2);
+  let saved: any;
+  await check("captured parameter", (c) => { if (c instanceof MapLRU) { c.items.forEach((_x, _i, arr) => { saved = arr; }); saved.push(1); } }, (m) => m.items.length === 2);
+  await check("async callback", async (c) => {
+    if (!(c instanceof MapLRU)) return;
+    const done: Promise<void>[] = [];
+    c.items.forEach((_x, _i, arr) => done.push((async () => { await null; arr.push(1); })()));
+    await Promise.all(done);
+  }, (m) => m.items.length === 2);
+  await check("default parameter", (c) => { if (c instanceof MapLRU) c.items.forEach((_x, _i, arr = []) => arr.push(1)); }, (m) => m.items.length === 2);
+  await check("element of matrix", (c) => { if (c instanceof MapLRU) c.matrix.map((row) => row.push(1)); }, (m) => m.matrix[0].length === 2);
+}
+main();
+// expect:
+// destructured element true
+// nested callbacks true
+// reassigned parameter true
+// captured parameter true
+// async callback true
+// default parameter true
+// element of matrix true

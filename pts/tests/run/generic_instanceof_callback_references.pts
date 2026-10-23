@@ -1,0 +1,42 @@
+// skip: H10a open (R5-F2): a callback given by reference (a function declaration, a const arrow, an object's method) whose `arr: any[]` parameter a dynamic method call of an instanceof narrowing's member hands the instance's array gets a copy, so the write is lost silently (the base threw a checked TypeError)
+// H10a review round 5 (R5-F2), the reviewer's probe t04_callback_references.pts:
+// Callbacks given by reference (a function declaration, a const arrow, a method of an object)
+// to array methods of a member tsc types with any (inferred narrowing), writing through
+// their array parameter. Node: every line "true".
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function pushOne(_x: any, _i: number, arr: any[]): void {
+  arr.push(1);
+}
+const pushTwo = (_x: any, _i: number, arr: any[]) => {
+  arr.push(2);
+};
+const keeper = {
+  push(_x: any, _i: number, arr: any[]): void {
+    arr.push(3);
+  },
+};
+function check(name: string, f: (c: Cache<string, number>) => void): void {
+  const m = new MapLRU<string, number>("k", 0);
+  f(m);
+  console.log(name, m.items.length === 2);
+}
+check("function declaration", (c) => { if (c instanceof MapLRU) c.items.forEach(pushOne); });
+check("const arrow", (c) => { if (c instanceof MapLRU) c.items.forEach(pushTwo); });
+check("object method", (c) => { if (c instanceof MapLRU) c.items.forEach(keeper.push); });
+check("function expression", (c) => { if (c instanceof MapLRU) c.items.forEach(function (_x, _i, arr) { arr.push(4); }); });
+// expect:
+// function declaration true
+// const arrow true
+// object method true
+// function expression true

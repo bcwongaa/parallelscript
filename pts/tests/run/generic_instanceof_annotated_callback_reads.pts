@@ -1,0 +1,32 @@
+// H10a review round 5 (R5-F1), the reviewer's probe t01_annotated_callback_false_positives.pts: annotated callback parameters that aren't the receiver's objects (reduce's accumulator) or are only read take them as before:
+// Annotated callback parameters of methods on a member tsc types with any (inferred
+// narrowing) whose values are not the member's own objects, or that are only read: reduce's
+// accumulator (a new array), a row only measured, a sort comparator's numbers.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  c.items.push(3, 1);
+  c.matrix.push([1, 2], [3]);
+  const doubled = c.items.reduce((acc: any[], x) => {
+    acc.push(x * 2);
+    return acc;
+  }, []);
+  const widths = c.matrix.map((row: any[]) => row.length);
+  const sorted = c.items.slice().sort((a: any, b: any) => a - b);
+  console.log(doubled, widths, sorted);
+}
+run(new MapLRU<string, number>("k", 2));
+// expect:
+// [ 4, 6, 2 ] [ 2, 1 ] [ 1, 2, 3 ]
