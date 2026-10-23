@@ -17,9 +17,10 @@ build:
 	$(GO) build -o $(PTS_BIN) ./cmd/pts
 
 # Every ParallelScript test: Go unit tests, runtime C tests, the corpus in pts/tests
-# and, if node is on PATH, the differential tests against Node.
+# and, if node is on PATH, the differential tests against Node. pts/tests alone takes
+# about ten minutes on CI's runner, past go test's default timeout (D-217).
 test:
-	$(GO) test ./pts/... ./cmd/pts/
+	$(GO) test -timeout 40m ./pts/... ./cmd/pts/
 
 # Only the differential tests (every test named *MatchesNode); fails if node is missing.
 test-diff:
