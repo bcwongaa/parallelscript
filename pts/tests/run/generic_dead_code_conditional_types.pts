@@ -1,0 +1,19 @@
+// skip: known issue (H09b5d review round 3, C272, pre-existing): deadTest widens T = { kind: "a" } to unknown, for which Mode<T> = T extends A ? "fast" : "slow" is "slow", so the instance's live `m === "fast"` branch is lowered as a trap and throws
+// H09b5d review round 3 (w05).
+// w04's mode alone, one call for A: the instance is A's only, but deadTest widens T to
+// unknown (the widest type of {kind: "a"}'s IR type), for which Mode<T> is "slow", so the
+// branch where m narrows to "fast", which A's value takes, is a trap.
+type A = { kind: "a" };
+type Mode<T> = T extends A ? "fast" : "slow";
+function mode<T>(t: T, m: Mode<T>): string {
+  if (m === "slow") {
+    return "slow " + m.length;
+  }
+  return "fast " + m.toUpperCase();
+}
+const a: A = { kind: "a" };
+console.log(mode(a, "fast"));
+console.log(mode<1>(1, "slow"));
+// expect:
+// fast FAST
+// slow 4

@@ -28,10 +28,9 @@ func newClassMembers() *classMembers {
 // Generic classes are monomorphized like generic functions (D-049, D-050): each list of
 // IR types a generic class is instantiated with makes a class of its own (and, where a
 // program is lowered splitting classes, type arguments of the same IR types whose computed
-// types differ, C177), named as the
-// generic class (console.log prints `Box { value: 1 }` for every instance), whose
-// members are declared, and whose constructor and methods are lowered, with the class's
-// type parameters replaced by the type arguments.
+// types differ, C177), named as the generic class (console.log prints `Box { value: 1 }`
+// for every instance), whose members are declared, and whose constructor and methods are
+// lowered, with the class's type parameters replaced by the type arguments.
 
 // genericClass is a generic class declaration and its instances so far.
 type genericClass struct {
@@ -376,10 +375,10 @@ func (l *lowerer) classComputedTypes(generic *genericClass) *classComputed {
 // their IR types alone: a conditional type (`T extends 1 ? string : number`, `Awaited<T>`,
 // `ReturnType<F>`), an indexed access (`T["kind"]`), `keyof T`, a mapped type or a
 // template literal type, also in a generic interface's members; and where the program is
-// lowered splitting classes, a generic
-// class that computes types from its own (classComputedTypes), whose instances of one IR
-// type may then be other classes. An intersection with a type parameter (`T & any[]`,
-// which a narrowing makes) is an instance's as narrowedInstance and D-195 say.
+// lowered splitting classes, a generic class that computes types from its own
+// (classComputedTypes), whose instances of one IR type may then be other classes. An
+// intersection with a type parameter (`T & any[]`, which a narrowing makes) is an
+// instance's as narrowedInstance and D-195 say.
 func (l *lowerer) computesTypes(t *checker.Type, seen map[*checker.Type]bool) bool {
 	if seen[t] || len(seen) > maxKeyParts {
 		return false

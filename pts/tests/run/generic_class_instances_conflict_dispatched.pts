@@ -1,0 +1,36 @@
+// skip: known issue (H09b5d, C269): as generic_class_instances_conflict_in_value, through an interface's generic method (D-191) and an abstract one (D-101)
+// H09b5d review round 3 (d06).
+// d01's class conflict through a generic method of an interface (D-191) and an abstract
+// method (D-101): speculative pairings, so the shared lowering narrows them away?
+class Box<T> {
+  constructor(public value: T) {}
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return v;
+  }
+}
+interface User {
+  use<T>(h: Holder<T>, v: R<T>): R<T>;
+}
+const lit: User = {
+  use<T>(h: Holder<T>, v: R<T>): R<T> {
+    return h.pick(v);
+  },
+};
+abstract class Base {
+  abstract use<T>(h: Holder<T>, v: R<T>): R<T>;
+}
+class Impl extends Base {
+  use<T>(h: Holder<T>, v: R<T>): R<T> {
+    return h.pick(v);
+  }
+}
+const b: Base = new Impl();
+console.log(lit.use(new Holder<1>(1), new Box("s")).value, lit.use(new Holder<number>(2), new Box(3)).value);
+console.log(b.use(new Holder<1>(1), new Box("t")).value, b.use(new Holder<number>(4), new Box(5)).value);
+// expect:
+// s 3
+// t 5

@@ -1,0 +1,24 @@
+// skip: known issue (H09b5d, C269): the class conflict (Holder<1> and Holder<number> share a class) is in a generic value's instance: its trial is taken back and the call takes the erased copy, which throws, so no lowering fails and the build never splits the classes
+// H09b5d review round 3 (d01).
+// The class conflict (Holder<1> and Holder<number> share a class whose pick takes a
+// Box<string>) is in a generic value's instance, a speculative pairing: does the shared
+// lowering leave the pairing out (narrowing) and run the call on the erased copy, rather
+// than retrying with classes split?
+class Box<T> {
+  constructor(public value: T) {}
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return v;
+  }
+}
+const use = <T,>(h: Holder<T>, v: R<T>): R<T> => h.pick(v);
+const other = <T,>(h: Holder<T>, v: R<T>): R<T> => v;
+const f: <T>(h: Holder<T>, v: R<T>) => R<T> = Math.random() < 2 ? use : other;
+const s = f(new Holder<1>(1), new Box("s"));
+const n = f(new Holder<number>(2), new Box(3));
+console.log(s.value, n.value, typeof n.value);
+// expect:
+// s 3 number

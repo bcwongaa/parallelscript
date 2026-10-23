@@ -1,0 +1,31 @@
+// skip: known issue (H09b5d, C271): Holder needs its classes split, which splits every class (a whole-program lowering), so an unrelated erased copy's Task<any> can be only one of Task's split classes and throws at run time (the base: PTS1001)
+// H09b5d review round 3 (d04).
+// A program that compiles only with classes split (Holder<1> and Holder<number>'s pick, as
+// generic_class_instances_literal_type_arguments.pts), which splits every class: an
+// unrelated Task's erased-copy result (c11) then has no class of its own and throws, where
+// the shared lowering would have run it (and the base refused the whole program).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return v;
+  }
+}
+console.log(new Holder<1>(1).pick(new Box("s")).value, new Holder<number>(2).pick(new Box(3)).value);
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+}
+function wrap<T>(p: T): Task<T> {
+  return new Task(p);
+}
+const first = new Task(Promise.resolve(1));
+const g: any = wrap;
+const t: Task<Promise<string>> = g(Promise.resolve("s"));
+console.log(first.result, t.result, t instanceof Task);
+// expect:
+// s 3
+// undefined undefined true

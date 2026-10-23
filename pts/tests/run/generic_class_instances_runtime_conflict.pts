@@ -1,0 +1,18 @@
+// skip: known issue (H09b5d, C270): Task<Promise<number>> and Task<Promise<string>> share a class whose Awaited<T> member is a number, which the program compiles with, so the build keeps it, and the second's string member throws at run time
+// H09b5d review round 3 (d02).
+// C177 for classes where the shared class compiles and only fails at run time: Task's
+// Awaited<T> member is typed for the first instance (Promise<number>), and the second's
+// string arrives as a dynamic value (JSON.parse), checked against number.
+class Task<T> {
+  result: Awaited<T> | undefined = undefined;
+  constructor(public p: T) {}
+  settle(raw: string): this {
+    this.result = JSON.parse(raw);
+    return this;
+  }
+}
+const a = new Task(Promise.resolve(1)).settle("1");
+const b = new Task(Promise.resolve("s")).settle('"s"');
+console.log(a.result, b.result, typeof b.result);
+// expect:
+// 1 s string

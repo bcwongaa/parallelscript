@@ -12,3 +12,9 @@ here is done; each entry names the later task that owns it and must be listed ag
   (C172: esc_150x50 92,388 lines / 21.6 s; methods_60 93,741 lines / 49 s), not wrong results.
 - **Owner:** H25 (escape analysis / flow) and H27 (code generation), with the m4 matrix as the measurement.
 - **Evidence:** docs/agent/hardening-evidence/h09b5c*.md, RED test `driver/speculative_instances_test.go`.
+
+## H09b5d
+- **What remains (C266):** typed calls through generic values and methods are keyed by their literal-precise checker types (D-216), so a value's table gets an entry (wrapper, adapter, check object) per key even where every key's instance is one function, and `pts_instance_find` scans a value's entries linearly on every call. Make a declaration that computes no types from its type parameters register one unkeyed entry, found after a keyed lookup misses (runtime and C emitter), or give `pts_instance_find` a per-site cache as methods have.
+- **Why deferred:** programs behave correctly; it is generated-code size and call cost (review round 2's F4: 200 action types through five values 853 → 7,221 lines of C, one value 629 → 5,405; a hot call whose entry is the 201st about 4× slower). Keys can't be coarser: a value whose type computes nothing but whose body does needs them (`run/generic_values_body_only_twins.pts`).
+- **Owner:** H27 (code generation), with the review's `g02`–`g09` probes as the measurement.
+- **Evidence:** docs/agent/hardening-evidence/h09b5d.md, h09b5d-review.md (round 2), `h09b5d-review2-probes.tar.gz` (`p/g07_values_typed_200.pts`, `g08_value_one_200.pts`, `g09_value_lookup_hot.pts`).

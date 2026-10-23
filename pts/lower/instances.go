@@ -255,13 +255,12 @@ type keyIdentity struct {
 // its members, which its type arguments compute), without making a class instance for
 // it, a class or a library interface by its IR type, another object type (a literal's, an
 // interface's, a mapped type's, a function type's) by its IR type (but for
-// identity.typeArguments) and
-// its properties, index signatures and signatures, whose own type parameters by their
-// places, and anything else by its IR type, or if that is a dynamic value or it has none
-// (reported at node, then taken back), by its checker type. A type inside itself is
-// written by how far out it is, and past maxKeyDepth or maxKeyParts a type by its IR type
-// alone (for identity.typeArguments, as one), so a dynamic value deeper than that isn't
-// told apart.
+// identity.typeArguments) and its properties, index signatures and signatures, whose own
+// type parameters by their places, and anything else by its IR type, or if that is a
+// dynamic value or it has none (reported at node, then taken back), by its checker type.
+// A type inside itself is written by how far out it is, and past maxKeyDepth or
+// maxKeyParts a type by its IR type alone (for identity.typeArguments, as one), so a
+// dynamic value deeper than that isn't told apart.
 func (l *lowerer) keyPart(identity *keyIdentity, t *checker.Type, node *ast.Node) {
 	if identity.brands {
 		t = l.typeArgument(t)

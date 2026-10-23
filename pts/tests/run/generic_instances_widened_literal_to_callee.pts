@@ -1,0 +1,23 @@
+// skip: known issue (H09b5d, C267): outer's computed Key<T> is "x" or "y", one string once literals are widened, so the twins share outer's instance, which calls inner<"x"> for both
+// H09b5d review round 3 (w06).
+// widenLiterals with a callee that computes from its literal type argument only in its
+// body: outer's computed type Key<T> is "x" or "y", one string once widened, so the twins
+// share outer's instance, whose call inner(k) is inner<"x"> for both (D-089 tells inner's
+// instances apart, but outer's call has the first's literal).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type A = { kind: "a" };
+type B = { kind: "b" };
+type Key<T> = T extends A ? "x" : "y";
+type Out<K> = K extends "x" ? number : string;
+function inner<K>(k: K, raw: unknown): string {
+  const b: Box<Out<K>> = new Box(raw as Out<K>);
+  return typeof b.value + ":" + String(b.value);
+}
+function outer<T>(t: T, k: Key<T>, raw: unknown): string {
+  return inner(k, raw);
+}
+console.log(outer<A>({ kind: "a" }, "x", 1), outer<B>({ kind: "b" }, "y", "s"));
+// expect:
+// number:1 string:s
