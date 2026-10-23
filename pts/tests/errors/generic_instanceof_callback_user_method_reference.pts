@@ -1,0 +1,20 @@
+// H10a session 6 (parent probe a1): a function declaration given by reference to a method of an instance an uninferred narrowing holds as a dynamic value, which hands it the instance's array; PTS1001, not a silent copy.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+class Box<T> {
+  items: T[] = [];
+  constructor(v: T) {
+    this.items.push(v);
+  }
+  each(f: (items: T[]) => void): void {
+    f(this.items);
+  }
+}
+function addOne(items: any[]): void {
+  items.push(1);
+}
+function run(o: object): void {
+  if (o instanceof Box) o.each(addOne);
+}
+const b = new Box<number>(0);
+run(b);
+console.log(b.items.length);

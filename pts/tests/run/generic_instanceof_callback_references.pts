@@ -1,8 +1,10 @@
-// skip: H10a open (R5-F2): a callback given by reference (a function declaration, a const arrow, an object's method) whose `arr: any[]` parameter a dynamic method call of an instanceof narrowing's member hands the instance's array gets a copy, so the write is lost silently (the base threw a checked TypeError)
-// H10a review round 5 (R5-F2), the reviewer's probe t04_callback_references.pts:
-// Callbacks given by reference (a function declaration, a const arrow, a method of an object)
-// to array methods of a member tsc types with any (inferred narrowing), writing through
-// their array parameter. Node: every line "true".
+// H10a review round 5 (R5-F2's rest, the reviewer's probe t04_callback_references.pts), and
+// session 6's parent probes a4: callbacks given to array methods of a member tsc types any[]
+// (inferred narrowing) that keep the instance's array or only read it: a function expression
+// whose parameters have no type, functions by reference whose array parameter is `any`, that
+// only read it, a reduce accumulator of their own, a rest parameter and a comparator. A
+// function given by reference whose `any[]` parameter it writes would get a copy, PTS1001
+// (errors/generic_instanceof_callback_reference_*.pts). Node: every check line "true".
 interface Cache<K, V> {
   get(key: K): V | undefined;
 }
@@ -15,28 +17,51 @@ class MapLRU<K, V> implements Cache<K, V> {
     return key === this.key ? this.val : undefined;
   }
 }
-function pushOne(_x: any, _i: number, arr: any[]): void {
-  arr.push(1);
+function pushAny(_x: any, _i: number, arr: any): void {
+  arr.push(5);
 }
-const pushTwo = (_x: any, _i: number, arr: any[]) => {
-  arr.push(2);
+const pushUnknown = (_x: unknown, _i: number, arr: unknown) => {
+  (arr as number[]).push(6);
 };
-const keeper = {
-  push(_x: any, _i: number, arr: any[]): void {
-    arr.push(3);
-  },
+let total = 0;
+function measure(_x: any, _i: number, arr: any[]): void {
+  total += arr.length;
+}
+const count = (_x: any, _i: number, arr: readonly any[]) => {
+  total += arr.filter((x) => x > 0).length;
 };
+const collect = (acc: any[], x: any) => {
+  acc.push(x * 2);
+  return acc;
+};
+const seen: number[] = [];
+function logAll(...args: any[]): void {
+  seen.push(args.length);
+}
+function byValue(a: any, b: any): number {
+  return a - b;
+}
 function check(name: string, f: (c: Cache<string, number>) => void): void {
   const m = new MapLRU<string, number>("k", 0);
   f(m);
   console.log(name, m.items.length === 2);
 }
-check("function declaration", (c) => { if (c instanceof MapLRU) c.items.forEach(pushOne); });
-check("const arrow", (c) => { if (c instanceof MapLRU) c.items.forEach(pushTwo); });
-check("object method", (c) => { if (c instanceof MapLRU) c.items.forEach(keeper.push); });
 check("function expression", (c) => { if (c instanceof MapLRU) c.items.forEach(function (_x, _i, arr) { arr.push(4); }); });
+check("any parameter", (c) => { if (c instanceof MapLRU) c.items.forEach(pushAny); });
+check("unknown parameter", (c) => { if (c instanceof MapLRU) c.items.forEach(pushUnknown); });
+function reads(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  c.items.push(3, 1);
+  c.items.forEach(measure);
+  c.items.forEach(count);
+  const doubled = c.items.reduce(collect, []);
+  c.items.forEach(logAll);
+  c.items.sort(byValue);
+  console.log(total, doubled, seen, c.items);
+}
+reads(new MapLRU<string, number>("k", 2));
 // expect:
-// function declaration true
-// const arrow true
-// object method true
 // function expression true
+// any parameter true
+// unknown parameter true
+// 18 [ 4, 6, 2 ] [ 3, 3, 3 ] [ 1, 2, 3 ]

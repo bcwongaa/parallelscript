@@ -234,7 +234,7 @@ func (l *lowerer) narrowedValue(node *ast.Node, x ir.Expr) ir.Expr {
 		switch {
 		case narrow == nil || narrow == ir.Value:
 			return x
-		case l.isMemberOfNarrowedInstance(node) || l.isInstanceofDynamicLocalRef(node) || l.isInstanceofDynamicMember(node):
+		case l.isMemberOfNarrowedInstance(node) || l.isInstanceofDynamicLocalRef(node) || l.isInstanceofDynamicMember(node) || l.isInstanceofNestedObject(node):
 			return x // a member of an instance, which may be a typed array: the object itself, converted where it goes (H10)
 		case isDynamicData(narrow):
 			return &ir.FromUnion{X: x, To: narrow} // `Array.isArray(json)`: the array itself, checked (D-089)
@@ -270,6 +270,9 @@ func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
 		ast.SkipParentheses(node).Kind == ast.KindAwaitExpression && l.madeDynamicByInstanceof(node) { // `(await Promise.resolve(c.items)).push(x)`
 		return true // a C of any type arguments narrowed by instanceof, or a member of one tsc types with any (H10)
 	}
+	if l.isInstanceofNestedObject(node) {
+		return true // `c.matrix[0]`, `c.meta.tags`, `c.store.get(k)!` (H10a)
+	}
 	if !l.storedDynamic(node) {
 		return false
 	}
@@ -292,8 +295,8 @@ func (l *lowerer) narrowedMember(node *ast.Node) ir.Expr {
 	if x == nil {
 		return nil
 	}
-	if l.mentionsPrototypeInstance(l.typeAt(node)) {
-		return x // tsc's C<any, …> (`c.next` of a MapLRU<any, any>), which another instance converts to only as a dynamic value (H10)
+	if l.mentionsPrototypeInstance(l.typeAt(node)) || l.isInstanceofNestedObject(node) {
+		return x // tsc's C<any, …> (`c.next` of a MapLRU<any, any>), which another instance converts to only as a dynamic value, or an instance's object (H10)
 	}
 	if l.contextTakesUndefined(node) {
 		return l.convert(x, l.irType(l.contextualType(node), node), node) // undefined past the end or for a missing key, as typed elements are (D-015)

@@ -1,0 +1,75 @@
+// H10a review round 4's probe s03b_bypass_paths.pts (its annotated `(row: any[])` callback,
+// R4-F2, which was PTS1001 until session 6) and session 6's parent probes a1, a6, a9 and b1:
+// inline callbacks whose parameters are annotated with a type a copy would have (`any[]`),
+// given to methods that hand them an instance's own objects (an array member's elements,
+// reduce's accumulator without an initial value, the narrowed instance's own methods, an
+// uninferred narrowing's methods), hold what they are given, and what they return goes back
+// as it is, so their writes reach the instance's arrays, as in Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [[]];
+  store = new Map<K, V[]>();
+  constructor(public key: K, public val: V) {
+    this.store.set(key, []);
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  each(f: (items: V[]) => void): void {
+    f(this.items);
+  }
+  update(key: K, f: (old: V[]) => V[]): void {
+    this.store.set(key, f(this.store.get(key)!));
+  }
+}
+class Box<T> {
+  items: T[] = [];
+  constructor(v: T) {
+    this.items.push(v);
+  }
+  each(f: (items: T[]) => void): void {
+    f(this.items);
+  }
+}
+function check(name: string, f: (c: Cache<string, number>) => void, seen: (c: MapLRU<string, number>) => number): void {
+  const m = new MapLRU<string, number>("k", 0);
+  f(m);
+  console.log(name, seen(m) > 0);
+}
+check("forEach annotated row", (c) => { if (c instanceof MapLRU) c.matrix.forEach((row: any[]) => row.push(1)); }, (c) => c.matrix[0].length);
+check("own method", (c) => { if (c instanceof MapLRU) c.each((items: any[]) => items.push(2)); }, (c) => c.items.length - 1);
+check("own method result", (c) => { if (c instanceof MapLRU) c.update("k", (old: any[]) => { old.push(1); return old; }); }, (c) => c.store.get("k")!.length);
+check("reduce without initial value", (c) => {
+  if (c instanceof MapLRU) {
+    c.matrix.push([1, 2]);
+    c.matrix.reduce((acc: any[], row: any[]) => { acc.push(...row); return acc; });
+  }
+}, (c) => c.matrix[0].length);
+function uninferred(o: object): void {
+  if (o instanceof Box) o.each((items: any[]) => items.push(2));
+}
+const b = new Box<number>(0);
+uninferred(b);
+console.log("uninferred method", b.items);
+function accumulators(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  c.items.push(1);
+  c.matrix.push([1], [1]);
+  const a = c.items.reduce((acc, x) => { acc.push(x); return acc; }, [] as any[]);
+  const d = c.items.reduce((acc: any[], x) => { acc.push(x); return acc; }, []);
+  const e = c.matrix.reduce((acc, row) => acc.concat(row), [] as any[]);
+  const f = c.matrix.reduce((acc, row) => { acc.push(...row); return acc; });
+  console.log(a, d, e, f, f === c.matrix[0]);
+}
+accumulators(new MapLRU<string, number>("k", 1));
+// expect:
+// forEach annotated row true
+// own method true
+// own method result true
+// reduce without initial value true
+// uninferred method [ 0, 2 ]
+// [ 1, 1 ] [ 1, 1 ] [ 1, 1 ] [ 1, 1 ] true

@@ -1,0 +1,23 @@
+// H10a session 6 (parent probe a3): a function given by reference to forEach of a Map member tsc types Map<any, any[]>, which hands it the instance's arrays; PTS1001, not a silent copy.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  store = new Map<K, V[]>();
+  constructor(public key: K, public val: V) {
+    this.store.set(key, [val]);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function addTo(v: any[], _k: any): void {
+  v.push(9);
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.store.forEach(addTo);
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+console.log(m.store.get("k")!.length);

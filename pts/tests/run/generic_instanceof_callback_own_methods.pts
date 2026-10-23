@@ -1,0 +1,64 @@
+// H10a session 6 (parent probes a10, a11): inline callbacks whose parameters have no type,
+// given to methods that hand them an instance's own arrays: the narrowed instance's own
+// methods, called through `any` because tsc types the callback for MapLRU<any, any>
+// (callsInstanceofMethodDynamically), a member's methods, a Map member's forEach and an
+// uninferred narrowing's methods. Each parameter holds what it is given, so writes through
+// it reach the instance's array, as in Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class Inner<T> {
+  items: T[] = [];
+  each(f: (items: T[]) => void): void {
+    f(this.items);
+  }
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  inner = new Inner<V>();
+  store = new Map<K, V[]>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+    this.store.set(key, [val]);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  each(f: (items: V[]) => void): void {
+    f(this.items);
+  }
+  eachWith(prefix: string, f: (items: V[], prefix: string) => void): void {
+    f(this.items, prefix);
+  }
+}
+class Box<T> {
+  items: T[] = [];
+  constructor(v: T) {
+    this.items.push(v);
+  }
+  each(f: (items: T[]) => void): void {
+    f(this.items);
+  }
+}
+function own(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  c.each((items) => items.push(2));
+  c.each(function (items) {
+    items.push(3);
+  });
+  c.eachWith("p", (items, prefix) => items.push(prefix.length));
+  c.inner.each((items) => items.push(4));
+  c.store.forEach((v, k) => v.push(k.length));
+}
+function uninferred(o: object): void {
+  if (o instanceof Box) o.each((items) => items.push(5));
+}
+const m = new MapLRU<string, number>("k", 0);
+own(m);
+console.log(m.items, m.inner.items, m.store.get("k"));
+const b = new Box<number>(0);
+uninferred(b);
+console.log(b.items);
+// expect:
+// [ 0, 2, 3, 1 ] [ 4 ] [ 0, 1 ]
+// [ 0, 5 ]

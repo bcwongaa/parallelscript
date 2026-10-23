@@ -1315,10 +1315,11 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 		if symbol := l.checker.GetSymbolAtLocation(param.Name()); symbol != nil && l.isInstanceofDynamicLocal(symbol) {
 			return ir.Value // `arr` of `c.items.forEach((x, i, arr) => …)` (R4-F2)
 		}
-	} else if source := callbackSource(node); source != nil && l.holdsInstanceofDynamicValue(source) {
+	} else if source := l.callbackSource(node); source != nil && l.holdsInstanceofDynamicValue(source) {
 		// `c.groups.forEach(({ list }) => …)`: the element the pattern takes apart, as it
 		// is, so that its names hold its own members (R5-F2)
-		if t := l.irType(l.typeOfSymbol(node.Symbol()), param.Name()); t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t) {
+		t := l.irType(l.typeOfSymbol(node.Symbol()), param.Name())
+		if param.Type != nil && l.handsInstanceObjects(node) && copiesInstanceObjects(t) || param.Type == nil && t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t) {
 			return ir.Value
 		}
 	}
@@ -1340,12 +1341,7 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	if passedOrNot(node) {
 		t = l.checker.RemoveMissingOrUndefinedType(t)
 	}
-	irt := l.irType(t, param.Name())
-	if l.isCopiedCallbackParameter(node, irt) {
-		l.reportInstanceofCopy(irt, node) // `c.matrix.forEach((row: any[]) => row.push(1))` (R4-F2)
-		return nil
-	}
-	return irt
+	return l.irType(t, param.Name())
 }
 
 // passedOrNot reports whether a parameter declaration (node) holds undefined only when
@@ -1378,7 +1374,11 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	if contextual := l.contextualResult(node, result); contextual != nil {
 		result = contextual // `(input) => c ? { ok: true, … } : { ok: false, … }` as a Parser (D-095)
 	}
-	return l.irType(result, nameOf(node))
+	t := l.irType(result, nameOf(node))
+	if copiesInstanceObjects(t) && l.returnsToDynamicInstanceCall(node) {
+		return ir.Value // `c.update(k, (old: any[]) => { old.push(1); return old; })`, whose result may be the object it was handed (R5-F2)
+	}
+	return t
 }
 
 // returnsNeverValue reports whether node is an arrow function or function expression whose

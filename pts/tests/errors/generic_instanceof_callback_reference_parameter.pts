@@ -1,0 +1,20 @@
+// H10a session 6 (parent probe a5): a function value a parameter holds, given to an array method of a member tsc types any[], whose code may write to the array it is handed; PTS1001, not a silent copy.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function apply(c: Cache<string, number>, f: (x: any, i: number, arr: any[]) => void): void {
+  if (c instanceof MapLRU) c.items.forEach(f);
+}
+const m = new MapLRU<string, number>("k", 3);
+apply(m, (_x, _i, arr) => arr.push(1));
+console.log(m.items.length);

@@ -254,7 +254,7 @@ func (l *lowerer) dynamicMethodCall(call *ast.CallExpression, callee *ast.Node, 
 // the call's arguments as dynamic values.
 func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, builtin *ir.Builtin, args []ir.Expr) ir.Expr {
 	args = append(args, &ir.StringConst{Value: scanner.GetTextOfNode(callee)})
-	for _, argument := range call.Arguments.Nodes {
+	for i, argument := range call.Arguments.Nodes {
 		if argument.Kind == ast.KindSpreadElement {
 			items := l.dynamicSpread(argument)
 			if items == nil {
@@ -264,7 +264,7 @@ func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, bu
 			continue
 		}
 		value := l.valueExpression(argument)
-		if value == nil {
+		if value == nil || l.copiesCallbackArgument(call, callee, i, argument, value) {
 			return nil
 		}
 		args = append(args, box(value))

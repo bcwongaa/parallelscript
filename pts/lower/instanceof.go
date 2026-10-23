@@ -128,8 +128,13 @@ func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
 		return false // checked first: storedDynamic asks of every variable, which irType mustn't make types for
 	}
 	declared := l.typeOfSymbol(symbol)
-	dynamic := l.mentionsPrototypeInstance(declared)
-	if !dynamic {
+	var dynamic bool
+	if annotated := symbol.ValueDeclaration.Kind == ast.KindParameter && symbol.ValueDeclaration.Type() != nil; annotated {
+		// `(row: any[]) => …`: a type a copy of the object would have, where the method hands
+		// the parameter its objects; one of the instance's own types (`(row: number[]) => …`)
+		// takes the object as it is (R3-F2), and reduce's accumulator is the callback's own
+		dynamic = l.handsInstanceObjects(symbol.ValueDeclaration) && copiesInstanceObjects(l.irType(declared, symbol.ValueDeclaration.Name()))
+	} else if dynamic = l.mentionsPrototypeInstance(declared); !dynamic {
 		t := l.irType(declared, symbol.ValueDeclaration.Name())
 		dynamic = t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t)
 	}
@@ -153,13 +158,13 @@ func (l *lowerer) bindingSource(symbol *ast.Symbol) *ast.Node {
 		return nil
 	}
 	if declaration.Kind == ast.KindParameter {
-		return callbackSource(declaration)
+		return l.callbackSource(declaration)
 	}
 	for declaration.Kind == ast.KindBindingElement {
 		declaration = declaration.Parent.Parent // the pattern's declaration or binding element; a default is a new value (R4-F2)
 	}
 	if declaration.Kind == ast.KindParameter {
-		return callbackSource(declaration) // `forEach(({ list }) => …)` (R5-F2)
+		return l.callbackSource(declaration) // `forEach(({ list }) => …)` (R5-F2)
 	}
 	if declaration.Kind != ast.KindVariableDeclaration || declaration.Type() != nil {
 		return nil
@@ -300,6 +305,25 @@ func isReadOnlyParallelView(node *ast.Node) bool {
 	}
 	method := view.Parent
 	return method.Kind == ast.KindPropertyAccessExpression && method.Expression() == view && readOnlyArrayMethods[method.AsPropertyAccessExpression().Name().Text()]
+}
+
+// isInstanceofNestedObject reports whether node, not a variable, reads an object held inside
+// a dynamic value an instanceof narrowing gives (holdsInstanceofDynamicValue): an element,
+// property or method result of one (`c.matrix[0]`, `c.meta.tags`, `c.store.get(k)!`), of a
+// type that converting it to would copy it (copiesInstanceObjects). It may be an object of
+// the instance's own types, so it stays the dynamic value it is, whose members are found at
+// run time, as the member itself does (isInstanceofDynamicMember): writes through it reach
+// the object, and `===` compares it, where a copy would miss them.
+func (l *lowerer) isInstanceofNestedObject(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind == ast.KindIdentifier || len(l.genericClasses) == 0 || !l.holdsInstanceofDynamicValue(node) {
+		return false
+	}
+	t := l.checker.GetNonNullableType(l.typeAt(node))
+	if t.Flags()&checker.TypeFlagsObject == 0 || l.isCheckedValueType(t) || len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) > 0 {
+		return false
+	}
+	return copiesInstanceObjects(l.irType(t, node))
 }
 
 // isInstanceofDynamicLocalRef reports whether node reads a variable isInstanceofDynamicLocal holds.
@@ -696,69 +720,305 @@ func (l *lowerer) reportInstanceofCopy(target ir.Type, node *ast.Node) {
 	l.notSupportedYet(node, fmt.Sprintf("using the object an `instanceof` narrowing holds as a dynamic value as a %s where it may be changed or kept (a copy wouldn't show the changes; one passed to a parameter that is only read is copied) is", target))
 }
 
-// callbackSource is, for a parameter declared without a type of a function or arrow written
-// as an argument of a method call (`c.items.forEach((x, i, arr) => …)`), the call's receiver,
-// whose items and self the method hands its callback; otherwise nil.
-func callbackSource(parameter *ast.Node) *ast.Node {
-	fn := parameter.Parent
-	if parameter.Type() != nil || fn.Kind != ast.KindArrowFunction && fn.Kind != ast.KindFunctionExpression {
-		return nil
-	}
-	argument := fn
-	for argument.Parent.Kind == ast.KindParenthesizedExpression {
-		argument = argument.Parent
-	}
-	call := argument.Parent
-	if call.Kind != ast.KindCallExpression || !slices.Contains(call.Arguments(), argument) {
+// callbackSource is, for a parameter of a callback, a function written as an argument of
+// a method call (callbackArgument), what the method hands the callback: the call's receiver,
+// whose items and self an array's method hands it (`c.items` of `c.items.forEach((x, i, arr)
+// => …)`), or the method itself where it is the narrowed instance's own, called through `any`
+// (callsInstanceofMethodDynamically: `c.each((items) => …)`), whose code hands it the
+// instance's values; otherwise nil.
+func (l *lowerer) callbackSource(parameter *ast.Node) *ast.Node {
+	call, _ := callbackArgument(parameter.Parent)
+	if call == nil {
 		return nil
 	}
 	callee := ast.SkipParentheses(call.Expression())
 	if !ast.IsAccessExpression(callee) {
 		return nil
 	}
+	if l.callsInstanceofMethodDynamically(call.AsCallExpression()) {
+		return callee
+	}
 	return callee.Expression()
 }
 
-// isCopiedCallbackParameter reports whether parameter, declared with a type that holds
-// dynamic values (`(row: any[]) => …`), is a parameter of a callback that a method of a
-// dynamic value an instanceof narrowing makes is given (madeDynamicByInstanceof): the
-// method hands it the instance's typed objects, which its type would copy (R4-F2).
-func (l *lowerer) isCopiedCallbackParameter(parameter *ast.Node, t ir.Type) bool {
-	if parameter.Type() == nil || t == nil || t == ir.Value || isCheckable(t) || isFunction(t) || !holdsDynamicValues(t, map[ir.Type]bool{}) {
-		return false
-	}
+// handsInstanceObjects reports whether the method that the callback of parameter is given to
+// (callbackArgument) may hand the parameter objects of its receiver or of its instance: an
+// array's method its first argument's element and array parameters
+// (arrayCallbackObjectParameters), any other method any parameter.
+func (l *lowerer) handsInstanceObjects(parameter *ast.Node) bool {
 	fn := parameter.Parent
-	if fn.Kind != ast.KindArrowFunction && fn.Kind != ast.KindFunctionExpression {
+	call, argument := callbackArgument(fn)
+	if call == nil {
 		return false
 	}
-	call := fn.Parent
-	for call.Kind == ast.KindParenthesizedExpression {
-		call = call.Parent
+	method, ok := l.arrayMethodName(ast.SkipParentheses(call.Expression()))
+	if !ok {
+		return true
 	}
-	if call.Kind != ast.KindCallExpression {
+	return call.Arguments()[0] == argument && slices.Contains(arrayCallbackObjectParameters(method, len(call.Arguments())), slices.Index(fn.Parameters(), parameter))
+}
+
+// returnsToDynamicInstanceCall reports whether fn, a function written without a result type,
+// is a callback (callbackArgument) of a method that a call through `any` of a dynamic value an
+// instanceof narrowing made calls (`c.items.reduce`, `o.each`, the narrowed instance's own
+// method): the method's code takes what it returns as a dynamic value, which may be an object
+// of the instance's that it was handed (`return acc`), so a copy would miss its writes.
+func (l *lowerer) returnsToDynamicInstanceCall(fn *ast.Node) bool {
+	if fn.Type() != nil {
+		return false
+	}
+	call, _ := callbackArgument(fn)
+	if call == nil {
 		return false
 	}
 	callee := ast.SkipParentheses(call.Expression())
+	return ast.IsAccessExpression(callee) && (l.callsInstanceofMethodDynamically(call.AsCallExpression()) || l.madeDynamicByInstanceof(callee.Expression()))
+}
+
+// callbackArgument is, for fn, an arrow function or function expression written as an
+// argument of a call, the call and the argument (fn, or the parentheses around it); otherwise
+// nils. A function in an object or array literal argument is a value of the literal's type,
+// which copiesCallbackArgument checks.
+func callbackArgument(fn *ast.Node) (call, argument *ast.Node) {
+	if fn.Kind != ast.KindArrowFunction && fn.Kind != ast.KindFunctionExpression {
+		return nil, nil
+	}
+	argument = fn
+	for argument.Parent.Kind == ast.KindParenthesizedExpression {
+		argument = argument.Parent
+	}
+	if call = argument.Parent; call.Kind == ast.KindCallExpression && slices.Contains(call.Arguments(), argument) {
+		return call, argument
+	}
+	return nil, nil
+}
+
+// copiesCallbackArgument reports whether argument (at index) of call, a call through `any` of
+// callee, a method of a dynamic value an instanceof narrowing made (madeDynamicByInstanceof:
+// `c.items.forEach(f)`, `o.each(f)`, the narrowed instance's own method called with a
+// literal), is a function or holds one (an object's property, an array's element) with a
+// parameter that would get a copy of an object the method may hand it: a parameter of a type a
+// dynamic value converts to by a copy (`arr: any[]`, copiesInstanceObjects), which writes
+// through would miss silently (R5-F2). It reports it, at argument. An array's method hands its
+// callback, its first argument, its elements and itself (arrayCallbackObjectParameters); any
+// other method may hand a callback anything. A function written there or named there whose
+// code is known (callbackFunction) takes a copy at a parameter it only reads, as D-094 says;
+// a parameter written there that would copy is a dynamic value (isInstanceofDynamicLocal).
+func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.Node, index int, argument *ast.Node, value ir.Expr) bool {
+	if !holdsFunctions(value.Type(), map[ir.Type]bool{}) || !l.madeDynamicByInstanceof(callee) {
+		return false
+	}
+	var parameters []int // those the method hands its objects; nil for every one
+	if method, ok := l.arrayMethodName(callee); ok {
+		parameters = arrayCallbackObjectParameters(method, len(call.Arguments.Nodes))
+		if index != 0 || parameters == nil {
+			return false // an array's method calls no other argument
+		}
+	}
+	fn, ok := value.Type().(*ir.FuncType)
+	if !ok {
+		if parameters != nil {
+			return false
+		}
+		if t := copyingParameterIn(value.Type(), map[ir.Type]bool{}); t != nil {
+			l.reportInstanceofCopy(t, argument)
+			return true
+		}
+		return false
+	}
+	declaration := l.callbackFunction(argument)
+	for i := range parameterCount(fn) {
+		if declaration != nil && !declaresArgument(declaration, i) {
+			break // a parameter the function's type adds for the callback type's, which its code doesn't have
+		}
+		t := parameterTypeAt(fn, i)
+		if parameters != nil && !slices.Contains(parameters, i) || !copiesInstanceObjects(t) || declaration != nil && l.onlyReadsParameter(declaration, i) {
+			continue
+		}
+		l.reportInstanceofCopy(t, argument)
+		return true
+	}
+	return false
+}
+
+// arrayMethodName is the name of the method callee calls, if its receiver is an array or a
+// tuple (`c.items.forEach`).
+func (l *lowerer) arrayMethodName(callee *ast.Node) (string, bool) {
 	if callee.Kind != ast.KindPropertyAccessExpression {
+		return "", false
+	}
+	receiver := l.checker.GetNonNullableType(l.typeAt(callee.Expression()))
+	if !l.checker.IsArrayType(receiver) && !checker.IsTupleType(receiver) {
+		return "", false
+	}
+	return callee.AsPropertyAccessExpression().Name().Text(), true
+}
+
+// arrayCallbackObjectParameters is the indexes of the parameters of the callback of an
+// array's method that it hands the array's objects: an element and the array itself, and
+// reduce's accumulator where the call (of arguments arguments) gives no initial value, which
+// is then the first element. nil for a method that calls no callback.
+func arrayCallbackObjectParameters(method string, arguments int) []int {
+	switch method {
+	case "reduce", "reduceRight":
+		if arguments < 2 {
+			return []int{0, 1, 3}
+		}
+		return []int{1, 3}
+	case "sort", "toSorted":
+		return []int{0, 1}
+	case "every", "filter", "find", "findIndex", "findLast", "findLastIndex", "flatMap", "forEach", "map", "some":
+		return []int{0, 2}
+	}
+	return nil
+}
+
+// copiesInstanceObjects reports whether t is a type that a dynamic value holding an
+// instance's typed object converts to by a copy: one that holds dynamic values (`any[]`, `{
+// items: any[] }`), not checked as it is (a primitive, a class) or adapted (a function).
+func copiesInstanceObjects(t ir.Type) bool {
+	return t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t) && holdsDynamicValues(t, map[ir.Type]bool{})
+}
+
+// holdsFunctions reports whether values of t are or hold functions: t is a function type, or
+// an array, object type, shape or union holding one.
+func holdsFunctions(t ir.Type, seen map[ir.Type]bool) bool {
+	return functionTypeIn(t, seen, func(*ir.FuncType, int) bool { return true })
+}
+
+// copyingParameterIn is the type of a parameter of a function held in t (holdsFunctions)
+// that copiesInstanceObjects says a dynamic value converts to by a copy; nil if none.
+func copyingParameterIn(t ir.Type, seen map[ir.Type]bool) ir.Type {
+	var found ir.Type
+	functionTypeIn(t, seen, func(fn *ir.FuncType, skip int) bool {
+		for i := skip; i < parameterCount(fn); i++ {
+			if t := parameterTypeAt(fn, i); copiesInstanceObjects(t) {
+				found = t
+				return true
+			}
+		}
+		return false
+	})
+	return found
+}
+
+// functionTypeIn reports whether t is, or holds as an array's element, an object type's or
+// shape's field or a union's member, a function type that test accepts; test is given the
+// number of leading parameters the function's callers don't pass (a shape's method takes
+// its object first, as `this`).
+func functionTypeIn(t ir.Type, seen map[ir.Type]bool, test func(fn *ir.FuncType, skip int) bool) bool {
+	if seen[t] {
 		return false
 	}
-	if parameter.Name().Kind == ast.KindIdentifier && l.onlyReads(fn, l.checker.GetSymbolAtLocation(parameter.Name())) {
-		return false // a copy only read can't be told apart from the object (D-094; R5-F1)
+	seen[t] = true
+	inFields := func(fields []*ir.Field) bool {
+		return slices.ContainsFunc(fields, func(field *ir.Field) bool {
+			if fn, ok := field.Type.(*ir.FuncType); ok && field.Method {
+				return test(fn, 1)
+			}
+			return functionTypeIn(field.Type, seen, test)
+		})
 	}
-	// Only where an array method hands its callback the receiver's objects: an element and
-	// the array itself; not reduce's accumulator, which is the callback's own (R5-F1).
-	index := slices.Index(fn.Parameters(), parameter)
-	switch method := callee.AsPropertyAccessExpression().Name().Text(); {
-	case method == "reduce" || method == "reduceRight":
-		if index != 1 && index != 3 {
-			return false
+	switch t := t.(type) {
+	case *ir.FuncType:
+		return test(t, 0)
+	case *ir.Array:
+		return functionTypeIn(t.Elem, seen, test)
+	case *ir.Interface:
+		return inFields(t.Fields)
+	case *ir.Class:
+		return t.Shape && inFields(t.Fields)
+	case *ir.Union:
+		return slices.ContainsFunc(t.Members, func(member ir.Type) bool { return functionTypeIn(member, seen, test) })
+	}
+	return false
+}
+
+// parameterCount is the number of parameters of a function type fn, a rest parameter one,
+// leaving out the flags that follow parameters with defaults.
+func parameterCount(fn *ir.FuncType) int {
+	n := 0
+	for _, t := range fn.Params {
+		if t != ir.Given {
+			n++
 		}
-	case readOnlyArrayMethods[method] || method == "sort" || method == "toSorted":
-		if index != 0 && index != 2 && !(method == "sort" || method == "toSorted") {
-			return false
+	}
+	return n
+}
+
+// parameterTypeAt is the type of the argument at index i that a function of type fn takes:
+// its parameter's, or the element type of a rest parameter at or before i; nil past them.
+func parameterTypeAt(fn *ir.FuncType, i int) ir.Type {
+	for _, t := range fn.Params {
+		if t == ir.Given {
+			continue
 		}
-	default:
+		if rest, ok := t.(*ir.Rest); ok {
+			return rest.Array.Elem
+		}
+		if i == 0 {
+			return t
+		}
+		i--
+	}
+	return nil
+}
+
+// declaresArgument reports whether fn, a function declaration or expression, has a parameter
+// that takes its argument at index i: one of its own, or a rest parameter before it.
+func declaresArgument(fn *ast.Node, i int) bool {
+	parameters := fn.Parameters()
+	return i < len(parameters) || len(parameters) > 0 && parameters[len(parameters)-1].AsParameterDeclaration().DotDotDotToken != nil
+}
+
+// onlyReadsParameter reports whether fn, a function declaration or expression, only reads
+// its parameter at index i (onlyReads), so a copy there can't be told apart from the object
+// (D-094). A rest parameter's elements aren't checked.
+func (l *lowerer) onlyReadsParameter(fn *ast.Node, i int) bool {
+	if i >= len(fn.Parameters()) {
 		return false
 	}
-	return l.madeDynamicByInstanceof(callee.Expression())
+	parameter := fn.Parameters()[i]
+	return parameter.AsParameterDeclaration().DotDotDotToken == nil && parameter.Name().Kind == ast.KindIdentifier && l.onlyReads(fn, l.checker.GetSymbolAtLocation(parameter.Name()))
+}
+
+// callbackFunction is the function that argument always is, whose code is known: a function
+// written there, a function declaration or a const's function, named there; nil for other
+// values, which may be any function, and for functions with a `this` parameter, whose
+// parameters aren't their arguments one for one.
+func (l *lowerer) callbackFunction(argument *ast.Node) *ast.Node {
+	fn := l.knownFunction(ast.SkipParentheses(argument))
+	if fn == nil || slices.ContainsFunc(fn.Parameters(), func(parameter *ast.Node) bool {
+		return parameter.Name().Kind == ast.KindIdentifier && parameter.Name().Text() == "this"
+	}) {
+		return nil
+	}
+	return fn
+}
+
+// knownFunction is the function node always is: a function written there, or a function
+// declaration or a const's function, named there; otherwise nil.
+func (l *lowerer) knownFunction(node *ast.Node) *ast.Node {
+	switch node.Kind {
+	case ast.KindArrowFunction, ast.KindFunctionExpression:
+		return node
+	case ast.KindIdentifier:
+		symbol := l.checker.GetSymbolAtLocation(node)
+		if symbol == nil || symbol.ValueDeclaration == nil {
+			return nil
+		}
+		switch declaration := symbol.ValueDeclaration; declaration.Kind {
+		case ast.KindFunctionDeclaration:
+			if declaration.Body() != nil && len(symbol.Declarations) == 1 {
+				return declaration // not an overloaded one's implementation, whose parameters may differ
+			}
+		case ast.KindVariableDeclaration:
+			if declaration.Parent.Flags&ast.NodeFlagsConst != 0 && declaration.Initializer() != nil {
+				if fn := ast.SkipParentheses(declaration.Initializer()); fn.Kind == ast.KindArrowFunction || fn.Kind == ast.KindFunctionExpression {
+					return fn
+				}
+			}
+		}
+	}
+	return nil
 }

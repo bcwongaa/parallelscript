@@ -1,0 +1,32 @@
+// H10a session 6 (parent probe r5): objects held inside members of an uninferred narrowing (`o: object`) and of an `unknown`
+// narrowed by instanceof are the instance's own objects: writes through them reach it.
+class Grid<T> {
+  matrix: T[][] = [[], []];
+  meta: { tags: T[] } = { tags: [] };
+  store = new Map<string, T[]>([["k", []]]);
+}
+function viaObject(o: object): void {
+  if (!(o instanceof Grid)) return;
+  o.matrix[0].push(1);
+  const r = o.matrix[1];
+  r.push(2);
+  o.meta.tags.push(3);
+  o.store.get("k")!.push(4);
+}
+function viaUnknown(u: unknown): void {
+  if (!(u instanceof Grid)) return;
+  u.matrix[0].push(1);
+  const r = u.matrix[1];
+  r.push(2);
+  u.meta.tags.push(3);
+  u.store.get("k")!.push(4);
+}
+const a = new Grid<number>();
+viaObject(a);
+console.log(a.matrix, a.meta.tags, a.store.get("k"));
+const b = new Grid<number>();
+viaUnknown(b);
+console.log(b.matrix, b.meta.tags, b.store.get("k"));
+// expect:
+// [ [ 1 ], [ 2 ] ] [ 3 ] [ 4 ]
+// [ [ 1 ], [ 2 ] ] [ 3 ] [ 4 ]

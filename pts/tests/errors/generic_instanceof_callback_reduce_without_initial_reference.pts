@@ -1,0 +1,24 @@
+// H10a session 6 (parent probe a9): reduce without an initial value hands its callback the first element as the accumulator, so a function given by reference whose any[] accumulator it writes would get a copy of the instance's row; PTS1001, not a silent copy.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [];
+  constructor(public key: K, public val: V) {
+    this.matrix.push([val], [val, val]);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function concatRows(acc: any[], row: any[]): any[] {
+  acc.push(...row);
+  return acc;
+}
+function go(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.matrix.reduce(concatRows);
+}
+const m = new MapLRU<string, number>("k", 0);
+go(m);
+console.log(m.matrix[0].length);

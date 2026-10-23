@@ -1,0 +1,81 @@
+// H10a session 6 (parent probes b2-b5): objects held inside a member tsc types with any of
+// an inferred narrowing (`c.matrix[0]`, `c.meta.tags`, `c.pairs[0][1]`, `c.store.get(k)!`,
+// `c.slots[0]?.…`, a method's result) are the instance's own objects: writes through them
+// reach the instance and `===` compares them, where a copy hid both (the base threw a
+// checked TypeError at the narrowing).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], [], []];
+  meta: { tags: V[]; inner: { list: V[] } } = { tags: [], inner: { list: [] } };
+  maybe?: { tags: V[] } = { tags: [] };
+  store = new Map<K, V[]>();
+  slots: (V[] | undefined)[] = [[], undefined];
+  pairs: [K, V[]][] = [];
+  constructor(public key: K, public val: V) {
+    this.store.set(key, []);
+    this.pairs.push([key, []]);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function check(name: string, f: (c: Cache<string, number>) => void, seen: (m: MapLRU<string, number>) => unknown): void {
+  const m = new MapLRU<string, number>("k", 0);
+  try {
+    f(m);
+    console.log(name, seen(m));
+  } catch (e: any) {
+    console.log(name, "threw", e.message);
+  }
+}
+check("element push", (c) => { if (c instanceof MapLRU) c.matrix[0].push(5); }, (m) => m.matrix[0].length);
+check("element local", (c) => { if (c instanceof MapLRU) { const r = c.matrix[1]; r.push(6); } }, (m) => m.matrix[1].length);
+check("element write", (c) => { if (c instanceof MapLRU) c.matrix[0][0] = 4; }, (m) => m.matrix[0].length);
+check("property push", (c) => { if (c instanceof MapLRU) c.meta.tags.push(1); }, (m) => m.meta.tags.length);
+check("property element", (c) => { if (c instanceof MapLRU) c.meta.tags[0] = 9; }, (m) => m.meta.tags.length);
+check("nested property", (c) => { if (c instanceof MapLRU) c.meta.inner.list.push(1); }, (m) => m.meta.inner.list.length);
+check("map get", (c) => { if (c instanceof MapLRU) c.store.get("k")!.push(2); }, (m) => m.store.get("k")!.length);
+check("optional element", (c) => { if (c instanceof MapLRU) c.slots[0]?.push(3); }, (m) => m.slots[0]!.length);
+check("optional missing", (c) => { if (c instanceof MapLRU) c.slots[1]?.push(3); }, (m) => m.slots[1]);
+check("optional local", (c) => { if (c instanceof MapLRU) { const s = c.slots[0]; s?.push(1); } }, (m) => m.slots[0]!.length);
+check("optional property", (c) => { if (c instanceof MapLRU) c.maybe?.tags.push(3); }, (m) => m.maybe!.tags.length);
+check("optional chain local", (c) => { if (c instanceof MapLRU) { const t = c.maybe?.tags; t?.push(4); } }, (m) => m.maybe!.tags.length);
+check("at", (c) => { if (c instanceof MapLRU) c.matrix.at(-1)!.push(4); }, (m) => m.matrix[2].length);
+check("tuple element", (c) => { if (c instanceof MapLRU) c.pairs[0][1].push(7); }, (m) => m.pairs[0][1].length);
+check("find", (c) => { if (c instanceof MapLRU) c.matrix.find((r) => r.length === 0)!.push(8); }, (m) => m.matrix[0].length);
+check("filter element", (c) => { if (c instanceof MapLRU) c.matrix.filter(() => true)[1].push(8); }, (m) => m.matrix[1].length);
+check("array pattern", (c) => { if (c instanceof MapLRU) { const [first] = c.matrix; first.push(1); } }, (m) => m.matrix[0].length);
+check("object pattern", (c) => { if (c instanceof MapLRU) { const { tags } = c.meta; tags.push(1); } }, (m) => m.meta.tags.length);
+check("nested pattern", (c) => { if (c instanceof MapLRU) { const { inner: { list } } = c.meta; list.push(1); } }, (m) => m.meta.inner.list.length);
+check("for of", (c) => { if (c instanceof MapLRU) for (const row of c.matrix) row.push(1); }, (m) => m.matrix[2].length);
+function same(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const r = c.matrix[0];
+  const f = c.matrix.find((row) => row.length === 0);
+  console.log(r === c.matrix[0], f === c.matrix[0], c.meta.tags === c.meta.tags, c.store.get("k") === c.store.get("k"));
+}
+same(new MapLRU<string, number>("k", 0));
+// expect:
+// element push 1
+// element local 1
+// element write 1
+// property push 1
+// property element 1
+// nested property 1
+// map get 1
+// optional element 1
+// optional missing undefined
+// optional local 1
+// optional property 1
+// optional chain local 1
+// at 1
+// tuple element 1
+// find 1
+// filter element 1
+// array pattern 1
+// object pattern 1
+// nested pattern 1
+// for of 1
+// true true true true

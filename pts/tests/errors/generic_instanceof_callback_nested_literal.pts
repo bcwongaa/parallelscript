@@ -1,0 +1,23 @@
+// H10a session 6 (parent probe a10): a function written in an object literal given to the narrowed instance's own method is a value of the literal's type, whose parameter (tsc's any[]) would get a copy of the instance's array; PTS1001, not a silent copy (a function written as the argument itself holds what it is given).
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[] where it may be changed or kept
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  run(o: { cb: (items: V[]) => void }): void {
+    o.cb(this.items);
+  }
+}
+function go(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.run({ cb: (items) => items.push(4) });
+}
+const m = new MapLRU<string, number>("k", 0);
+go(m);
+console.log(m.items.length);
