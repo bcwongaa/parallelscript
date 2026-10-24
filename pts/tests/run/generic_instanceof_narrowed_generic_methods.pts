@@ -1,0 +1,34 @@
+// H10b review round 3 (a guard), the reviewer's probe s01_narrowed_generic_methods.pts:
+// Generic methods returning Box<R> called on values instanceof narrowed from object/unknown/any/a base class,
+// holding a Box<number> (R2-F5's route: receiver downcast to Box<any>)
+class Shape {}
+class Box<T> extends Shape {
+  constructor(public v: T) { super(); }
+  map<R>(f: (v: T) => R): Box<R> { return new Box(f(this.v)); }
+}
+function fromObject(o: object): string {
+  if (!(o instanceof Box)) return "no";
+  try { const m = o.map((v) => v + 1); return `object ${m.v}`; } catch (e) { return `object ${(e as Error).message}`; }
+}
+function fromUnknown(u: unknown): string {
+  if (!(u instanceof Box)) return "no";
+  try { return `unknown ${u.map((v) => v * 2).v}`; } catch (e) { return `unknown ${(e as Error).message}`; }
+}
+function fromAny(a: any): string {
+  if (!(a instanceof Box)) return "no";
+  try { return `any ${a.map((v: any) => v * 3).v}`; } catch (e) { return `any ${(e as Error).message}`; }
+}
+function fromShape(s: Shape): string {
+  if (!(s instanceof Box)) return "no";
+  try { return `shape ${s.map((v) => `${v}!`).v}`; } catch (e) { return `shape ${(e as Error).message}`; }
+}
+const n = new Box<number>(5);
+console.log(fromObject(n));
+console.log(fromUnknown(n));
+console.log(fromAny(n));
+console.log(fromShape(n));
+// expect:
+// object 6
+// unknown 10
+// any 15
+// shape 5!

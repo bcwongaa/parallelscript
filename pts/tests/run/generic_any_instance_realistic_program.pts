@@ -1,0 +1,43 @@
+// H10b review round 3 (a guard), the reviewer's probe s13_realistic_any_program.pts:
+// A realistic program using generic containers only for `any` (no instanceof): Option/Result with map/flatMap,
+// a Tree with fold and generic visitors, an EventBus with handlers removed by identity, a Matrix of rows
+class Option<T> {
+  private constructor(private readonly value: T | undefined, readonly some: boolean) {}
+  static of<T>(v: T): Option<T> { return new Option(v, true); }
+  static none<T>(): Option<T> { return new Option<T>(undefined, false); }
+  map<R>(f: (v: T) => R): Option<R> { return this.some ? Option.of(f(this.value as T)) : Option.none<R>(); }
+  flatMap<R>(f: (v: T) => Option<R>): Option<R> { return this.some ? f(this.value as T) : Option.none<R>(); }
+  getOr(d: T): T { return this.some ? (this.value as T) : d; }
+}
+class Tree<T> {
+  kids: Tree<T>[] = [];
+  constructor(public v: T) {}
+  add(t: Tree<T>): this { this.kids.push(t); return this; }
+  fold<A>(f: (acc: A, v: T) => A, init: A): A { let acc = f(init, this.v); for (const k of this.kids) acc = k.fold(f, acc); return acc; }
+  mapTree<R>(f: (v: T) => R): Tree<R> { const t = new Tree(f(this.v)); for (const k of this.kids) t.add(k.mapTree(f)); return t; }
+  leaves(): T[] { return this.kids.length === 0 ? [this.v] : this.kids.flatMap((k) => k.leaves()); }
+}
+class EventBus<T> {
+  private subs = new Map<string, ((payload: T[]) => void)[]>();
+  on(name: string, f: (payload: T[]) => void): void { const l = this.subs.get(name) ?? []; l.push(f); this.subs.set(name, l); }
+  off(name: string, f: (payload: T[]) => void): void { const l = this.subs.get(name) ?? []; const i = l.indexOf(f); if (i >= 0) l.splice(i, 1); }
+  emit(name: string, payload: T[]): number { const l = this.subs.get(name) ?? []; for (const f of l) f(payload); return l.length; }
+}
+const parsed: any = JSON.parse('{"a": 1, "b": [2, 3]}');
+const o = Option.of<any>(parsed).map((p) => p.b).flatMap((b) => Option.of(b.length)).map((n) => n * 10);
+console.log("option", o.getOr(-1), Option.of<any>(null).map((x) => x).some);
+const tree = new Tree<any>(1).add(new Tree<any>("two").add(new Tree<any>([3]))).add(new Tree<any>({ four: 4 }));
+console.log("tree", tree.fold((acc: string[], v) => [...acc, typeof v], []).join(","), JSON.stringify(tree.mapTree((v) => String(v)).leaves()));
+const bus = new EventBus<any>();
+const seen: any[] = [];
+function onTick(payload: any[]): void { seen.push(payload.length); payload.push("handled"); }
+bus.on("tick", onTick);
+const payload: any[] = [1];
+console.log("bus", bus.emit("tick", payload), payload);
+bus.off("tick", onTick);
+console.log("bus after off", bus.emit("tick", [2]), seen);
+// expect:
+// option 20 true
+// tree number,string,object,object ["3","[object Object]"]
+// bus 1 [ 1, 'handled' ]
+// bus after off 0 [ 1 ]

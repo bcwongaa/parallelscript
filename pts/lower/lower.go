@@ -1737,14 +1737,15 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	case ast.KindSuperKeyword:
 		return l.superCall(node)
 	}
-	if l.callsAnyInstanceGenericMethod(call) {
+	classCall := l.callsAnyInstanceGenericMethod(call)
+	if classCall {
 		receiver := ast.SkipParentheses(ast.SkipParentheses(call.Expression).Expression())
-		l.classReceivers[receiver] = true // as on C's instance for any, checked (H10b, R2-F5)
+		l.classReceivers[receiver] = true // as on C's instance for any, checked (H10b, R2-F5), none of the dynamic calls below
 		defer delete(l.classReceivers, receiver)
 	} else if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
 	}
-	if callee := ast.SkipParentheses(call.Expression); !ast.IsAccessExpression(callee) && l.holdsInstanceofDynamicValue(callee) {
+	if callee := ast.SkipParentheses(call.Expression); !classCall && !ast.IsAccessExpression(callee) && l.holdsInstanceofDynamicValue(callee) {
 		// `const h = c.listeners[0]; h(x)`, `h.bind(null)(x)`: the instance's own function, held
 		// as it is (R8-F1), called as a dynamic value's, its result of tsc's type as a narrowed
 		// read is
@@ -1753,7 +1754,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		}
 		return nil
 	}
-	if callee := ast.SkipParentheses(call.Expression); ast.IsAccessExpression(callee) && l.callsInstanceofMethodDynamically(call) {
+	if callee := ast.SkipParentheses(call.Expression); !classCall && ast.IsAccessExpression(callee) && l.callsInstanceofMethodDynamically(call) {
 		// `c.update(k, (o) => ({ a: o.a + 1 }))` after `c instanceof MapLRU`: tsc types the
 		// callback, or literal, for MapLRU<any, any>'s parameter, as the instance's isn't; the
 		// method found at run time converts the arguments with checks (H10).
@@ -1766,7 +1767,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		}
 		return nil
 	}
-	if callee := ast.SkipParentheses(call.Expression); ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression()) {
+	if callee := ast.SkipParentheses(call.Expression); !classCall && ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression()) {
 		// A method of a dynamic value tsc narrowed: a dynamic value, of tsc's type as a
 		// member read is (`u.slice(1).length`, `u.join("").length`; D-179)
 		if x := l.dynamicCall(call, callee); x != nil {

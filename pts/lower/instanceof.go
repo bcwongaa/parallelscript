@@ -1129,9 +1129,7 @@ func (l *lowerer) instanceCallbackArgument(call *ast.CallExpression, callee *ast
 		return value
 	}
 	if function {
-		if adapted := l.asIsAdapter(value, argument); adapted != nil {
-			return adapted
-		}
+		return l.anyInstanceFunction(value, argument, l.anyInstanceRoot(callee))
 	}
 	l.reportCallbackCopy(t, argument)
 	return nil
@@ -1345,10 +1343,7 @@ func (l *lowerer) storedFunctionValue(target, valueNode *ast.Node, value ir.Expr
 		!l.madeDynamicByInstanceof(target) && !l.madeDynamicByInstanceof(target.Expression()) {
 		return value
 	}
-	if adapted := l.asIsAdapter(value, valueNode); adapted != nil {
-		return adapted
-	}
-	return value
+	return l.anyInstanceFunction(value, valueNode, l.anyInstanceRoot(target))
 }
 
 // arrayMethodName is the name of the method callee calls, if its receiver is an array or a

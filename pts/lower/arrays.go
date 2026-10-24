@@ -69,9 +69,11 @@ func isRestTuple(t *checker.Type) bool {
 // arrayLiteral lowers `[a, b, c]`: an array of the literal's contextual type if that is
 // an array type, so that `const s: Shape[] = [circle]` holds Shapes, and otherwise of its own.
 func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
-	if l.isInstanceofContainer(node) {
+	if l.isInstanceofContainer(node) && (l.narrowedByInstanceof(node) || !l.hasTypedArrayContext(node)) {
 		return l.instanceofContainerLiteral(node) // `[...c.matrix]`, whose rows stay the instance's (C285)
 	}
+	// `const c: any[][] = [b.items]` for a C<any, …> place's b: a literal of its context's type,
+	// whose elements are taken as they are (asIsConversion), also nested (R3-F3)
 	t := l.typeAt(node)
 	if contextual := l.contextualType(node); contextual != nil && checker.IsTupleType(contextual) {
 		t = contextual // [1, "a"] where a [number, string] goes

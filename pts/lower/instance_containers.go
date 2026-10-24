@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -157,4 +158,13 @@ func (l *lowerer) holdsInstanceofContainer(node *ast.Node) bool {
 	}
 	source := l.bindingSource(symbol)
 	return source != nil && source.Parent.Kind == ast.KindVariableDeclaration && l.isInstanceofContainer(source)
+}
+
+// hasTypedArrayContext reports whether node, an array literal, goes where tsc's context types
+// it an array (an annotated variable, a parameter, a property, an element of another such
+// literal), so that a literal of that type, its elements converted there, needs no dynamic
+// container.
+func (l *lowerer) hasTypedArrayContext(node *ast.Node) bool {
+	contextual := l.contextualType(node)
+	return contextual != nil && l.checker.IsArrayType(contextual) && contextual.Flags()&checker.TypeFlagsAny == 0
 }

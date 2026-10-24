@@ -1,0 +1,15 @@
+// H10b review round 3 (R3-F2), the reviewer's probe r3_recursive_generic_method.pts:
+// R3: a recursive generic method (Tree<T>.mapTree<R> calling k.mapTree(f) on its children), used for any
+// (Box<any>-only program, no instanceof). HEAD and Node run it; snapshot 3 throws
+// `Expected Tree<string>, got Tree<any>` inside the class's own code.
+class Tree<T> {
+  kids: Tree<T>[] = [];
+  constructor(public v: T) {}
+  add(t: Tree<T>): this { this.kids.push(t); return this; }
+  mapTree<R>(f: (v: T) => R): Tree<R> { const t = new Tree(f(this.v)); for (const k of this.kids) t.add(k.mapTree(f)); return t; }
+}
+const tree = new Tree<any>(1).add(new Tree<any>("two"));
+const mapped = tree.mapTree((v) => String(v));
+console.log(mapped.v, mapped.kids.map((k) => k.v));
+// expect:
+// 1 [ 'two' ]

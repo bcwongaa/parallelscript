@@ -276,3 +276,98 @@ Files are in `/tmp/h10b/review2/`:
 - `m777_snap2.jsonl`, `m748_snap2.jsonl`, `bin/`
 
 The archive is `/tmp/h10b/h10b-review2-probes.tar.gz` (no binaries), and `/tmp/h10b/review2.done` is touched.
+
+## Round 3 (snapshot 3: `1cce8a08c` plus the round-2 fixes, committed as `8539bd6d4`; the same reviewer, resumed)
+
+# H10b review, round 3 (snapshot `/tmp/h10b/snap3`, HEAD `1cce8a08c` plus the staged round-3 change)
+
+Not ready. Every round-2 finding is fixed or now ends in an explicit TypeError or PTS1001, and the round-2 silent paths are gone. But the new code breaks five things that HEAD ran correctly, all in programs that only make instances for `any` (no `instanceof`). One of them is silently wrong; the other four now throw or fail to compile.
+
+## What I checked
+- **777-case matrix:** **751 OK, 24 PTS1001, 2 TYPEERR**, identical to rounds 1 and 2. Nothing got worse than HEAD (622 OK).
+- **748-case H10b matrix:** **732 OK, 12 PTS1001, 4 WRONG**, identical to round 2. The 4 WRONG are R1-F13's recorded `.then(f)` cases from `any` and `unknown` sources.
+- **Suite:** suite3 finished with no failures.
+- **Re-runs:** all 144 earlier files (round-1 and round-2 repros and probes) against snapshot 3, in `old_outputs_snap3.txt`.
+- **New probes:** s01–s15, plus 6 `r3_*` repros. For each repro, HEAD's output matches Node and snapshot 3's doesn't (`r3_outputs.txt`, checked with `bin/diffbase.py`).
+
+## Earlier findings on snapshot 3
+- **Fixed, matching Node:**
+  - R1: F1, F2, F3, F4, F6 (plain forms), F8, F9, F11, F14.
+  - R2-F1: `r2_as_is_fresh_containers`, `r2b_as_is_fresh_collections`.
+  - R2-F4: `r2_nested_patterns_two_levels`.
+  - R2-F5, direct calls: `r2_generic_method_result`, map, pair, and the chained or `?.` or element forms in `s04b`.
+  - R2-F6: `r2_call_apply_this`; `s05c` covers subclasses without an override.
+  - R2-F7: `r2_private_in_static_brand*`, `s07`.
+  - R2-F8: `r2_private_function_array`.
+  - R2-F9: `r2_parts_as_is_leak`.
+- **Intended or recorded:**
+  - R1-F5 speed (H27).
+  - R1-F7: `r08`, `r08b`, `p16*`, `p25*`.
+  - R1-F10: `r09` is PTS1001.
+  - R1-F12: `r14` is PTS1001.
+  - R1-F13 (C288).
+  - `f.call(other)` on a method read as a value stays bound, D-044 (`r2b_call_apply_this_any`).
+  - Subclass spreads, C280 and message wording are your out-of-scope notes.
+- **Now an explicit TypeError instead of silently wrong** (another instance in a `C<any>` place):
+  - flows with callbacks or stored functions: `r2_flow_callbacks_and_stores`, `r2b_flow_stored_functions`, `q01`, `q10`
+  - rest spreads: `r2_rest_spread_flow_and_place`, `q12`
+  - destructuring: `r2_nested_pattern_rest_spread`, `r16`, `p46`, `q05`
+  - `.call` with an instance of another class: `q04`, `s05`, `s05b`. For overrides, HEAD silently ran the override; now it's a TypeError, which is better.
+- **PTS1001 as on HEAD:** R2-F3 for a narrowing's object (`r2_interface_member_copies`, `q09`).
+
+## New findings
+All are regressions against HEAD: HEAD ran each program as Node does. Repros are in `/tmp/h10b/review3/r/`.
+
+**R3-F1 · High · silently wrong where HEAD was right (new this round).** The as-is adapter breaks function identity.
+- Repro: `r3_adapter_identity.pts`, with `Emitter<any>` objects only and `log(rows: any[])`.
+- Node and HEAD print `off true 0`, `indexOf 0 true`, `stored true`, `same true`. Snapshot 3 prints `off false 1`, `indexOf -1 false`, `stored false`, `same false`.
+- So `off()` never removes a handler. The realistic `s13c` shows the same: `bus after off` still calls the handler (`1 [ 1, 1 ]` against Node's `0 [ 1 ]`).
+- Root cause: a function with an `any[]` parameter given to a `C<any>` value's method, or stored in it, is wrapped in a new closure. The wrapping is `instanceCallbackArgument` → `asIsAdapter` (`instanceof.go`, `any_instances.go`) and `storedFunctionValue` (`lower.go:3092`). Snapshot 2 kept identity.
+
+**R3-F2 · High · TypeError where HEAD ran (R2-F5's fix is incomplete).** A generic method called on a `C<any>` local or parameter goes through `any` and its erased copy.
+- Repro `r3_generic_method_chain.pts`: `const x = a.map(f); x.map(g)`. Also `s04d` c2–c5 and c7, and `s15` "local".
+- Repro `r3_recursive_generic_method.pts`: `Tree<T>.mapTree<R>` calling `k.mapTree(f)` on its children in the instance for `any`. Also `s15` "inClass" and the realistic `s13`/`s13b`.
+- Snapshot 3 throws `Expected Box<number>, got Box<any>` (or `Tree<string>` / `Option<number>`).
+- Root cause: `lower.go:1740-1744` marks the receiver in `classReceivers`, but `call()` keeps going. The later `isNarrowedDynamic(callee.Expression())` branch (`lower.go:1766`) still takes `dynamicCall` for a receiver that is a dynamic local or a `C<any>` parameter. The earlier `holdsInstanceofDynamicValue` and `callsInstanceofMethodDynamically` branches have the same problem.
+- Calls on a module-level `const a = new Box<any>(…)` work, which is why `s04b` passes.
+
+**R3-F3 · Medium-High · TypeError where HEAD ran (R2-F1's fix is incomplete).** Fresh containers nested in fresh containers, or inside object literals, throw.
+- Repro: `r3_fresh_nested.pts`. Also `s06b` (nestedFresh, setOfSets, objLitArr).
+- Forms:
+  - `const c: any[][][] = [[b.items]]`
+  - `const s: Set<any[]>[] = [new Set(b.matrix)]`
+  - `const o: { rows: any[][] } = { rows: [b.items] }`, and the same as an argument
+- Snapshot 3 throws `Expected value[][][], got Array, whose items convert to it only as copies…` or `Expected value[][], got Array, which converts to it only as a copy…`.
+- Root cause:
+  - `pts_value_convert_fresh` (`convert.c:973-978`) copies only the outer container (and tuples at depth 1), not inner containers that are fresh too.
+  - `asIsConversion` marks `Fresh` only from the top node, so an object literal holding a fresh array gets the plain as-is check.
+
+**R3-F4 · Medium · PTS1001 where HEAD ran.** An object spread of a `Box<any>` object's member is rejected.
+- Repro: `r3_spread_member_record.pts`, with `{ ...b.rec }` into a `Record<string, any[]>` and `{ ...b.meta, extra: true }`.
+- Snapshot 3: `spreading a value into an object is not supported yet`.
+- The R1-F3 fix covers spreading the `C<any>` value itself (`spreadObject` / `spreadIntoRecord`, gated on `holdsAnyInstance` of the spread expression), not its dynamic members.
+
+**R3-F5 · Medium · PTS1001 where HEAD ran, with a misleading message.** Functions with a default, optional or rest parameter can't be given by reference to a `C<any>` value's method.
+- Repro: `r3_adapter_defaults_rest.pts`, with `withDefault(row: any[], tag = "d")`, `withOptional(row: any[], i?: number)` and `withRest(...rs: any[][])` given to `b.run(f)`.
+- Snapshot 3 is PTS1001 ``giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds…``. The program has no `instanceof`.
+- Root cause: `asIsAdapter` returns nil for `ir.Given` and rest parameters (`any_instances.go`), and `instanceCallbackArgument` then reports.
+
+**Cosmetic:** in `s15` "inClass", the TypeError names `LinkedList<"bigint" | "boolean" | … >` where tsc's type is `LinkedList<string>`. The instance class is shared and its display name comes from another instantiation (C277's class).
+
+## Checked and fine
+- Generic methods on narrowed values from `object`, `unknown`, `any` and a base class (`s01`).
+- Promise `.then` and `.catch` adapters, and generic results (`s03c`).
+- `.par` over a `Box<any>` object's members, at 1, 2 and 4 threads (`q17`).
+- Generic private methods, including on non-generic classes (`q06`, `q22`).
+- `privateIn`, including primitives and static brands (`s07`).
+- Fresh conversion into unions, tuples, entries and maps of rows (`s06b`, other than R3-F3's forms).
+- The realistic `LinkedList` / `Observable` / `Graph` program (`s14`).
+
+**VERDICT: NOT READY**
+
+Files are in `/tmp/h10b/review3/`:
+- `r/` (the six repros), `p/` (s01–s15), `old/` (the earlier files)
+- `r3_outputs.txt`, `s_outputs_snap3.txt`, `old_outputs_snap3.txt`
+- `m777_snap3.jsonl`, `m748_snap3.jsonl`, `bin/`
+
+The archive is `/tmp/h10b/h10b-review3-probes.tar.gz` (no binaries), and `/tmp/h10b/review3.done` is touched.

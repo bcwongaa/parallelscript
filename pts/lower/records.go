@@ -453,6 +453,14 @@ func (l *lowerer) spreadIntoRecord(record ir.Expr, sourceNode *ast.Node) ir.Expr
 		l.notSupportedYet(sourceNode, fmt.Sprintf("spreading a %s into a %s is", source.Type(), mt))
 		return nil
 	}
+	if source.Type() == ir.Value && len(l.checker.GetIndexInfosOfType(l.typeAt(sourceNode))) > 0 {
+		// a dynamic value of a hash-map type (`{ ...b.rec }` of a Box<any> place's member): its
+		// entries, which only the run time knows, as Object.assign copies them (R3-F4)
+		built := l.newLocal("record", mt)
+		sources := &ir.NewArray{Array: ir.ValueArray, Elems: []ir.Expr{source}}
+		assign := &ir.CallBuiltin{Builtin: ir.ObjectAssign, Args: []ir.Expr{box(&ir.LocalRef{Local: built}), sources}}
+		return &ir.Bind{Local: built, Value: record, In: &ir.Sequence{X: assign, Y: &ir.LocalRef{Local: built}}}
+	}
 	names, _, ok := l.copiedNames(source, sourceNode, sourceNode)
 	if !ok {
 		return nil

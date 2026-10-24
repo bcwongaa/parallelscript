@@ -1,0 +1,16 @@
+// H10b review round 3 (R3-F4), the reviewer's probe r3_spread_member_record.pts:
+// R3: an object spread of a Box<any> object's member (`{ ...b.rec }`, `{ ...b.meta }`), Box<any> objects
+// only: HEAD and Node run it; snapshot 3 is PTS1001 `spreading a value into an object is not supported yet`.
+class Box<T> {
+  rec: Record<string, T[]> = { a: [] };
+  meta = { name: "m", tags: [] as T[] };
+  constructor(public v: T) {}
+}
+const b = new Box<any>(1);
+const r: Record<string, any[]> = { ...b.rec };
+r.a.push("x");
+const m = { ...b.meta, extra: true };
+m.tags.push("y");
+console.log(JSON.stringify(b.rec), JSON.stringify(b.meta), m.extra);
+// expect:
+// {"a":["x"]} {"name":"m","tags":["y"]} true

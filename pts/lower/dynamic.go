@@ -64,6 +64,9 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 	case ast.KindNonNullExpression:
 		return l.storedDynamic(node.Expression()) // `m.get(k)!`
 	case ast.KindCallExpression: // the result of a method of a narrowed dynamic value
+		if l.callsAnyInstanceGenericMethod(node.AsCallExpression()) {
+			return false // `b.map(f)` called as on C's instance for any: of tsc's type (H10b)
+		}
 		callee := ast.SkipParentheses(node.AsCallExpression().Expression)
 		return ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression()) || l.isInstanceofDynamicMember(node)
 	}

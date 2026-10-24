@@ -1,0 +1,28 @@
+// H10b review round 3 (R3-F1), the reviewer's probe r3_adapter_identity.pts:
+// R3: functions with an any[] parameter given to (on), or stored in (handler =), a C<any> value are wrapped in a new as-is adapter, so identity is lost: off() removes nothing, indexOf is -1, === is false. Emitter<any> objects only; HEAD and Node keep identity.
+
+class Emitter<T> {
+  handlers: ((rows: T[]) => void)[] = [];
+  handler: ((rows: T[]) => void) | null = null;
+  on(h: (rows: T[]) => void): void { this.handlers.push(h); }
+  off(h: (rows: T[]) => void): boolean { const i = this.handlers.indexOf(h); if (i >= 0) this.handlers.splice(i, 1); return i >= 0; }
+  emit(rows: T[]): void { for (const h of this.handlers) h(rows); }
+}
+function log(rows: any[]): void { rows.push("seen"); }
+const e = new Emitter<any>();
+e.on(log);
+const rows: any[] = [];
+e.emit(rows);
+console.log("off", e.off(log), e.handlers.length, rows);
+e.handlers.push(log);
+console.log("indexOf", e.handlers.indexOf(log), e.handlers.includes(log));
+e.handler = log;
+console.log("stored", e.handler === log);
+const other = new Emitter<any>();
+other.on(log);
+console.log("same", other.handlers[0] === e.handlers[0]);
+// expect:
+// off true 0 [ 'seen' ]
+// indexOf 0 true
+// stored true
+// same true

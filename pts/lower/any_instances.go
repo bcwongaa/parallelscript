@@ -50,6 +50,13 @@ func (l *lowerer) callsAnyInstanceGenericMethod(call *ast.CallExpression) bool {
 	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Kind == ast.KindPrivateIdentifier || !l.holdsAnyInstance(callee.Expression()) {
 		return false
 	}
+	receiver := ast.SkipParentheses(callee.Expression())
+	if l.isUninferredNarrowing(receiver) {
+		return false // the object an instanceof narrowing holds, typically another instance: through any, as before
+	}
+	if declared := l.declaredTypeOfReference(receiver); declared != nil && declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
+		return false // an `unknown` or `any` narrowed to C<any, …> (D-179)
+	}
 	declaration := l.memberDeclaration(callee)
 	if declaration == nil || declaration.Kind != ast.KindMethodDeclaration || len(declaration.TypeParameters()) == 0 {
 		return false
@@ -83,6 +90,9 @@ func (l *lowerer) asIsConversion(value ir.Expr, target ir.Type, node *ast.Node) 
 		return nil
 	}
 	converted.AsIs = true
+	if node.Kind == ast.KindPropertyAssignment {
+		node = node.Initializer() // `{ rows: b.matrix.map(f) }`'s
+	}
 	converted.Fresh = l.isNewArray(node) || l.isInstanceofContainer(node) // `[b.items]`, `b.matrix.map(f)`, `new Set(b.matrix)`: copied, its items as they are
 	return converted
 }
@@ -157,4 +167,44 @@ func (l *lowerer) freshConversion(value ir.Expr, target ir.Type, node *ast.Node)
 	}
 	converted.Fresh = true
 	return converted
+}
+
+// anyInstanceRoot is the value tsc types C<any, …> whose member node reads or calls (`b` in
+// `b.rows.forEach`, `b.cfg.onRows`), node itself if it is one; nil if there is none.
+func (l *lowerer) anyInstanceRoot(node *ast.Node) *ast.Node {
+	for node = ast.SkipParentheses(node); ; node = ast.SkipParentheses(node.Expression()) {
+		if l.holdsAnyInstance(node) {
+			return node
+		}
+		if !ast.IsAccessExpression(node) && node.Kind != ast.KindNonNullExpression {
+			return nil
+		}
+	}
+}
+
+// anyInstanceFunction is value, a function of the program given to a method of, or stored in,
+// a member of root, a value tsc types C<any, …> (R2-F2, R3-F1): as it is where root is C's
+// instance for any, whose code takes the function's own types, keeping its identity (`off(f)`
+// finds it), else the as-is adapter, which takes another instance's objects as they are or
+// throws; one asIsAdapter can't make (defaults, a rest parameter) goes as through any (D-075).
+// root, when its value can't be read again without side effects, gets the adapter.
+func (l *lowerer) anyInstanceFunction(value ir.Expr, node, root *ast.Node) ir.Expr {
+	adapted := func(fn ir.Expr) ir.Expr {
+		if adapter := l.asIsAdapter(fn, node); adapter != nil {
+			return adapter
+		}
+		return fn
+	}
+	if root == nil {
+		return adapted(value)
+	}
+	rootValue := l.expression(root)
+	class := l.classOf(l.anyInstanceIn(l.typeAt(root)), root)
+	if rootValue == nil || !isPure(rootValue) || class == nil {
+		return adapted(value)
+	}
+	fn := l.newLocal("callback", value.Type())
+	ref := &ir.LocalRef{Local: fn}
+	isAnyInstance := &ir.InstanceOf{X: box(rootValue), Class: class}
+	return &ir.Bind{Local: fn, Value: value, In: &ir.Conditional{Cond: isAnyInstance, Then: box(ref), Else: box(adapted(ref))}}
 }

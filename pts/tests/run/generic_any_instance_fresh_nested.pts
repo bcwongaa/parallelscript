@@ -1,0 +1,21 @@
+// H10b review round 3 (R3-F3), the reviewer's probe r3_fresh_nested.pts:
+// R3: fresh containers nested in fresh containers or in object literals, holding a Box<any> object's members
+// (Box<any> objects only): HEAD and Node run them; snapshot 3 throws the as-is/fresh TypeError.
+class Box<T> {
+  items: T[] = [];
+  matrix: T[][] = [[]];
+  constructor(public v: T) {}
+}
+const b = new Box<any>(1);
+const t = (name: string, f: () => void) => { try { f(); console.log(name, "ok"); } catch (e) { console.log(name, (e as Error).message); } };
+t("nested", () => { const c: any[][][] = [[b.items]]; c[0][0].push("n"); });
+t("setInArray", () => { const s: Set<any[]>[] = [new Set(b.matrix)]; [...s[0]][0].push("s"); });
+t("inObject", () => { const o: { rows: any[][] } = { rows: [b.items] }; o.rows[0].push("o"); });
+t("argObject", () => { const f = (o: { rows: any[][] }) => o.rows[0].push("a"); f({ rows: [b.items] }); });
+console.log(JSON.stringify([b.items, b.matrix]));
+// expect:
+// nested ok
+// setInArray ok
+// inObject ok
+// argObject ok
+// [["n","o","a"],[["s"]]]

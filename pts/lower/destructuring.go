@@ -426,6 +426,14 @@ func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *as
 	switch {
 	case isClass && class == nil:
 		return nil, false // reported
+	case source.Type() == ir.Value && l.isObjectType(objectType) && len(l.checker.GetIndexInfosOfType(objectType)) == 0:
+		// a dynamic value of an object type (`{ ...b.meta }` of a Box<any> place's member): the
+		// properties tsc lists, read at run time (R3-F4)
+		for _, property := range l.checker.GetPropertiesOfType(objectType) {
+			if property.Flags&ast.SymbolFlagsMethod == 0 {
+				names = append(names, property.Name)
+			}
+		}
 	case isClass && !class.Shape:
 		for _, field := range class.AllFields() {
 			if !field.Method && !isPrivateName(field.Name) {
