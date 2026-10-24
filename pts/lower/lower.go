@@ -3214,6 +3214,10 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		}
 		var value ir.Expr
 		switch op, ok := binaryOps[operator]; {
+		case operator == ast.KindPlusToken && (t == ir.String || current.Type() == ir.String) && l.isLooseIdentifier(expr.Left) && l.mayBeMissing(expr.Right):
+			if y := l.valueExpression(expr.Right); y != nil { // `s += w[0]` for an undefined s is "undefineda", as `+` makes it
+				value = l.missingConcatenation(unnarrowed(current), y, node)
+			}
 		case operator == ast.KindPlusToken && (t == ir.String || current.Type() == ir.String): // a loose local's narrowed read too
 			if l.isLooseIdentifier(expr.Left) && l.concatenatesWithUndefined(expr.Right) {
 				// `s += "x"` for a loose local's undefined is "undefinedx", as `+` makes it (concatenationOperand)
@@ -3943,13 +3947,11 @@ func isPure(x ir.Expr) bool {
 func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	if l.mayBeMissing(expr.Left) && l.mayBeMissing(expr.Right) {
-		// both may be undefined: JS's `+` of what they hold, which is a string where one is
-		// there ("aundefined") and NaN where neither is, which a string can't hold (H11b)
 		x, y := l.valueExpression(expr.Left), l.valueExpression(expr.Right)
 		if x == nil || y == nil {
 			return nil
 		}
-		return l.checkedConversion(&ir.CallBuiltin{Builtin: ir.ValueAdd, Args: []ir.Expr{box(x), box(y)}}, ir.String, node)
+		return l.missingConcatenation(x, y, node)
 	}
 	x := l.concatenationOperand(expr.Left, expr.Right)
 	y := l.concatenationOperand(expr.Right, expr.Left)
@@ -3964,6 +3966,23 @@ func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.Binary{Op: ir.Concat, X: x, Y: y}
+}
+
+// missingConcatenation is x + y for two values that may be undefined (mayBeMissing): their
+// strings concatenated where both are there; else JS's `+` of what they hold, checked to
+// be a string: "aundefined" where one is there, and NaN, a TypeError, where neither is
+// (H11b).
+func (l *lowerer) missingConcatenation(x, y ir.Expr, node *ast.Node) ir.Expr {
+	left, right := l.newLocal("left", x.Type()), l.newLocal("right", y.Type())
+	a, b := &ir.LocalRef{Local: left}, &ir.LocalRef{Local: right}
+	present := func(v ir.Expr) ir.Expr { return &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: v, Only: ir.Undefined}} }
+	sa, sb := l.toString(a, node), l.toString(b, node)
+	added := l.checkedConversion(&ir.CallBuiltin{Builtin: ir.ValueAdd, Args: []ir.Expr{box(a), box(b)}}, ir.String, node)
+	if sa == nil || sb == nil || added == nil {
+		return nil
+	}
+	both := &ir.Logical{Op: ir.And, X: present(a), Y: present(b)}
+	return &ir.Bind{Local: left, Value: x, In: &ir.Bind{Local: right, Value: y, In: &ir.Conditional{Cond: both, Then: &ir.Binary{Op: ir.Concat, X: sa, Y: sb}, Else: added}}}
 }
 
 // concatenationOperand lowers operand, a side of a `+` that tsc types as a string: as any

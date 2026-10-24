@@ -1,11 +1,12 @@
-// `+` that tsc types as a string, with an element past the end, a hole, or a loose
-// local's undefined (D-090, D-220, H11b) on one side: next to a string or an object it is
-// "undefined", as in JS; next to a number, a boolean or null, JS adds undefined as a number
-// and gets NaN, which a string can't hold, so the element is read as its type there (D-085's
-// RangeError, D-090's TypeError), as it is next to a union, `any` or a type parameter that
-// may hold one, or a `{}` (which holds numbers); where both sides may be missing, JS's
-// `+` of what they hold, a string where one is there and NaN (TypeError) where neither is. pts concatenated "undefined" (`undefined1`, H11b's
-// reproducer N2, C313; review rounds 1 and 2, R1-F2, R2-F2).
+// `+` that tsc types as a string, with an element past the end, a hole, or a loose local's
+// undefined (D-090, D-220, H11b) on one side: next to a string or an object it is
+// "undefined", as in JS; next to a number, a boolean or null, JS adds undefined as a
+// number and gets NaN, which a string can't hold, so the element is read as its type there
+// (D-085's RangeError, D-090's TypeError), as it is next to a union, `any` or a type
+// parameter that may hold one, or a `{}` (which holds numbers); where both sides may be
+// missing, JS's `+` of what they hold, a string where one is there and NaN (TypeError)
+// where neither is. pts concatenated "undefined" (`undefined1`, H11b's reproducer N2,
+// C313; review rounds 1 and 2, R1-F2, R2-F2).
 function show(label: string, f: () => void): void {
   try {
     f();

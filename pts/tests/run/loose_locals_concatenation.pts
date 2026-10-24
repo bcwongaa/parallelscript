@@ -1,6 +1,7 @@
 // A loose local (D-090, D-220, H11b) that is undefined, in `s += "x"` or `void s`:
-// undefined goes on as in JS ("undefinedx", undefined), as with `s + "x"`. pts read it
-// as its type there and threw TypeError (H11b review round 1, R1-F5).
+// undefined goes on as in JS ("undefinedx", undefined), as with `s + "x"`. pts read it as
+// its type there and threw TypeError (H11b review round 1, R1-F5); `s += w[0]` too, where
+// both sides may be missing (review round 3, R3-F1).
 function show(label: string, f: () => void): void {
   try {
     f();
@@ -26,6 +27,16 @@ show("plus-equals element local", () => {
   w += "!";
   console.log("plus-equals element local", w);
 });
+show("plus-equals a missing value", () => {
+  const words = ["a"];
+  let v = words[4];
+  if (v === undefined) console.log("plus-equals a missing value", "missing");
+  v += words[0];
+  for (let s of new Array<string>(1)) {
+    s += words[0];
+    console.log("plus-equals a missing value", v, s);
+  }
+});
 show("void", () => {
   for (const s of holes()) console.log("void", void s);
 });
@@ -39,6 +50,8 @@ show("void element", () => {
 // plus-equals bx
 // plus-equals element local missing
 // plus-equals element local undefined!
+// plus-equals a missing value missing
+// plus-equals a missing value undefineda undefineda
 // void undefined
 // void undefined
 // void element undefined

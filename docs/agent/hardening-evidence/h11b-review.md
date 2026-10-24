@@ -180,3 +180,58 @@ Probe archive: `/tmp/h11b/h11b-review1-probes.tar.gz`. Probe files: `/tmp/h11b/r
 - **Replay of all 55 round-1 probes:** nothing that matched Node on snapshot 2 or the base differs now. The 10 outputs that changed against snapshot 2 are all improvements or the TypeErrors D-221 intends.
 - **emit-c sweeps** (1,062 run tests plus 329 other programs, snapshot 2 against snapshot 3): no new diagnostics. All 58 changed C files are explained by checked narrowed reads, `maybePassed` at union or `any` arguments, `+=`/`void`, and reordered check tables and adapters.
 - The new tests' `// expect:` blocks match Node, and their no-diff markers are justified.
+
+## Round 3 (snapshot 5 = `873ef9448`; [archive](h11b-review3-probes.tar.gz))
+
+**Verdict: READY.** Both round-2 fixes hold and nothing regressed against the base. Two Low findings and two Notes remain. One Low finding is a narrow regression against snapshot 3; it throws an error rather than giving a wrong value or crashing. Every claim below comes from a command I ran on snapshot 5, snapshot 3, the base and Node. Probes are archived at `/tmp/h11b/h11b-review3-probes.tar.gz` and the marker `/tmp/h11b/review3.done` is written. I made no changes to the snapshot.
+
+## Findings
+
+**R3-F1 · Low · `s += <a value that may be missing>` throws again for a loose `s` that is undefined. This regressed against snapshot 3; the base also threw.**
+- **Where:** `compoundAssignment` (`lower.go`, the `+=` string case) now asks `concatenatesWithUndefined(expr.Right)`. That is false when the right side is itself an element read or a loose local, so `s` is read as a string and throws. Unlike `concatenation`, the `+=` path has no `ValueAdd` branch for the case where both sides may be missing.
+- **Repro g02** (`const w = ["a"]`, with `s` or `v` undefined):
+
+  | Form | Node | snapshot 3 | snapshot 5 | base |
+  |---|---|---|---|---|
+  | `v += w[0]`, element-read local | `undefineda` | `undefineda` | TypeError | TypeError |
+  | `q += w[0]`, pattern name | `undefineda` | `undefineda` | TypeError | TypeError |
+  | `s += w[0]`, `for…of` variable | `undefineda` | `undefineda` | TypeError | RangeError |
+  | `v = v + w[0]` | `undefineda` | `undefineda` | `undefineda` | `undefineda` |
+
+- The C for `run/array_pattern_loose_concat.pts`'s `w1 += w2` changed the same way. That test still passes, because `w1` is present there.
+- **Fix:** in `+=`, use the same `ValueAdd` branch as `+` when both sides may be missing.
+
+**R3-F2 · Low (cost) · `+` of two element reads or loose locals now goes through `pts_value_add`, even when both values are present.**
+- Snapshot 3 used `pts_string_concat(pts_value_to_string(a), pts_value_to_string(b))`; snapshot 5 emits `pts_value_as_string(pts_value_add(a, b))`. That costs about 48 more instructions per `+` (callgrind, loop only, 1M ×10):
+  - `strs[i] + strs[i + 1]`: base 4732.9M, snapshot 3 4676.2M, snapshot 5 5162.9M (1.10× snapshot 3)
+  - `text[i] + text[i + 1] === "ab"`: base 4136.7M, snapshot 3 4140.9M, snapshot 5 4624.9M (1.12×)
+- Tokenizers and `parts[0] + parts[1]` are common uses, and D-221's cost table doesn't include this case.
+- **Fix:** concatenate directly when neither side is undefined, and use `ValueAdd` only otherwise.
+
+**R3-F3 · Note · emit-c output for one corpus program is nondeterministic, on the base too; this is not H11b's doing.**
+- `pts/tests/corpus/functional/transducers.pts` sometimes gets an extra order type and `pts_object_take_order` for `{ ...r, value }`: 1 of 12 emits on snapshot 5, 1 of 8 on the base (`t/determinism.txt` in the archive).
+- Program output was the same in my run, but printed key order could flake. This is worth a known-issue entry.
+
+**R3-F4 · Note · two small text issues.**
+- When both sides are missing, the TypeError reads `Expected string, got number`; mentioning NaN would be clearer.
+- One header line in `concatenation_missing_values.pts` runs past the file's wrap width.
+
+## Fixes verified
+- **R2-F1 (argument order):**
+  - d07 and d11 match Node: the chain gives `h12` again, and the values are right.
+  - Only the `p?: string` cases already wrong on the base still differ (d08, d09): C323, pinned by the skipped `optional_argument_receiver_order.pts`.
+  - The `reject(failure, true)` calls are back to the base's C.
+- **Defaults of `unknown` and `any` parameters, now applied in the callee (`parameterDefault`):** e01 matches Node across every kind of function. That covers functions with default-evaluation counts, `null` passing through without taking the default, constructors including `super(undefined)`, methods, static methods, field arrows, closures, function expressions, generics, async functions, generators, object and array parameter patterns, a default referring to an earlier parameter, a dynamic call, `Array.from` holes and `{ length }`. The base gets most of these wrong.
+  - e02: a generic `x: T = d` instantiated with `unknown` matches Node.
+  - C324 (a closure shaped by an `unknown` context) is unchanged, as recorded.
+- **R2-F2 (concatenation):**
+  - When both sides are missing, the result is TypeError where Node gives NaN.
+  - When one side is missing, the result is `aundefined` for elements of arrays, strings, records and typed arrays.
+  - A `{}` side is read as a string first (D-221's checked read) instead of concatenating `undefined5`.
+  - g01 and g03 match Node for templates, optional chains, string-literal unions, `+=` into elements, and mixed present pairs (numbers, booleans, `toString`, Dates, arrays, objects, null elements).
+  - `valueOf + string` is now right (`3a`), where the base and snapshot 3 gave `Va`.
+  - i64 and u64 stay exact (g05). An interface can't hold a primitive in pts (g04, PTS1001), so treating interface sides as objects is safe.
+- **Replay of all 85 earlier probes:** nothing that matched Node on snapshot 3 or the base differs on snapshot 5. m07 and m15 still crash (C321, as recorded).
+- **emit-c sweeps** (1,062 run tests plus 329 other programs, snapshot 3 against snapshot 5): no new diagnostics. The 18 + 14 changed C files are all explained by the `maybePassed` revert, the callee-side undefined test for `unknown`/`any` defaults, `ValueAdd` for two possibly-missing sides, the checked `+=` read (R3-F1), and the R3-F3 nondeterminism.
+- **Costs unchanged:** D-221's strings probe 1020.0M, round 2's `typeof`-narrowed union `for…of` 1125.0M.
+- **New tests:** `default_arguments_evaluation_order.pts` matches Node; the skipped test's expect block is Node's output; the no-diff updates to `concatenation_missing_values.pts` are justified.
