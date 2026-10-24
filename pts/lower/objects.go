@@ -603,22 +603,14 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		if !isPure(source) {
 			source = bind("spread", source)
 		}
-		if i == 0 && len(part.names) == len(shape.Fields) && isObject(source.Type()) && !isArray(source.Type()) {
-			orderOf = source // later properties only replace values: the copy lists them in the source's order
+		if i == 0 && len(part.names) == len(shape.Fields) && (isObject(source.Type()) && !isArray(source.Type()) || source.Type() == ir.Value) {
+			orderOf = source // later properties only replace values: the copy lists them in the source's order (a dynamic value's too, R5-F6)
 		}
-		// a C<any, …> place's object or a member of one (`{ ...b.meta }`), whose objects
-		// convert as they are (R2-F4, R4-F3); one an instanceof narrowing made dynamic
-		// (`{ ...o.meta }`) is D-218's PTS1001 where they would be copied
-		spread := part.node.Kind == ast.KindSpreadAssignment
-		narrowed := spread && l.narrowedByInstanceof(part.node.Expression())
-		ofAnyInstance := spread && !narrowed && l.anyInstanceRoot(part.node.Expression()) != nil
-		convertRead := func(x ir.Expr, field *ir.Field) ir.Expr {
-			if narrowed && x.Type() == ir.Value && copiesInstanceObjects(field.Type) {
-				l.reportInstanceofCopy(field.Type, part.node.Expression())
-				return nil
-			}
-			return l.convertMember(x, field.Type, part.node, ofAnyInstance)
+		rule := copyAsThroughAny // `{ ...b.meta }`'s (memberCopyOf)
+		if part.node.Kind == ast.KindSpreadAssignment {
+			rule = l.memberCopyOf(part.node.Expression())
 		}
+		convertRead := func(x ir.Expr, field *ir.Field) ir.Expr { return l.convertMember(x, field.Type, part.node, rule) }
 		for _, name := range part.names {
 			field := shape.Field(name)
 			read := propertyOf(source, name)

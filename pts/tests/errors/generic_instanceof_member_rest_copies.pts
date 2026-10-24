@@ -1,0 +1,19 @@
+// H10b review round 5 (R5-F2), the reviewer's r5_rest_member_copies.pts: a rest pattern of
+// a member of an instanceof narrowing (`const { name, ...r } = o.meta` for an `object`
+// source) would copy the instance's array into the rest's `tags: any[]`, which a later
+// write would miss (silently, on rounds 4 and 5's code): D-218's PTS1001, as on the base,
+// the rest twin of generic_instanceof_member_spread_copies.pts.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[]
+class Box<T> {
+  meta: { name: string; tags: T[] } = { name: "m", tags: [] };
+  constructor(public v: T) {}
+}
+function fromObject(o: object): number {
+  if (o instanceof Box) {
+    const { name, ...r } = o.meta;
+    r.tags.push("o");
+    return r.tags.length;
+  }
+  return 0;
+}
+console.log(fromObject(new Box<number>(0)));

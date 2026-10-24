@@ -98,12 +98,67 @@ func (l *lowerer) asIsConversion(value ir.Expr, target ir.Type, node *ast.Node) 
 	return converted
 }
 
-// convertMember converts value, a member a rest pattern or a spread reads (D-058), to target:
-// as it is (asIsConversion) where the object is a C<any, …> place's (ofAnyInstance) and a
-// conversion would copy it, as `b.items` is (R2-F4); otherwise as convert does.
-func (l *lowerer) convertMember(value ir.Expr, target ir.Type, node *ast.Node, ofAnyInstance bool) ir.Expr {
-	if ofAnyInstance && value.Type() == ir.Value && copiesInstanceObjects(target) {
-		return l.asIsConversion(value, target, node)
+// memberCopy is how a spread, a rest pattern or a destructuring assignment converts a member
+// it reads from a dynamic value where the conversion would copy an instance's objects
+// (copiesInstanceObjects).
+type memberCopy uint8
+
+const (
+	copyAsThroughAny memberCopy = iota // as convert does (D-071, D-179)
+	copyAsIs                           // a C<any, …> place's value: as it is (asIsConversion, D-219)
+	copyReported                       // a value an instanceof narrowing made dynamic: D-218's PTS1001
+)
+
+// memberCopyOf is the memberCopy for the members of what node gives: D-218's PTS1001 for a
+// value an instanceof narrowing made dynamic (narrowedByInstanceof, `{ ...o.meta }`); as it is
+// for one a C<any, …> place gives, by whatever path (`b.meta`, `b.getMeta()`, `b.meta as Meta`,
+// `b.metas.find(…)!`, a narrowed `unknown`'s members: R4-F3, R5-F3); otherwise as through any.
+func (l *lowerer) memberCopyOf(node *ast.Node) memberCopy {
+	switch {
+	case node == nil:
+		return copyAsThroughAny
+	case l.narrowedByInstanceof(node):
+		return copyReported
+	case l.anyInstanceSource(node) || l.holdsInstanceofDynamicValue(node):
+		return copyAsIs
+	}
+	return copyAsThroughAny
+}
+
+// anyInstanceSource reports whether node reads a member of, or calls a method of, a value tsc
+// types C<any, …> (holdsAnyInstance), through member reads, calls, `!`, `as` and parentheses
+// (`b.getMeta()`, `(b.meta as Meta)`, `b.metas.find(…)!`, `u.getMeta()` for an `unknown`
+// narrowed to C), or is one.
+func (l *lowerer) anyInstanceSource(node *ast.Node) bool {
+	for {
+		node = ast.SkipParentheses(node)
+		if l.holdsAnyInstance(node) {
+			return true
+		}
+		switch {
+		case ast.IsAccessExpression(node), node.Kind == ast.KindNonNullExpression, node.Kind == ast.KindAsExpression,
+			node.Kind == ast.KindSatisfiesExpression, node.Kind == ast.KindTypeAssertionExpression:
+			node = node.Expression()
+		case node.Kind == ast.KindCallExpression && ast.IsAccessExpression(ast.SkipParentheses(node.Expression())):
+			node = ast.SkipParentheses(node.Expression()).Expression()
+		default:
+			return false
+		}
+	}
+}
+
+// convertMember converts value, a member a rest pattern, a spread or a destructuring
+// assignment reads (D-058), to target, as rule says where value is dynamic and the conversion
+// would copy it (R2-F4, R4-F3); otherwise as convert does.
+func (l *lowerer) convertMember(value ir.Expr, target ir.Type, node *ast.Node, rule memberCopy) ir.Expr {
+	if value.Type() == ir.Value && copiesInstanceObjects(target) {
+		switch rule {
+		case copyAsIs:
+			return l.asIsConversion(value, target, node)
+		case copyReported:
+			l.reportInstanceofCopy(target, node)
+			return nil
+		}
 	}
 	return l.convert(value, target, node)
 }
@@ -207,6 +262,29 @@ func (l *lowerer) keepingAnyInstanceRoot(root *ast.Node, functions []*ast.Node, 
 		return nil
 	}
 	return &ir.Bind{Local: local, Value: value, In: x}
+}
+
+// keepAnyInstanceRoot is the statement that keeps the C<any, …> root inside node (an operand
+// that a suspension's hoisting keeps, or a callee's object: `busOf().handlers` of
+// `busOf().handlers.push(await f)`) in a local of its own before node is kept, so that it is
+// evaluated once, before the suspension, and keepingAnyInstanceRoot and anyInstanceFunction
+// find it there after it (R5-F5); none where node has no such root, is it, or reads it
+// without an effect.
+func (l *lowerer) keepAnyInstanceRoot(node *ast.Node) []ir.Stmt {
+	root := l.anyInstanceRoot(node)
+	if root == nil || root == ast.SkipParentheses(node) || !l.mayHaveEffect(root) {
+		return nil
+	}
+	if _, ok := l.kept[root]; ok {
+		return nil
+	}
+	x := l.expression(root)
+	if x == nil {
+		return nil // reported, or reported again where node is lowered
+	}
+	local := l.newLocal("kept", x.Type())
+	l.keepAs(root, local)
+	return []ir.Stmt{&ir.LocalDecl{At: l.pos(root), Local: local, Init: x}}
 }
 
 // givesFunction reports whether tsc types node, an argument or a stored value, as a function.

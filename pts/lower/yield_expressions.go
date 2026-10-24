@@ -146,7 +146,7 @@ func (l *lowerer) hoistYields(node *ast.Node) (stmts []ir.Stmt, ok bool) {
 			if !ok {
 				return nil, false
 			}
-			stmts = append(stmts, kept)
+			stmts = append(stmts, kept...)
 		}
 	}
 	return stmts, true
@@ -239,7 +239,7 @@ func (l *lowerer) hoistShortCircuit(node *ast.Node) ([]ir.Stmt, bool) {
 	at := l.pos(node)
 	otherwise := &ir.Block{At: at, Stmts: []ir.Stmt{&ir.ExprStmt{At: at, X: &ir.Assign{Local: chosen, Value: result}}}}
 	l.keepAs(node, chosen)
-	return append(stmts, keptLeft, &ir.LocalDecl{At: at, Local: chosen}, &ir.If{At: at, Cond: test, Then: then, Else: otherwise}), true
+	return append(append(stmts, keptLeft...), &ir.LocalDecl{At: at, Local: chosen}, &ir.If{At: at, Cond: test, Then: then, Else: otherwise}), true
 }
 
 // hoistLogicalAssignment lowers `x ??= v`, `x ||= v` or `x &&= v` whose right side holds
@@ -261,7 +261,7 @@ func (l *lowerer) hoistLogicalAssignment(node *ast.Node) ([]ir.Stmt, bool) {
 			if !ok {
 				return nil, false
 			}
-			stmts = append(stmts, kept)
+			stmts = append(stmts, kept...)
 		}
 	}
 	// `??=` and `||=` store over a class's field the constructor hasn't set (D-141); `&&=`
@@ -384,17 +384,32 @@ func (l *lowerer) hoistedBranch(node *ast.Node, chosen *ir.Local) (*ir.Block, bo
 
 // keep evaluates an operand into a local that its lowering then reads: what a spread
 // spreads (keepSpread, keepObjectSpread), or the operand itself (a call that returns
-// nothing is run, and is undefined).
-func (l *lowerer) keep(node *ast.Node) (ir.Stmt, bool) {
+// nothing is run, and is undefined). A C<any, …> root inside a callee or an operand is kept
+// first, in a local of its own (keepAnyInstanceRoot).
+func (l *lowerer) keep(node *ast.Node) ([]ir.Stmt, bool) {
+	one := func(stmt ir.Stmt, ok bool) ([]ir.Stmt, bool) { return []ir.Stmt{stmt}, ok }
 	switch node.Kind {
 	case ast.KindSpreadElement:
-		return l.keepSpread(node.Expression())
+		return one(l.keepSpread(node.Expression()))
 	case ast.KindSpreadAssignment:
-		return l.keepObjectSpread(node.Expression())
+		return one(l.keepObjectSpread(node.Expression()))
+	}
+	var stmts []ir.Stmt
+	if isMemberCallee(node) {
+		stmts = l.keepAnyInstanceRoot(node.Expression())
+	} else {
+		stmts = l.keepAnyInstanceRoot(node)
 	}
 	if isMemberCallee(node) && l.isFoundAtRunTime(node) {
-		return l.keepCallee(node)
+		kept, ok := l.keepCallee(node)
+		return append(stmts, kept), ok
 	}
+	kept, ok := l.keepOperand(node)
+	return append(stmts, kept), ok
+}
+
+// keepOperand is keep's for an operand kept as it is.
+func (l *lowerer) keepOperand(node *ast.Node) (ir.Stmt, bool) {
 	var x ir.Expr
 	if parent := node.Parent; parent.Kind == ast.KindShorthandPropertyAssignment && parent.Name() == node {
 		x = l.shorthandValue(parent) // `{ x }`'s x

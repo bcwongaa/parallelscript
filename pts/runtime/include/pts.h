@@ -894,6 +894,13 @@ static inline double pts_value_as_number(pts_value v) {
 
 static inline pts_object *pts_value_as_object(pts_value v) { return (pts_object *)(uintptr_t)v; }
 
+/* pts_object_take_order for a source held as a dynamic value, which may be no object (H10b). */
+static inline void pts_object_take_order_of_value(pts_object *copy, pts_value source, const pts_type *const *orders, uint32_t count) {
+  if (pts_value_is_object(source)) {
+    pts_object_take_order(copy, pts_value_as_object(source), orders, count);
+  }
+}
+
 /* JS's ToString of a value: an object converts as pts_object_to_string does. */
 pts_string *pts_value_to_string(pts_value value);
 

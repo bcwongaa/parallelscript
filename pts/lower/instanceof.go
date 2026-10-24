@@ -219,6 +219,46 @@ func (l *lowerer) bindingSource(symbol *ast.Symbol) *ast.Node {
 	return nil
 }
 
+// patternSource is the expression whose value a binding pattern takes apart: its
+// declaration's initializer, the iterable a for…of declaration takes items of, what a method
+// hands the callback whose parameter it is (callbackSource), or for a nested pattern its
+// outermost pattern's; for an object or array literal on the left of an assignment, also
+// nested, the assignment's right side (`({ name, ...r } = b.meta)`); nil otherwise.
+func (l *lowerer) patternSource(pattern *ast.Node) *ast.Node {
+	if pattern.Kind == ast.KindObjectLiteralExpression || pattern.Kind == ast.KindArrayLiteralExpression {
+		for node := pattern; ; node = node.Parent {
+			switch parent := node.Parent; parent.Kind {
+			case ast.KindPropertyAssignment, ast.KindObjectLiteralExpression, ast.KindArrayLiteralExpression, ast.KindParenthesizedExpression:
+			case ast.KindBinaryExpression:
+				expr := parent.AsBinaryExpression()
+				if expr.OperatorToken.Kind != ast.KindEqualsToken || expr.Left != node {
+					return nil
+				}
+				if outer := parent.Parent.Kind; outer != ast.KindPropertyAssignment && outer != ast.KindArrayLiteralExpression {
+					return expr.Right // not an element's default (`{ meta: { ...r } = fallback }`)
+				}
+			default:
+				return nil
+			}
+		}
+	}
+	declaration := pattern.Parent
+	for declaration.Kind == ast.KindBindingElement {
+		declaration = declaration.Parent.Parent
+	}
+	switch list := declaration.Parent; {
+	case declaration.Kind == ast.KindParameter:
+		return l.callbackSource(declaration)
+	case declaration.Kind != ast.KindVariableDeclaration:
+		return nil
+	case declaration.Initializer() != nil:
+		return declaration.Initializer()
+	case list.Kind == ast.KindVariableDeclarationList && list.Parent.Kind == ast.KindForOfStatement:
+		return list.Parent.AsForInOrOfStatement().Expression
+	}
+	return nil
+}
+
 // holdsInstanceofDynamicValue reports whether node gives a dynamic value that an instanceof
 // narrowing makes: a member tsc types with any of a reference whose narrowing is inferred
 // (isInstanceofDynamicMember), a reference whose narrowing isn't (isUninferredInstanceof) or

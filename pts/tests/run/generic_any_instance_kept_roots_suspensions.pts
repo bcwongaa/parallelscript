@@ -1,0 +1,30 @@
+// H10b review round 5 (R5-F5), the reviewer's r5_kept_root_suspension_twice.pts: a C<any>
+// root deeper than a call's receiver or a store's object (`busOf().handlers.push(await f)`,
+// `busOf().handlers[1] = await f`, a getter's) is evaluated once, before the suspension, and
+// the function given keeps its identity.
+
+class Emitter<T> {
+  handlers: ((rows: T[]) => void)[] = [];
+}
+const order: string[] = [];
+const e = new Emitter<any>();
+function busOf(tag: string): Emitter<any> { order.push(tag); return e; }
+function log(rows: any[]): void { rows.push(1); }
+class Service { bus = e; get viaGetter(): Emitter<any> { order.push("get"); return this.bus; } }
+const svc = new Service();
+async function main(): Promise<void> {
+  busOf("push").handlers.push(await Promise.resolve(log));
+  busOf("store").handlers[1] = await Promise.resolve(log);
+  svc.viaGetter.handlers.push(await Promise.resolve(log));
+  console.log(order.join(","), e.handlers.indexOf(log), e.handlers.lastIndexOf(log));
+}
+function* gen(): Generator<number, void, (rows: any[]) => void> {
+  svc.viaGetter.handlers.push(yield 1);
+  console.log("yield", order.join(","));
+  order.length = 0;
+}
+const it = gen(); it.next(); it.next(log);
+main();
+// expect:
+// yield get
+// push,store,get 0 2

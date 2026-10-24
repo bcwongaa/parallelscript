@@ -445,3 +445,116 @@ Files are in `/tmp/h10b/review4/`:
 - `m777_snap4.jsonl`, `m748_snap4.jsonl`, `bin/`
 
 The archive is `/tmp/h10b/h10b-review4-probes.tar.gz` (no binaries), and `/tmp/h10b/review4.done` is touched.
+
+## Round 5 (snapshot 6: `5d0dd7618` plus the round-4 follow-up, committed as `5db31d972`; a fresh reviewer, round 4's having ended with its session)
+
+# H10b review, round 5 (snapshot 6: `5d0dd7618` plus `/tmp/h10b/snap6.patch`)
+
+**VERDICT: NOT READY**
+
+The four round-4 fixes work for the cases they name. Both matrices and every earlier probe are unchanged. But I found six new problems, all silent:
+- One is a regression in code that has nothing to do with H10b: `"k" in v` (R5-F1).
+- Three are copies of another instance's arrays that D-219 says can't happen: rest patterns, spreads reached through a call or a cast, and destructuring assignments (R5-F2 to R5-F4). Base gave PTS1001 or a TypeError for each.
+- One is a kept root that is evaluated twice (R5-F5).
+- One is the key order of a spread (R5-F6, low).
+
+## What I checked
+- **777-case matrix on snap6:** 751 OK, 24 PTS1001, 2 TYPEERR. This is identical to round 4, with no class or detail changes.
+- **748-case matrix on snap6:** 732 OK, 12 PTS1001, 4 WRONG. The 4 WRONG are the recorded R1-F13 cases (`K_{unknown,any}__{then_ref,pending_then}__number`). No changes.
+- **Suite 6 (the parent's run, finished before my heavy jobs):** 5,810 pass / 381 skip / 0 fail, 10 packages PASS, empty stderr.
+- **emit-c sweep, snap4 against snap6, 1,574 programs:** 1,565 produce identical C. Of the 9 that differ:
+  - 5 are the new tests.
+  - 3 are intended changes: an as-is member spread, `in` now looked up at run time, a kept root in `callback_own_methods`.
+  - 1 is the corpus program `functional/transducers.pts`. It loses an order variant and its `pts_object_take_order` call. I checked this one: the program's output is unchanged, and with readings in another own key order snap6 still prints Node's order (`u22`).
+- **Re-runs:**
+  - The 170 files from rounds 1–3: 166 are identical to snap5, the other 4 differ only in timing.
+  - Round 4's 20 files: identical to snap5.
+  - The parent's 9 probes in `round5/`: as `h10b.md` describes.
+- **New probes:** `u01`–`u24`, each compared on Node, snap6, snap4 and base. The six repros in `r/` were also run on snap5, which behaves the same as snap6 on all of them.
+
+## Earlier findings re-checked
+- **R4-F1 fixed.** `r4_identity_non_local_roots` matches Node. Stores, `i++` keys, key order against the right side, chained and value-used assignments, computed element calls, `as`, `!`, conditional, nested and comma roots, `super.bus`, `await`/`yield` roots, and `||=` `&&=` `??=` all match Node (`u06`, `u09`, `u24`). The one exception is R5-F5.
+- **R4-F2 fixed.** `r4_flow_local_generic_method` and `r4b` match Node. The exclusion is never worse than base (`u07`, `u19`). The array-element, `ident(o)`, destructured, callback and annotated flows still throw D-219's documented R2-F5 TypeError, as on base. Snap6 also fixes two PTS1001s snap4 had (`as`, ternary).
+- **R4-F3:** fixed for `b.meta`, `b.metas[0]`, `b.sub.inner` and `u.meta`. Still open for rests, calls and casts (R5-F2, R5-F3).
+- **R4-F4:** `r4_member_spread_optional*` match Node.
+- **PTS9001 on `buses[i++].on(f)`:** gone.
+- **Rounds 1–3:** unchanged.
+
+## New findings
+Repros are in `/tmp/h10b/review5/r/` and all outputs are in `r5_outputs.txt`. Snap5 behaves the same as snap6 on every repro.
+
+**R5-F1 · Medium · silent · a regression against base and snap4, also outside H10b.** `"k" in v` gives false for keys that library objects have on their prototype.
+- Repro: `r5_in_declared_property_dynamic.pts`.
+- Node, snap4 and base print `box members true true true true true` and `guarded true`.
+- Snap6 prints `false false false false false` and `guarded false`.
+- The keys tested are `size` of a Map, `has` of a Set, `length` of a function, `then` of a Promise and `push` of an array. The values are a `Box<any>`'s members, and also an `unknown` narrowed by a user type guard (`u is { size: number }`), which has no `C<any>` in it at all.
+- Root cause: `optional.go:110-112` (new) sends every dynamic right operand to `DynamicHas`. The runtime's `pts_dynamic_has` (`runtime/src/dynamic.c:692-710`) only knows arrays' `length` and indices, and returns `default: false` for maps, sets, closures and promises.
+- That runtime gap is older than H10b. `"then" in promise` on an `object` or `any` value is already false on base (`u02b`, `u23`). Before snap5, a declared required key was simply true.
+- A possible fix: look the key up at run time only for optional properties, or fix `pts_dynamic_has`.
+
+**R5-F2 · High · silent · since snap4.** A rest pattern of a member copies the member's arrays.
+- Repro: `r5_rest_member_copies.pts`.
+- Node prints `object 1 / place 2 / unknown 3 / tags ["o","p","u"]`.
+- Snap6 and snap4 print `1 / 1 / 1 / tags []`.
+- Base gives PTS1001 `spreading a value into an object` for the `object` narrowing. Snap1–3 gave PTS1001 too.
+- The `object` form is the rest-pattern twin of snapshot 6's new `errors/generic_instanceof_member_spread_copies.pts`.
+- The other two forms (a `Box<any>` place, an `unknown` narrowing) contradict D-219's text: "spreads and rest patterns … each value is taken as it is".
+- Root cause: `restProperties` (`destructuring.go:463-466`) sets `ofAnyInstance` only when the pattern's own type is `C<any>`. It has no `narrowedByInstanceof` guard, so lines 495 and 497 convert plainly. `spreadObject`'s new logic (`objects.go:612-621`) wasn't applied here.
+
+**R5-F3 · High · silent · since snap4.** R4-F3's rule doesn't reach a member obtained through a call, a cast or `find(…)!`.
+- Repro: `r5_spread_call_cast_copies.pts`, with `{ ...b.getMeta() }`, `{ ...(b.meta as Meta) }` and `{ ...b.metas.find(…)! }` for a `Box<number>` in a `Box<any>` place, and `{ ...u.getMeta() }` for an `unknown` narrowing.
+- Node prints `1 / 2 / 3 / 4 / tags ["c","x","f","u"]`.
+- Snap6 and snap4 print `1 / 1 / 1 / 1 / tags []`.
+- Base gives PTS1001.
+- `const m: Meta = b.getMeta()` does give the as-is TypeError, so the spread path is inconsistent with it.
+- Object-source narrowings get PTS1001 on snap6, which is correct (`u12`).
+- Root cause: `objects.go:614` relies on `anyInstanceRoot` (`any_instances.go:175-184`), which only walks property/element accesses and `!`. A call or an `as` has no root.
+
+**R5-F4 · High · silent · since snap1.** Two destructuring-assignment forms copy silently.
+- Repro: `r5_destructuring_assignment_copies.pts`, with a `Box<number>` in a `Box<any>` place.
+- Node prints `shorthand 1 / member 1 / member renamed 2 / renamed 2 / number ["s","i"] ["m","r"]`.
+- Snap6 and snap4 print `1 / 1 / 1 / TypeError / number [] []`. The shorthand `({ items } = b)` and the member forms `({ tags } = b.meta)` copy, while only `({ items: it } = b)` gives the TypeError. Declarations are fine.
+- Base gives PTS1001 for the place.
+- Root cause:
+  - `destructuringAssignment` (`destructuring.go:686`) uses `holdsAnyInstance(valueNode)`, which is false for members.
+  - `assignShorthand` (`destructuring.go:805`) always uses `l.convert` and never takes `asIs`.
+
+**R5-F5 · Medium · silent · new in snap5.** A kept root is evaluated twice when a suspension sits in the arguments and the root is deeper than the receiver.
+- Repro: `r5_kept_root_suspension_twice.pts`, with `busOf().handlers.push(await f)`, `busOf().handlers[1] = await f`, a getter root, and `yield` too.
+- Node and base print `yield get` and `push,store,get 0 2`.
+- Snap6 prints `yield get,get` and `push,push,store,store,get,get 0 2`.
+- Snap4 evaluated once but lost identity (`0 0`).
+- Without a suspension, or when the root is the receiver itself, it's correct (`u05`, `u05b`).
+- Root cause: `keepingAnyInstanceRoot` (`any_instances.go:195-198`) only checks `l.kept[root]`. The suspension hoisting keeps the callee or receiver node instead (`keepCallee`, `yield_expressions.go:576`), so the root is evaluated again, after the suspension.
+
+**R5-F6 · Low · silent · since snap4.** A full spread of a `Box<any>` member copies keys in tsc's declaration order, not the object's own order.
+- Repro: `r5_spread_key_order.pts`.
+- Node and base print `{"count":1,"name":"m"}` and `count,name`.
+- Snap6 and snap4 print `{"name":"m","count":1}` and `name,count`.
+- Root cause: `orderOf` (`objects.go:607`) needs a typed object source. A spread with extra keys or absent optional keys has the same gap on base (`u04b`), and so do getter read orders (`u03`).
+
+## Checked and found fine
+- `copiedOwnProperty`:
+  - It keeps earlier values and stacks spreads over spreads correctly.
+  - An own `undefined` keeps its earlier value for a field that can't hold undefined. That is spreadOver's documented rule, and base does the same.
+  - Rest patterns with defaults work.
+  - Spreads before an `await`/`yield` work (`u03`, `u18`).
+  - Getter objects are converted when they're written into typed fields, so own getters never reach the spread (`u16`).
+- **Methods listed for dynamic object types:** a class instance's prototype method gives `Expected (…) => string, got undefined` at the spread, the same as base (`u01b`). Rests with methods are PTS1001 on base too.
+- **Snapshot 6's new PTS1001:** it rejects read-only narrowed spreads that snap4 ran (`u08a`, `u08d`). Base rejected those too, so it rejects nothing that base ran.
+- **Realistic store and registry** (`u15`): matches Node except a `Store<number>` in a `Store<any>` place, which loses identity through D-075's adapter (round 4's noted t02 class), and R5-F6's key order.
+
+**Pre-existing on every build, not counted:**
+- A function `la(rows: any)` given to `on`/`off` through `any`, or through a narrowing, loses identity (`u10`).
+- `hasLen("abc")` with `T extends { length: number }` doesn't throw (`u17`).
+- `"then" in promise` and `"size" in map` are false for `any` and `object` values (`u23`).
+
+Files are in `/tmp/h10b/review5/`:
+- the six repros: `r/`
+- the probes `u01`–`u24`: `p/`
+- outputs: `r5_outputs.txt`, `old_outputs_snap6.txt`, `new_outputs_snap6.txt`, `round5_probes_snap6.txt`
+- matrices: `m777_snap6.{jsonl,log}`, `m748_snap6.{jsonl,log}`
+- the sweep: `sweep/results.txt`
+- tooling: `bin/`
+
+The archive is `/tmp/h10b/h10b-review5-probes.tar.gz` (no binaries), and `/tmp/h10b/review5.done` is touched.

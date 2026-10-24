@@ -100,14 +100,19 @@ func (l *lowerer) withDefault(part ir.Expr, initializer *ast.Node, name *ast.Nod
 // of a union, or one the type doesn't declare, is looked up at run time (keyIn, D-067).
 func (l *lowerer) propertyIn(expr *ast.BinaryExpression) ir.Expr {
 	name := expr.Left.Text()
-	if t := l.typeAt(expr.Right); isUnionValue(t) || l.checker.GetPropertyOfType(t, name) == nil {
+	t := l.typeAt(expr.Right)
+	property := l.checker.GetPropertyOfType(t, name)
+	if isUnionValue(t) || property == nil {
 		return l.keyIn(expr)
 	}
 	object := l.expression(expr.Right)
 	if object == nil {
 		return nil
 	}
-	if object.Type() == ir.Value { // a dynamic value of an object type (a rest of a C<any, …> place's member, R4-F4): looked up at run time
+	if object.Type() == ir.Value && property.Flags&ast.SymbolFlagsOptional != 0 {
+		// a dynamic value's optional property (a rest of a C<any, …> place's member, R4-F4),
+		// which it may leave out: looked up at run time; a required one it has, as below
+		// (R5-F1: the run time doesn't know library objects' prototypes)
 		return &ir.CallBuiltin{Builtin: ir.DynamicHas, Args: []ir.Expr{object, box(&ir.StringConst{Value: name})}}
 	}
 	var field *ir.Field

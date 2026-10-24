@@ -1,0 +1,25 @@
+// H10b review round 5 (R5-F1), the reviewer's r5_in_declared_property_dynamic.pts: `"k" in v`
+// for a dynamic value whose type declares k as required is true, as before H10b, for the
+// keys library objects have on their prototypes too (a Map's size, a Set's has, a function's
+// length, a promise's then, an array's push), also for an `unknown` a type guard narrowed;
+// an optional one is looked up at run time (generic_any_instance_member_spread_own_properties.pts).
+
+class Box<T> {
+  map = new Map<string, T>();
+  set = new Set<T>();
+  fn = (x: T) => x;
+  p = Promise.resolve(1);
+  arr: T[] = [];
+  meta: { name: string; opt?: number } = { name: "m" };
+  constructor(public v: T) {}
+}
+const b: Box<any> = new Box<any>(0);
+console.log("box members", "size" in b.map, "has" in b.set, "length" in b.fn, "then" in b.p, "push" in b.arr);
+console.log("own", "name" in b.meta, "opt" in b.meta);
+function isSized(u: unknown): u is { size: number } { return typeof u === "object" && u !== null; }
+const u: unknown = new Map([["a", 1]]);
+if (isSized(u)) console.log("guarded", "size" in u);
+// expect:
+// box members true true true true true
+// own true false
+// guarded true

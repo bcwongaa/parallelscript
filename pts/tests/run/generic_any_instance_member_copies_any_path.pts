@@ -1,0 +1,70 @@
+// no-diff: a Box<number> held in a Box<any> place or narrowed from unknown throws TypeError where a rest pattern, a spread or a destructuring assignment would copy its arrays, where Node shares them (D-219)
+// H10b review round 5 (R5-F2, R5-F3, R5-F4), the reviewer's r5_rest_member_copies.pts,
+// r5_spread_call_cast_copies.pts and r5_destructuring_assignment_copies.pts: the members of
+// a Box<any> value, reached by a member read, a method call, a cast or `find(…)!`, that a
+// rest pattern, an object spread or a destructuring assignment (shorthand, renamed, of a
+// member, a rest, nested) takes, are taken as they are: Box's instance for any's arrays themselves, which
+// the new object or variable shares; another instance's (a Box<number>'s number[], which a
+// copy would hide writes from) a TypeError, never a silent copy.
+
+type Meta = { name: string; tags: any[] };
+class Box<T> {
+  items: T[] = [];
+  meta: { name: string; tags: T[] } = { name: "m", tags: [] };
+  metas: { name: string; tags: T[] }[] = [this.meta];
+  constructor(public v: T) {}
+  getMeta(): { name: string; tags: T[] } { return this.meta; }
+}
+const t = (name: string, f: () => unknown) => {
+  try { console.log(name, JSON.stringify(f())); } catch (e) { console.log(name, (e as Error).name); }
+};
+function forms(b: Box<any>): void {
+  t("rest", () => { const { name, ...r } = b.meta; r.tags.push("rest"); return Object.keys(r); });
+  t("spread call", () => { const m = { ...b.getMeta() }; m.tags.push("call"); return m.tags.length; });
+  t("spread cast", () => { const m = { ...(b.meta as Meta) }; m.tags.push("cast"); return m.tags.length; });
+  t("spread find", () => { const m = { ...b.metas.find(() => true)! }; m.tags.push("find"); return m.tags.length; });
+  t("assign shorthand", () => { let items: any[] = []; ({ items } = b); items.push("shorthand"); return items.length; });
+  t("assign member", () => { let tags: any[] = []; ({ tags } = b.meta); tags.push("member"); return tags.length; });
+  t("assign renamed", () => { let tg: any[] = []; ({ tags: tg } = b.meta); tg.push("renamed"); return tg.length; });
+  t("assign rest", () => { let r: { tags: any[] } = { tags: [] }; let name = ""; ({ name, ...r } = b.meta); r.tags.push("assign-rest"); return r.tags.length; });
+  t("assign nested rest", () => { let r: { tags: any[] } = { tags: [] }; let name = ""; ({ meta: { name, ...r } } = b); r.tags.push("nested-rest"); return r.tags.length; });
+}
+function fromUnknown(u: unknown): void {
+  if (u instanceof Box) {
+    t("unknown rest", () => { const { name, ...r } = u.meta; r.tags.push("u-rest"); return Object.keys(r); });
+    t("unknown call", () => { const m = { ...u.getMeta() }; m.tags.push("u-call"); return m.tags.length; });
+  }
+}
+const anyBox = new Box<any>(0);
+forms(anyBox);
+fromUnknown(anyBox);
+console.log("shared", JSON.stringify(anyBox.items), JSON.stringify(anyBox.meta.tags));
+const numberBox = new Box<number>(0);
+forms(numberBox);
+fromUnknown(numberBox);
+console.log("unchanged", JSON.stringify(numberBox.items), JSON.stringify(numberBox.meta.tags));
+// expect:
+// rest ["tags"]
+// spread call 2
+// spread cast 3
+// spread find 4
+// assign shorthand 1
+// assign member 5
+// assign renamed 6
+// assign rest 7
+// assign nested rest 8
+// unknown rest ["tags"]
+// unknown call 10
+// shared ["shorthand"] ["rest","call","cast","find","member","renamed","assign-rest","nested-rest","u-rest","u-call"]
+// rest TypeError
+// spread call TypeError
+// spread cast TypeError
+// spread find TypeError
+// assign shorthand TypeError
+// assign member TypeError
+// assign renamed TypeError
+// assign rest TypeError
+// assign nested rest TypeError
+// unknown rest TypeError
+// unknown call TypeError
+// unchanged [] []

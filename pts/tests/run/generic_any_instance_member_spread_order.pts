@@ -1,0 +1,16 @@
+// H10b review round 5 (R5-F6), the reviewer's r5_spread_key_order.pts: a spread that copies
+// every property of a Box<any> value's member lists them in the object's own order, as a
+// spread of a typed object does (D-108), not in the order its type declares them.
+
+type Meta = { name: string; count: number };
+class Box<T> {
+  meta: Meta = { count: 1, name: "m" };
+  other: Meta = { name: "o", count: 2 };
+  constructor(public v: T) {}
+}
+const b = new Box<any>(0);
+console.log(JSON.stringify(b.meta), JSON.stringify({ ...b.meta }), Object.keys({ ...b.meta }).join(","));
+console.log(JSON.stringify({ ...b.other }), JSON.stringify({ ...b.meta, name: "x" }));
+// expect:
+// {"count":1,"name":"m"} {"count":1,"name":"m"} count,name
+// {"name":"o","count":2} {"count":1,"name":"x"}

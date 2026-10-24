@@ -560,7 +560,11 @@ func (e *emitter) newObject(n *ir.NewObject) string {
 	for i, field := range n.Shape.Orders[n.Order] {
 		fmt.Fprintf(&c, "%s->%s = %s; ", object, fieldIdentifier(field.Name), e.expr(n.Values[i]))
 	}
-	if n.OrderOf != nil && len(n.Shape.Orders) > 1 {
+	switch {
+	case n.OrderOf == nil || len(n.Shape.Orders) <= 1:
+	case n.OrderOf.Type() == ir.Value: // a dynamic value of an object type (H10b)
+		fmt.Fprintf(&c, "pts_object_take_order_of_value((pts_object *)%s, %s, pts_orders_%s, %d); ", object, e.expr(n.OrderOf), e.classNames[n.Shape], len(n.Shape.Orders))
+	default:
 		fmt.Fprintf(&c, "pts_object_take_order((pts_object *)%s, (const pts_object *)(%s), pts_orders_%s, %d); ", object, e.expr(n.OrderOf), e.classNames[n.Shape], len(n.Shape.Orders))
 	}
 	fmt.Fprintf(&c, "%s; })", object)
