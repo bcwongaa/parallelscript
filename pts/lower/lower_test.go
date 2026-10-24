@@ -765,15 +765,16 @@ for (const row of grid()) {
 }
 `)
 	// A compound assignment evaluates the array and index once; for...of reads the length
-	// before each iteration; a[i] is unchecked only where any value can go (D-015).
+	// before each iteration, its variable over an array of arrays undefined at a hole and
+	// checked where it is used as one (H11b); a[i] is unchecked only where any value can go (D-015).
 	assert.Equal(t, got, `func main() void {
   2: (let object = array.elementChecked(grid(), 0) in (let current = array.elementChecked(object, 1) in array.setElement(object, 1, (current + 5))))
   3: {
     3: let array: number[][] = grid()
     3: let index: number = 0
     3: #1: for (index < array.length(array)); (index = (index + 1)) {
-      3: let row: number[] = array.elementChecked(array, index)
-      4: console.log(array.element(row, 9), box(array.popChecked(row)), box(array.length(row)))
+      3: let row: number[] | undefined = array.elementOrUndefined(array, index)
+      4: console.log(array.element(defined number[](row), 9), box(array.popChecked(defined number[](row))), box(array.length(defined number[](row))))
     }
   }
 }
@@ -1484,8 +1485,8 @@ func main() void {
     20: let array: {make(value): value}[] = run("t")
     20: let index: number = 0
     20: #1: for (index < array.length(array)); (index = (index + 1)) {
-      20: let m: {make(value): value} = array.elementChecked(array, index)
-      21: console.log(box((let callee = m in (let argument1 = 1 in instance [Box<number>#1] make(callee, argument1) else Box(interface make(callee, box(argument1))))).value))
+      20: let m: undefined | {make(value): value} = array.elementOrUndefined(array, index)
+      21: console.log(box((let callee = defined {make(value): value}(m) in (let argument1 = 1 in instance [Box<number>#1] make(callee, argument1) else Box(interface make(callee, box(argument1))))).value))
     }
   }
 }

@@ -1,0 +1,96 @@
+// find, findIndex, findLast and findLastIndex read the length once and visit every index
+// below it, so a callback that shortens the array (splice, shift, `length = 0`) is called
+// with undefined for each index it cut off, as JS does. A callback whose element
+// parameter takes undefined (optional, `T | undefined`, a default, unknown, any) gets
+// undefined there, or its default, over arrays of strings, numbers, booleans and objects.
+// pts stopped calling at the current length (C112, H11b). find_shrinking_array.pts has
+// `length = 1` and pop; growing the array (control) visits only the starting indices.
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+show("splice string[]", () => {
+  const words = ["a", "b", "c", "d"];
+  const seen: unknown[] = [];
+  const index = words.findIndex((w?: string, i?: number) => {
+    if (i === 0) words.splice(1);
+    seen.push(w);
+    return w === undefined;
+  });
+  console.log("splice string[]", seen, index);
+});
+show("shift objects", () => {
+  const points = [new P(1), new P(2), new P(3)];
+  const seen: unknown[] = [];
+  points.find((p: P | undefined, i: number) => {
+    if (i === 0) points.shift();
+    seen.push(p?.x);
+    return false;
+  });
+  console.log("shift objects", seen);
+});
+show("length 0 booleans", () => {
+  const flags = [true, false, true];
+  const seen: unknown[] = [];
+  const found = flags.findLast((b?: boolean) => {
+    if (flags.length > 0) flags.length = 0;
+    seen.push(b);
+    return false;
+  });
+  console.log("length 0 booleans", seen, found);
+});
+show("default number[]", () => {
+  const counts = [1, 2, 3];
+  const seen: number[] = [];
+  const index = counts.findLastIndex((n: number = -1, i: number) => {
+    if (i === 2) counts.length = 1;
+    seen.push(n);
+    return n < 0;
+  });
+  console.log("default number[]", seen, index);
+});
+show("unknown string[]", () => {
+  const words = ["a", "b", "c"];
+  const seen: unknown[] = [];
+  words.find((w: unknown, i: number) => {
+    if (i === 0) words.pop();
+    seen.push(w);
+    return false;
+  });
+  console.log("unknown string[]", seen);
+});
+show("any objects", () => {
+  const points = [new P(1), new P(2)];
+  const seen: unknown[] = [];
+  points.findIndex((p: any) => {
+    points.length = 0;
+    seen.push(p?.x);
+    return false;
+  });
+  console.log("any objects", seen);
+});
+show("grow control", () => {
+  const words = ["a", "b"];
+  const seen: unknown[] = [];
+  words.find((w?: string) => {
+    words.push("z");
+    seen.push(w);
+    return false;
+  });
+  console.log("grow control", seen, words.length);
+});
+
+// expect:
+// splice string[] [ 'a', undefined ] 1
+// shift objects [ 1, 3, undefined ]
+// length 0 booleans [ true, undefined, undefined ] undefined
+// default number[] [ 3, -1 ] 1
+// unknown string[] [ 'a', 'b', undefined ]
+// any objects [ 1, undefined ]
+// grow control [ 'a', 'b' ] 4

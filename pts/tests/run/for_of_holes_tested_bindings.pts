@@ -1,0 +1,157 @@
+// `for…of` reads a hole as undefined, as JS's array iterator does, for every array whose
+// slots can be holes (strings, objects, functions, arrays, unions of them; D-085). A
+// binding the loop body tests for undefined (`=== undefined`, `?.`, `if (x)`, `??`,
+// `typeof`, `!`, an optional parameter) takes it as undefined. pts threw D-085's
+// RangeError at the first hole, whatever the binding, the array's type, or the code
+// around the loop (H11b; D-183 left these arrays' loops to H11). for_of_reads_holes_typed.pts
+// has the first two forms; this one has the rest.
+class P {
+  constructor(public x: number) {}
+}
+class Q {
+  constructor(public q: string) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes<T>(n: number, at: number, value: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = value;
+  return a;
+}
+function opt(label: string, s?: string): void {
+  console.log(label, s === undefined ? "missing" : s);
+}
+class Holder {
+  words: string[] = holes(2, 1, "f");
+}
+show("let", () => {
+  for (let w of holes(2, 1, "b")) {
+    w = w ?? "default";
+    console.log("let", w.length);
+  }
+});
+show("optional chain", () => {
+  for (const p of holes(2, 0, new P(1))) console.log("optional chain", p?.x);
+});
+show("truthiness", () => {
+  for (const w of holes(2, 1, "b")) console.log("truthiness", w ? w : "falsy");
+});
+show("typeof", () => {
+  for (const p of holes(2, 1, new P(2))) console.log("typeof", typeof p);
+});
+show("not", () => {
+  for (const p of holes(2, 1, new P(2))) console.log("not", !p);
+});
+show("optional parameter", () => {
+  for (const w of holes(2, 0, "a")) opt("optional parameter", w);
+});
+show("union of objects", () => {
+  for (const u of holes<P | Q>(3, 1, new Q("q"))) console.log("union of objects", u === undefined ? "hole" : u instanceof Q ? u.q : u.x);
+});
+show("string | null", () => {
+  const a = holes<string | null>(3, 1, "b");
+  a[2] = null;
+  for (const w of a) console.log("string | null", w === undefined ? "hole" : w === null ? "null" : w.length);
+});
+show("functions", () => {
+  for (const f of holes(2, 1, () => "called")) console.log("functions", f?.());
+});
+show("arrays", () => {
+  for (const row of holes(2, 1, ["r"])) console.log("arrays", row?.length);
+});
+show("readonly", () => {
+  const ro: readonly string[] = holes(2, 1, "b");
+  for (const w of ro) console.log("readonly", w ?? "hole");
+});
+show("class field", () => {
+  for (const w of new Holder().words) console.log("class field", w === undefined);
+});
+show("values()", () => {
+  for (const w of holes(2, 1, "b").values()) console.log("values()", w ?? "hole");
+});
+show("generic", () => {
+  function count<T>(xs: T[]): number {
+    let n = 0;
+    for (const x of xs) if (x !== undefined) n++;
+    return n;
+  }
+  console.log("generic", count(holes(3, 1, "b")), count(holes(3, 2, new P(1))));
+});
+show("generator", () => {
+  function* present(xs: string[]): Generator<string> {
+    for (const x of xs) if (x !== undefined) yield x;
+  }
+  console.log("generator", [...present(holes(3, 1, "b"))]);
+});
+show("break and continue", () => {
+  let n = 0;
+  for (const w of holes(4, 2, "c")) {
+    n++;
+    if (w === undefined) continue;
+    console.log("break and continue", w, n);
+    break;
+  }
+});
+show("labeled", () => {
+  outer: for (const i of [0, 1]) {
+    for (const w of holes(2, 1, "b")) {
+      if (!w) continue outer;
+      console.log("labeled", i, w);
+    }
+  }
+  console.log("labeled done");
+});
+show("closure", () => {
+  const tests: (() => boolean)[] = [];
+  for (const w of holes(2, 1, "b")) tests.push(() => w === undefined);
+  console.log("closure", tests.map((t) => t()));
+});
+async function run(): Promise<void> {
+  for (const w of holes(2, 1, "b")) {
+    await null;
+    console.log("async", w ?? "hole");
+  }
+}
+run().catch((e) => console.log("async threw", (e as Error).name));
+
+// expect:
+// let 7
+// let 1
+// optional chain 1
+// optional chain undefined
+// truthiness falsy
+// truthiness b
+// typeof undefined
+// typeof object
+// not true
+// not false
+// optional parameter a
+// optional parameter missing
+// union of objects hole
+// union of objects q
+// union of objects hole
+// string | null hole
+// string | null 1
+// string | null null
+// functions undefined
+// functions called
+// arrays undefined
+// arrays 1
+// readonly hole
+// readonly b
+// class field true
+// class field false
+// values() hole
+// values() b
+// generic 1 1
+// generator [ 'b' ]
+// break and continue c 3
+// labeled done
+// closure [ true, false ]
+// async hole
+// async b

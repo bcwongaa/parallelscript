@@ -1,0 +1,28 @@
+// A function with an optional parameter, called through `any` with undefined, or used as
+// the mapper of Array.from over an array held in `any`, takes undefined as the parameter
+// left out, as JS does. Array.from's mapper threw `Expected string, got undefined` (H11b's
+// reproducer N7, C318).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+show("any call", () => {
+  const f: any = (w?: string) => w ?? "-";
+  console.log("any call", f(undefined), f("x"), f());
+});
+show("any from", () => {
+  const a: any = ["a", undefined, "b"];
+  console.log("any from", Array.from(a, (w?: string) => w ?? "-"));
+});
+show("any map", () => {
+  const a: any = ["a", undefined];
+  console.log("any map", a.map((w?: string) => w ?? "-"));
+});
+
+// expect:
+// any call - x -
+// any from [ 'a', '-', 'b' ]
+// any map [ 'a', '-' ]

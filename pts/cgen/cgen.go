@@ -1193,6 +1193,12 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 	if x.Checked {
 		value = "pts_value_non_null(" + value + ")"
 	}
+	if x.Defined {
+		value = "pts_value_defined(" + value + ", " + cString(typeName(x.To)) + ")"
+		if isClass(x.To) {
+			return "((" + e.cDeclaredType(x.To) + ")pts_value_as_object(" + value + "))" // an instance of it, which the union holds as it is
+		}
+	}
 	if x.X.Type() == ir.Value && x.To != ir.Value && x.AsIs && !hasValueTest(x.To) { // as it is, never copied (D-219)
 		converted := "pts_value_convert_as_is(" + value + ", &" + e.checks[x.To] + ")"
 		if x.Fresh {

@@ -1,7 +1,8 @@
 // A (string | null)[] can't hold undefined, so its copies keep holes where JS reads
 // undefined, as copies of a string[] do (D-182, D-183): toSorted, toReversed, toSpliced,
-// with, spreads and Array.from, typed and through `any`; a hole read where an element is
-// required throws RangeError. After H06a their holes became undefined, which a narrowed
+// with, spreads and Array.from, typed and through `any`. A `for…of` reads a hole as
+// undefined (H11b), and a use of it as a string throws TypeError, as in Node (until H11b
+// the read threw RangeError). After H06a their holes became undefined, which a narrowed
 // read then took for a string: `x !== null ? x.length : …` crashed with SIGSEGV (C99).
 function nullable(): (string | null)[] {
   const a = new Array<string | null>(4);
@@ -46,9 +47,9 @@ show("any read", () => lengths(viaAny.toReversed()));
 // with [ 'z', <1 empty item>, null, 'dd' ]
 // spread [ 'a', <1 empty item>, null, 'dd' ]
 // from [ 'a', <1 empty item>, null, 'dd' ]
-// read toSorted threw RangeError
+// read toSorted threw TypeError
 // read with 1,1,null,2
-// read spread threw RangeError
+// read spread threw TypeError
 // any toSorted [ 'a', 'dd', null, <1 empty item> ]
 // any with [ 'z', <1 empty item>, null, 'dd' ]
-// any read threw RangeError
+// any read threw TypeError

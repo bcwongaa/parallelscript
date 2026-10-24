@@ -1499,6 +1499,9 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	if !ok {
 		return nil
 	}
+	if isArray(iterable.Type()) && !ir.HoldsUndefined(elemType) && ir.HoldsUndefined(element.Type) {
+		elementAt = l.looseItem(elemType, element.Type) // a loose variable's: undefined at a hole, as JS's iterator reads it (H11b)
+	}
 	value := l.convert(elementAt(&ir.LocalRef{Local: source}, &ir.LocalRef{Local: index}), element.Type, declaration)
 	if value == nil {
 		return nil
@@ -1517,6 +1520,21 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
 		loop,
 	}}}
+}
+
+// looseItem reads an item of an array of elem for a loose `for…of` variable of type t
+// (iteratesHoles): as elem or undefined, which a slot of the array is, where t is that;
+// else (an instance's T whose t is another type) as a dynamic value, which the binding
+// converts to t with a check.
+func (l *lowerer) looseItem(elem, t ir.Type) func(source, index ir.Expr) ir.Expr {
+	if orUndefined := l.withUndefined(elem); orUndefined == t {
+		return func(source, index ir.Expr) ir.Expr {
+			return &ir.ArrayCall{Op: ir.ArrayElementOrUndefined, Args: []ir.Expr{source, index}, As: orUndefined}
+		}
+	}
+	return func(source, index ir.Expr) ir.Expr {
+		return &ir.ArrayCall{Op: ir.ArrayElement, Args: []ir.Expr{source, index}}
+	}
 }
 
 // newArrayMembers are the library functions and methods (as libMemberName names them)

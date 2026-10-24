@@ -1,0 +1,32 @@
+// A loose local (an element-read local, an array pattern's name, a `for…of` variable at a
+// hole; D-090, D-220, H11b) that tsc narrows to a member of its own union (`typeof v !==
+// "number"` leaves string, though v may be undefined) goes where any value goes as what it
+// holds: printed or in a template, it is undefined, as in JS. H11b's first version tested
+// the narrowed read for undefined first there and threw TypeError.
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+show("typeof", () => {
+  const vals: (string | number)[] = ["a"];
+  const v = vals[3];
+  if (typeof v !== "number") console.log("typeof", v, `${v}`);
+});
+show("pattern", () => {
+  const rows: (string | number)[] = [1];
+  const [a, b] = rows;
+  if (typeof b !== "number") console.log("pattern", a, b);
+});
+show("for...of", () => {
+  const holey = new Array<string | number>(2);
+  holey[1] = 2;
+  for (const w of holey) if (typeof w !== "number") console.log("for...of", w);
+});
+
+// expect:
+// typeof undefined undefined
+// pattern 1 undefined
+// for...of undefined

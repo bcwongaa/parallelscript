@@ -1,0 +1,43 @@
+// skip: known issue (H29, C315): entries() of a string[] or an object array throws D-085's RangeError at a hole, where JS pairs the index with undefined
+// `entries()` pairs each index with its element, undefined at a hole, as JS's array
+// iterator reads it. pts's pairs are `[number, T]` tuples made eagerly by a helper that
+// reads each element as a T (D-085), so a hole throws RangeError there in every use: a
+// `for…of` with `[i, x]`, a pair binding (H11b's reproducer N4). Arrays of numbers have no
+// holes (control).
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes<T>(n: number, at: number, value: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = value;
+  return a;
+}
+show("entries", () => {
+  for (const [i, w] of holes(2, 1, "b").entries()) console.log("entries", i, w);
+});
+show("entries tested", () => {
+  for (const [i, p] of holes(2, 0, new P(1)).entries()) console.log("entries tested", i, p?.x);
+});
+show("entries pair", () => {
+  for (const pair of holes(2, 1, "b").entries()) console.log("entries pair", pair);
+});
+show("numbers control", () => {
+  for (const [i, n] of [1, 2].entries()) console.log("numbers control", i, n);
+});
+
+// expect:
+// entries 0 undefined
+// entries 1 b
+// entries tested 0 1
+// entries tested 1 undefined
+// entries pair [ 0, undefined ]
+// entries pair [ 1, 'b' ]
+// numbers control 0 1
+// numbers control 1 2

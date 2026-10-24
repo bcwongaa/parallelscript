@@ -203,13 +203,19 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 	if context == nil {
 		return true
 	}
+	keepsDefaults := false
 	if flags := alwaysPassed(fn, context); len(flags) > 0 {
 		if node.Name() != nil {
 			return true // a named function expression may call itself leaving the argument out
 		}
-		l.bindAlwaysPassed(fn, flags)
+		// An array method's callback or Array.from's mapper is called with as many
+		// arguments as it takes (callbackArguments), an element that is undefined (a hole)
+		// left out, where JS's default applies (C111); others always pass them.
+		if keepsDefaults = l.isArrayMethodCallback(node) || l.isArrayFromMapper(node); !keepsDefaults {
+			l.bindAlwaysPassed(fn, flags)
+		}
 	}
-	for i := len(fn.Params); i < len(context.Params); i++ {
+	for i := len(fn.Params); !keepsDefaults && i < len(context.Params); i++ {
 		fn.Params = append(fn.Params, l.newLocal("unused", context.Params[i]))
 	}
 	_, contextInterface := context.Result.(*ir.Interface)
@@ -889,6 +895,15 @@ func (l *lowerer) isArrayMethodCallback(node *ast.Node) bool {
 	}
 	callee := ast.SkipParentheses(call.AsCallExpression().Expression)
 	return callee.Kind == ast.KindPropertyAccessExpression && callbackMethods[callee.AsPropertyAccessExpression().Name().Text()] && l.isArrayMethodCall(call)
+}
+
+// isArrayFromMapper reports whether node is the mapping function of `Array.from(source, mapper)`.
+func (l *lowerer) isArrayFromMapper(node *ast.Node) bool {
+	call := node.Parent
+	if call == nil || call.Kind != ast.KindCallExpression || len(call.Arguments()) != 2 || call.Arguments()[1] != node {
+		return false
+	}
+	return l.libMemberName(ast.SkipParentheses(call.AsCallExpression().Expression)) == "ArrayConstructor.from"
 }
 
 // lacksArrayOf reports whether t, or a member of it if it is a union, is an array or a

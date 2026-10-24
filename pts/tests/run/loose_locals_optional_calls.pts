@@ -1,0 +1,41 @@
+// `f?.()` tests f for undefined (D-090), so a function read from an array is loose there
+// and the call is skipped when the element isn't there: a declaration's initializer, an
+// array pattern's name and a `for…of` variable (H11b; C310: `f?.()` wasn't counted as a
+// test, so the declaration threw RangeError and the others TypeError).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function handlers(): (() => number)[] {
+  const a = new Array<() => number>(2);
+  a[0] = () => 7;
+  return a;
+}
+show("declaration", () => {
+  const fns = handlers();
+  const f = fns[1];
+  const g = fns[0];
+  console.log("declaration", f?.(), g?.());
+});
+show("pattern", () => {
+  const [p, q, r] = handlers();
+  console.log("pattern", p?.(), q?.(), r?.());
+});
+show("for...of", () => {
+  for (const h of handlers()) console.log("for...of", h?.());
+});
+show("argument", () => {
+  const fns = [(n: number) => n * 2];
+  const f = fns[3];
+  console.log("argument", f?.(21), fns[0]?.(21));
+});
+
+// expect:
+// declaration undefined 7
+// pattern 7 undefined undefined
+// for...of 7
+// for...of undefined
+// argument undefined 42

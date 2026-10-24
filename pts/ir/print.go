@@ -261,6 +261,9 @@ func FormatExpr(expr Expr) string {
 		if e.Checked {
 			return "checked " + e.To.String() + "(" + FormatExpr(e.X) + ")"
 		}
+		if e.Defined {
+			return "defined " + e.To.String() + "(" + FormatExpr(e.X) + ")"
+		}
 		return e.To.String() + "(" + FormatExpr(e.X) + ")"
 	case *IsNullish:
 		if e.Only != nil {

@@ -1,4 +1,3 @@
-// skip: known issue (H11b, D-183): for…of over a string[] or an object array throws D-085's RangeError at a hole, where JS reads undefined
 // `for…of` over a string[] or an object array reads a hole as undefined, as JS's array
 // iterator does; D-183 left these arrays' loops to H11 (their spreads keep the holes by
 // design, D-182). pts threw D-085's RangeError at the first hole. A `(T | undefined)[]`

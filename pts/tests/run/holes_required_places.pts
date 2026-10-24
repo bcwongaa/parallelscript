@@ -1,0 +1,59 @@
+// Where a hole that JS reads as undefined goes to a place that needs an element (D-090,
+// D-085, D-183): a `for…of` variable used as its type is checked, a TypeError as in Node,
+// though the message is pts's; a callback parameter that can't be undefined (`P | null`, a
+// number find's after a callback shortened the array) gets D-085's RangeError (H11b).
+class Point {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+function words(): string[] {
+  const a = new Array<string>(2);
+  a[1] = "b";
+  return a;
+}
+function points(): Point[] {
+  const a = new Array<Point>(2);
+  a[1] = new Point(1);
+  return a;
+}
+show("member", () => {
+  for (const w of words()) console.log("member", w.length);
+});
+show("object member", () => {
+  for (const p of points()) console.log("object member", p.x);
+});
+show("string parameter", () => {
+  const shout = (s: string) => s + "!";
+  for (const w of words()) console.log("string parameter", shout(w));
+});
+show("string[]", () => {
+  const out: string[] = [];
+  for (const w of words()) out.push(w);
+  console.log("string[]", out);
+});
+show("null parameter", () => console.log("null parameter", points().findIndex((p: Point | null) => p === null)));
+show("shortened number find", () => {
+  const xs = [1, 2, 3];
+  console.log("shortened number find", xs.findIndex((n: number, i: number) => {
+    if (i === 0) xs.length = 1;
+    return n > 5;
+  }));
+});
+
+// no-diff: a hole where an element is required throws pts's TypeError or RangeError (D-090, D-085)
+// expect:
+// member threw TypeError Expected string, got undefined
+// object member threw TypeError Expected Point, got undefined
+// string parameter threw TypeError Expected string, got undefined
+// string[] threw TypeError Expected string, got undefined
+// null parameter threw RangeError Array index 0 is out of range (length 2); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
+// shortened number find threw RangeError Array index 1 is out of range (length 1); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first

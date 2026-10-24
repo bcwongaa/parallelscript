@@ -148,7 +148,7 @@ func effectsOf(expr ir.Expr) effects {
 	case *ir.ToUnion:
 		return effectsOf(x.X)
 	case *ir.FromUnion:
-		if x.Checked {
+		if x.Checked || x.Defined {
 			return mayThrow | effectsOf(x.X)
 		}
 		return effectsOf(x.X)

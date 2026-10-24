@@ -68,10 +68,11 @@ func (l *lowerer) isLooseIdentifier(node *ast.Node) bool {
 }
 
 // isUndefinedTest reports whether node tests its operand tested for undefined: always,
-// but for a call, only where it calls a function of the program whose parameter's type
-// may be undefined (a type guard taking an unknown, `isPlainObject(existing)`).
+// but for a call's argument, only where it calls a function of the program whose
+// parameter's type may be undefined (a type guard taking an unknown,
+// `isPlainObject(existing)`); `f?.()` tests its callee.
 func (l *lowerer) isUndefinedTest(node *ast.Node, tested *ast.Node) bool {
-	if node.Kind != ast.KindCallExpression {
+	if node.Kind != ast.KindCallExpression || ast.SkipParentheses(node.Expression()) == ast.SkipParentheses(tested) {
 		return true
 	}
 	if !l.callsProgramFunction(node) {
@@ -103,6 +104,13 @@ func testedOperands(node *ast.Node) []*ast.Node {
 		}
 	case ast.KindTypeOfExpression, ast.KindIfStatement, ast.KindWhileStatement, ast.KindDoStatement:
 		return []*ast.Node{node.Expression()}
+	case ast.KindSwitchStatement:
+		clauses := node.AsSwitchStatement().CaseBlock.AsCaseBlock().Clauses.Nodes
+		if slices.ContainsFunc(clauses, func(clause *ast.Node) bool {
+			return clause.Kind == ast.KindCaseClause && isNullishLiteral(clause.Expression())
+		}) {
+			return []*ast.Node{node.Expression()} // `case undefined:`
+		}
 	case ast.KindConditionalExpression:
 		return []*ast.Node{node.AsConditionalExpression().Condition}
 	case ast.KindForStatement:
@@ -147,7 +155,7 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 		// A local declared `T | undefined` holds undefined whether or not it is tested, but
 		// tsc narrows it to T by its initializer: its reads as a T are checked too (D-172).
 		declaredWithUndefined := mayHoldUndefined(l.typeOfSymbol(symbol))
-		tested := l.undefinedTested[symbol] || symbol.ValueDeclaration.Kind == ast.KindBindingElement
+		tested := l.undefinedTested[symbol] || symbol.ValueDeclaration.Kind == ast.KindBindingElement || l.iteratesHoles(symbol.ValueDeclaration)
 		loose = (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration)
 		l.looseSymbols[symbol] = loose
 	}
@@ -155,17 +163,21 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 }
 
 // readsElement reports whether a variable declaration's initializer reads an element of
-// an array, a string or a hash-map object, or a binding element of an array pattern
-// binds, without a default, one of the items of what the pattern destructures other than
-// a tuple: an array, string, map, set, iterator, iterable or dynamic value, which may end
+// an array, a string or a hash-map object, or it is a `for…of`'s variable over an array
+// that may have holes (iteratesHoles), or a binding element of an array pattern binds,
+// without a default, one of the items of what the pattern destructures other than a
+// tuple: an array, string, map, set, iterator, iterable or dynamic value, which may end
 // before the pattern does (D-172, H03), in a declaration, a parameter, a `for…of`
 // binding, a nested pattern or a rest element's pattern (H11).
 func (l *lowerer) readsElement(declaration *ast.Node) bool {
 	switch declaration.Kind {
 	case ast.KindVariableDeclaration:
 		initializer := declaration.Initializer()
-		if declaration.Name().Kind != ast.KindIdentifier || initializer == nil {
+		if declaration.Name().Kind != ast.KindIdentifier {
 			return false
+		}
+		if initializer == nil {
+			return l.iteratesHoles(declaration)
 		}
 		return l.isElementRead(initializer)
 	case ast.KindBindingElement:
@@ -183,6 +195,47 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 		return !checker.IsTupleType(t) || isRestTuple(t) // a tuple's length is known, but for its rest (`[...T]`); anything else may end before the pattern does
 	}
 	return false
+}
+
+// iteratesHoles reports whether declaration is the variable of a `for…of` (not `for await`
+// or `parallel for`) over an array, or its values(), whose slots may be holes: of
+// strings, objects, functions or dynamic values (D-085), whose element type doesn't hold
+// undefined already. JS's array iterator reads a hole as undefined (H11b). tsc's own
+// types decide, with a type parameter's constraint, so every instance agrees (D-220).
+func (l *lowerer) iteratesHoles(declaration *ast.Node) bool {
+	list := declaration.Parent
+	if list == nil || list.Kind != ast.KindVariableDeclarationList || list.Parent.Kind != ast.KindForOfStatement {
+		return false
+	}
+	loop := list.Parent
+	if loop.Flags&ast.NodeFlagsPtsParallel != 0 || loop.AsForInOrOfStatement().AwaitModifier != nil {
+		return false
+	}
+	iterated := ast.SkipParentheses(loop.AsForInOrOfStatement().Expression)
+	if l.isArrayIteration(iterated) {
+		callee := ast.SkipParentheses(iterated.AsCallExpression().Expression)
+		if callee.Name().Text() != "values" {
+			return false // keys() are numbers; entries() are pairs
+		}
+		iterated = callee.Expression()
+	}
+	t := l.checker.GetTypeAtLocation(iterated)
+	if !l.checker.IsArrayType(t) {
+		return false
+	}
+	elem := l.checker.GetElementTypeOfArrayType(t)
+	if elem.Flags()&checker.TypeFlagsTypeParameter != 0 {
+		if constraint := l.checker.GetBaseConstraintOfType(elem); constraint != nil && constraint.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) == 0 {
+			elem = constraint // a T extends number's elements are numbers in every instance
+		} else {
+			return true
+		}
+	}
+	if mayHoldUndefined(elem) {
+		return false // read as undefined already
+	}
+	slot := l.irTypeOrNone(elem, iterated)
+	return slot == nil || !ir.IsNumeric(slot) && slot != ir.Bool
 }
 
 // patternSourceType is the type of what a binding pattern destructures: a declaration's
@@ -325,6 +378,9 @@ func (l *lowerer) goesToTypeArgument(call *ast.Node, argument *ast.Node) bool {
 		return false
 	}
 	parameters := signature.Declaration().Parameters()
+	if len(parameters) > 0 && ast.IsThisParameter(parameters[0]) {
+		parameters = parameters[1:] // `bind<T>(this: T, thisArg: …)`: no argument goes to `this`
+	}
 	if len(parameters) == 0 {
 		return false
 	}
@@ -387,10 +443,24 @@ func (l *lowerer) looseValue(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr 
 }
 
 // looseRead is the use of a loose local, x, where tsc gives it the type narrow: checked,
-// since it may be undefined.
+// since it may be undefined. It holds a value of its own type or undefined: undefined is
+// tested for, then what tsc narrowed it to is read as a local's narrowed read is
+// (narrowedUnionRead), not checked as a dynamic value's is (H11b).
 func (l *lowerer) looseRead(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
 	if narrow == ir.I64 || narrow == ir.U64 {
 		return &ir.FromUnion{X: box(x), To: narrow} // exact past 2^53: it holds one of these integers or undefined, never a double (D-012)
+	}
+	u, ok := x.Type().(*ir.Union)
+	if !ok {
+		return l.checkedConversion(x, narrow, node)
+	}
+	own := l.withoutUndefined(u)
+	defined := &ir.FromUnion{X: x, To: own, Defined: true}
+	switch {
+	case own == narrow:
+		return defined
+	case isUnion(own) && isNarrowing(own.(*ir.Union), narrow):
+		return l.narrowedUnionRead(defined, narrow, node)
 	}
 	return l.checkedConversion(x, narrow, node)
 }

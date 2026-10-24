@@ -773,7 +773,7 @@ func (l *lowerer) caseMatch(clause *ast.Node, tag *ir.Local) ir.Expr {
 	if test == nil {
 		return nil
 	}
-	return l.operation(clause, ir.Eq, &ir.LocalRef{Local: tag}, test, clause, clause.Expression())
+	return l.operation(clause, ir.Eq, &ir.LocalRef{Local: tag}, test, clause.Parent.Parent.Expression(), clause.Expression())
 }
 
 // jump lowers break and continue, with or without a label.
@@ -1642,13 +1642,19 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 // place that takes any value: tsc narrows `const v: T | undefined = list[9]` to T, though
 // the value is undefined (D-089).
 func unnarrowed(x ir.Expr) ir.Expr {
-	if narrowing, ok := x.(*ir.FromUnion); ok && !narrowing.Checked {
-		if inner, boxed := narrowing.X.(*ir.Box); boxed && isUnion(inner.X.Type()) {
-			return inner.X
-		}
-		if isUnion(narrowing.X.Type()) {
-			return narrowing.X
-		}
+	narrowing, ok := x.(*ir.FromUnion)
+	if !ok || narrowing.Checked {
+		return x
+	}
+	from := narrowing.X
+	if inner, boxed := from.(*ir.Box); boxed {
+		from = inner.X
+	}
+	if defined, ok := from.(*ir.FromUnion); ok && defined.Defined {
+		from = defined.X // a loose local's union, undefined too (looseRead)
+	}
+	if isUnion(from.Type()) {
+		return from
 	}
 	return x
 }
@@ -3061,8 +3067,7 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		x, y = commonClass(x, y)
 	}
 	if !acceptsOperands(op, x.Type(), y.Type()) {
-		if operator := node.AsBinaryExpression().OperatorToken.Kind; (operator == ast.KindEqualsEqualsEqualsToken || operator == ast.KindExclamationEqualsEqualsToken) &&
-			neverStrictlyEqual(x.Type(), y.Type()) && !l.hasTypeFlags(left, checker.TypeFlagsVoid) && !l.hasTypeFlags(right, checker.TypeFlagsVoid) {
+		if isStrictEquality(node) && neverStrictlyEqual(x.Type(), y.Type()) && !l.hasTypeFlags(left, checker.TypeFlagsVoid) && !l.hasTypeFlags(right, checker.TypeFlagsVoid) {
 			// A primitive is never strictly equal to one of another kind or an object: an
 			// instance's `x === 1` for an x of type T and a string T, a test that narrows x to
 			// never (D-195). A void value is undefined to pts but may hold anything in JS.
@@ -3072,6 +3077,15 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		return nil
 	}
 	return &ir.Binary{Op: op, X: x, Y: y}
+}
+
+// isStrictEquality reports whether node compares with `===` or `!==`, as a switch's case does.
+func isStrictEquality(node *ast.Node) bool {
+	if node.Kind == ast.KindCaseClause {
+		return true
+	}
+	operator := node.AsBinaryExpression().OperatorToken.Kind
+	return operator == ast.KindEqualsEqualsEqualsToken || operator == ast.KindExclamationEqualsEqualsToken
 }
 
 // assignment lowers `target = value`.
@@ -3916,8 +3930,8 @@ func isPure(x ir.Expr) bool {
 // concatenation lowers `+` with a string operand: both sides become strings.
 func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	x := l.valueExpression(expr.Left)
-	y := l.valueExpression(expr.Right)
+	x := l.concatenationOperand(expr.Left, expr.Right)
+	y := l.concatenationOperand(expr.Right, expr.Left)
 	if x == nil || y == nil {
 		return nil
 	}
@@ -3929,6 +3943,28 @@ func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.Binary{Op: ir.Concat, X: x, Y: y}
+}
+
+// concatenationOperand lowers operand, a side of a `+` that tsc types as a string: as any
+// value, so that an element past the end or a loose local's undefined (D-090) concatenates
+// as "undefined", where the other side is a string or an object; as its type, checked, where
+// the other side adds to it as a number would (a number, boolean, null or undefined), since
+// with undefined JS's `+` makes NaN, not a string (H11b).
+func (l *lowerer) concatenationOperand(operand, other *ast.Node) ir.Expr {
+	if addsAsNumber(l.typeAt(other)) {
+		return l.expression(operand)
+	}
+	return l.valueExpression(operand)
+}
+
+// addsAsNumber reports whether a value of type t is one that `+` with undefined converts to
+// a number (NaN): a number, bigint or boolean, null or undefined, or a union of them.
+func addsAsNumber(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 && t.Flags()&checker.TypeFlagsBoolean == 0 {
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !addsAsNumber(member) })
+	}
+	const numeric = checker.TypeFlagsNumberLike | checker.TypeFlagsBigIntLike | checker.TypeFlagsBooleanLike | checker.TypeFlagsNull | checker.TypeFlagsUndefined | checker.TypeFlagsVoid
+	return t.Flags()&numeric != 0
 }
 
 // hasValueOf reports whether t is a class with a valueOf method, which `+` calls.

@@ -1,0 +1,80 @@
+// find, findIndex, findLast, findLastIndex and Array.from's mapper visit every index
+// below the length, holes too, which JS passes to the callback as undefined: a parameter
+// with a default (`(p: P = fallback) => …`) then takes its default, and an optional one
+// takes undefined, wherever the callback comes from (a static or instance method, an
+// object literal's method, a const arrow, a generic helper's callback parameter).
+// pts read the hole as a required element and threw RangeError (C111, H11b).
+// optional_callback_parameters_at_holes.pts has optional arrows, function expressions and
+// named functions; `unknown` and `any` parameters already took holes (controls).
+class P {
+  constructor(public x: number) {}
+}
+interface Item {
+  name: string;
+}
+const FALLBACK = new P(-1);
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes<T>(n: number, at: number, value: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = value;
+  return a;
+}
+class Checks {
+  static missing(p?: P): boolean {
+    return p === undefined;
+  }
+  named(w?: string): boolean {
+    return w === undefined;
+  }
+}
+const checks = new Checks();
+const helpers = {
+  missing(item?: Item): boolean {
+    return item === undefined;
+  },
+};
+const isMissing = (w?: string): boolean => w === undefined;
+function findMissing<T>(xs: T[], test: (x?: T) => boolean): number {
+  return xs.findIndex(test);
+}
+function mapAll<T>(xs: T[], f: (x?: T) => string): string[] {
+  return Array.from(xs, f);
+}
+show("default find", () => console.log("default find", holes(3, 1, new P(1)).find((p: P = FALLBACK) => p.x < 0)));
+show("default findIndex", () => console.log("default findIndex", holes(3, 1, new P(1)).findIndex((p: P = FALLBACK) => p.x < 0)));
+show("default findLastIndex", () => console.log("default findLastIndex", holes(3, 1, "b").findLastIndex((w: string = "none") => w === "none")));
+show("default with index", () => console.log("default with index", holes(3, 1, "b").findIndex((w: string = "", i: number) => w.length === 0 && i > 0)));
+show("default Array.from", () => console.log("default Array.from", Array.from(holes(3, 1, new P(1)), (p: P = FALLBACK) => p.x)));
+show("default Array.from string[]", () => console.log("default Array.from string[]", Array.from(holes(3, 1, "b"), (w: string = "-") => w + w)));
+show("static method", () => console.log("static method", holes(2, 1, new P(1)).findIndex(Checks.missing)));
+show("instance method", () => console.log("instance method", holes(2, 0, "a").findLastIndex(checks.named)));
+show("object method", () => console.log("object method", holes<Item>(2, 0, { name: "i" }).findIndex(helpers.missing)));
+show("const arrow", () => console.log("const arrow", holes(2, 1, "b").findIndex(isMissing)));
+show("generic helper", () => console.log("generic helper", findMissing(holes(3, 2, "c"), (w?: string) => w === undefined)));
+show("generic mapper", () => console.log("generic mapper", mapAll(holes(2, 1, new P(1)), (p?: P) => (p === undefined ? "hole" : "P"))));
+show("type predicate findLast", () => console.log("type predicate findLast", holes(3, 1, "b").findLast((w?: string): w is string => w !== undefined)));
+show("unknown control", () => console.log("unknown control", holes(2, 1, "b").findIndex((w: unknown) => w === undefined)));
+show("any control", () => console.log("any control", Array.from(holes(2, 1, new P(1)), (p: any) => p === undefined)));
+
+// expect:
+// default find undefined
+// default findIndex 0
+// default findLastIndex 2
+// default with index 2
+// default Array.from [ -1, 1, -1 ]
+// default Array.from string[] [ '--', 'bb', '--' ]
+// static method 0
+// instance method 1
+// object method 1
+// const arrow 0
+// generic helper 0
+// generic mapper [ 'hole', 'P' ]
+// type predicate findLast b
+// unknown control 0
+// any control [ true, false ]

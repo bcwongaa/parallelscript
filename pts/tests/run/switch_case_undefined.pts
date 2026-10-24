@@ -1,0 +1,68 @@
+// `case undefined:` in a switch over a value whose type lacks undefined compares it
+// strictly, never equal, where pts stopped with an internal error (PTS9001; H11b's
+// reproducer N1, C312); over a loose local (an element-read local, an array pattern's
+// name, a `for…of` variable at a hole, D-090, H11b) it is a test for undefined, so the
+// switch reads what the local holds and the case matches, as in JS.
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+function kind(s: string): string {
+  switch (s) {
+    case undefined:
+      return "missing";
+    case "a":
+      return "a";
+    default:
+      return "other";
+  }
+}
+show("parameter", () => console.log("parameter", kind("a"), kind("b")));
+show("element local", () => {
+  const xs = ["a"];
+  const c = xs[3];
+  switch (c) {
+    case undefined:
+      console.log("element local", "missing");
+      break;
+    default:
+      console.log("element local", c);
+  }
+});
+show("for...of", () => {
+  const holey = new Array<string>(2);
+  holey[1] = "z";
+  for (const w of holey) {
+    switch (w) {
+      case undefined:
+        console.log("for...of", "hole");
+        break;
+      case "z":
+        console.log("for...of", "z");
+    }
+  }
+});
+show("null case", () => {
+  const xs = ["q"];
+  const [p, q] = xs;
+  switch (q) {
+    case null:
+      console.log("null case", "null");
+      break;
+    case undefined:
+      console.log("null case", "undefined");
+      break;
+    default:
+      console.log("null case", q);
+  }
+});
+
+// expect:
+// parameter a other
+// element local missing
+// for...of hole
+// for...of z
+// null case undefined

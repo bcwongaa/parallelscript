@@ -1,0 +1,132 @@
+// A `for…of` variable over an array whose slots may be holes (strings, objects, functions,
+// unions; D-085) reads a hole as undefined, as JS's array iterator does, and is a loose
+// local (D-090): it goes where undefined goes as it is, a test for undefined sees it, and
+// a use as its type is checked (H11b). Also over values(), with `let`, in closures,
+// generators and generic functions (a string instance and a number one), and with labels.
+class Point {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holey<T>(n: number, at: number, v: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = v;
+  return a;
+}
+function names(xs: unknown[]): string {
+  return xs.map((x) => (x === undefined ? "hole" : String(x))).join(",");
+}
+show("values", () => {
+  for (const w of holey(3, 1, "b").values()) console.log("values", w ?? "hole");
+});
+show("let", () => {
+  for (let w of holey(2, 1, "b")) {
+    w = w ?? "z";
+    console.log("let", w);
+  }
+});
+show("console", () => {
+  for (const w of holey(2, 1, "b")) console.log("console", w);
+});
+show("unknown place", () => {
+  const seen: unknown[] = [];
+  for (const w of holey(2, 0, "b")) seen.push(w);
+  console.log("unknown place", names(seen));
+});
+show("optional place", () => {
+  const opt = (s?: string) => s ?? "missing";
+  for (const w of holey(2, 0, "b")) console.log("optional place", opt(w));
+});
+show("closure", () => {
+  const fs: (() => string)[] = [];
+  for (const w of holey(2, 1, "b")) fs.push(() => w ?? "captured hole");
+  console.log("closure", fs.map((f) => f()));
+});
+function strings<T>(xs: T[]): string {
+  const out: string[] = [];
+  for (const x of xs) out.push(x === undefined ? "u" : String(x));
+  return out.join(",");
+}
+show("generic string", () => console.log("generic string", strings(holey(2, 1, "q"))));
+show("generic number", () => console.log("generic number", strings([1, 2, 3])));
+show("null union", () => {
+  const a = new Array<string | null>(2);
+  a[0] = null;
+  for (const w of a) console.log("null union", w);
+});
+show("union", () => {
+  const a = new Array<Point | string>(2);
+  a[1] = "s";
+  for (const w of a) console.log("union", w === undefined ? "hole" : typeof w);
+});
+show("functions", () => {
+  const a = new Array<() => number>(2);
+  a[0] = () => 7;
+  for (const f of a) console.log("functions", f?.());
+});
+show("readonly", () => {
+  const a: readonly string[] = holey(2, 1, "r");
+  for (const w of a) console.log("readonly", w ?? "hole");
+});
+show("rows", () => {
+  const rows = new Array<string[]>(2);
+  rows[1] = ["a"];
+  for (const row of rows) console.log("rows", row?.length ?? "hole");
+});
+show("labels", () => {
+  outer: for (const w of holey(4, 2, "c")) {
+    if (w === undefined) continue outer;
+    console.log("labels", w);
+    break;
+  }
+});
+show("instanceof", () => {
+  for (const p of holey(2, 1, new Point(4))) console.log("instanceof", p instanceof Point ? p.x : "not");
+});
+function* words(): Generator<string> {
+  for (const w of holey(2, 1, "y")) yield w ?? "gh";
+}
+show("generator", () => console.log("generator", [...words()]));
+show("present", () => {
+  let total = 0;
+  for (const p of [new Point(1), new Point(2)]) total += p.x;
+  console.log("present", total);
+});
+
+// expect:
+// values hole
+// values b
+// values hole
+// let z
+// let b
+// console undefined
+// console b
+// unknown place b,hole
+// optional place b
+// optional place missing
+// closure [ 'captured hole', 'b' ]
+// generic string u,q
+// generic number 1,2,3
+// null union null
+// null union undefined
+// union hole
+// union string
+// functions 7
+// functions undefined
+// readonly hole
+// readonly r
+// rows hole
+// rows 1
+// labels c
+// instanceof not
+// instanceof 4
+// generator [ 'gh', 'y' ]
+// present 3

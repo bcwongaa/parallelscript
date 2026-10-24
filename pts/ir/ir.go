@@ -1110,11 +1110,14 @@ type ToUnion struct {
 
 // FromUnion is X, a value of a union, as a value of To, one of its members or a union of
 // some of them, which the checker has narrowed X to (D-062). If Checked (`x!`), a null or
-// undefined X throws TypeError instead.
+// undefined X throws TypeError instead. If Defined, X is a union of To and undefined
+// that holds nothing else (a loose local's, D-090): undefined throws D-090's TypeError
+// (`Expected T, got undefined`), and anything else is a To, taken without a check.
 type FromUnion struct {
 	X       Expr
 	To      Type
 	Checked bool
+	Defined bool
 	// AsIs, for X a dynamic value and To a type it converts to by a copy, converts it only
 	// where it is one already: otherwise TypeError, never a copy writes would miss (D-219).
 	// Fresh, with AsIs, is for X a new container nothing else holds: it may be copied, what

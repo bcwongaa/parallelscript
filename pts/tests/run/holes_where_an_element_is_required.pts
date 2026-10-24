@@ -1,0 +1,70 @@
+// no-diff: D-085/D-090: a hole or a cut-off index where the callback's parameter or the binding's use requires an element throws, where Node goes on with undefined
+// A hole, or an index a callback cut off, that reaches a place requiring an element
+// throws, where JS goes on with undefined: find and its kin give it to a callback whose
+// element parameter can't take undefined (`(p: P) => …`, inferred, `P | null`) as D-085's
+// RangeError, also for an index a callback cut off (pts stopped calling quietly instead,
+// C112); a typed for…of binding used as its type where a value of it is required (a
+// `string` parameter, a `string[]`'s push) is D-090's checked TypeError, as other loose
+// names are (D-220). The callback methods that skip holes never call it for one.
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes<T>(n: number, at: number, value: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = value;
+  return a;
+}
+function takes(s: string): void {
+  console.log("takes", s.length);
+}
+show("required find", () => console.log("required find", holes(2, 1, new P(1)).find((p: P) => p.x === 1)));
+show("inferred findIndex", () => console.log("inferred findIndex", holes(2, 1, "b").findIndex((w) => w === "b")));
+show("null union", () => console.log("null union", holes(2, 1, new P(1)).findLast((p: P | null) => p === null)));
+show("shortened inferred", () => {
+  const words = ["a", "b", "c"];
+  const seen: string[] = [];
+  words.find((w, i) => {
+    if (i === 0) words.length = 1;
+    seen.push(w);
+    return false;
+  });
+  console.log("shortened inferred", seen);
+});
+show("shortened numbers", () => {
+  const counts = [1, 2, 3];
+  const seen: number[] = [];
+  counts.findLastIndex((n, i) => {
+    if (i === 2) counts.length = 1;
+    seen.push(n);
+    return false;
+  });
+  console.log("shortened numbers", seen);
+});
+show("for…of to string parameter", () => {
+  for (const w of holes(2, 1, "b")) takes(w);
+});
+show("for…of to string[]", () => {
+  const out: string[] = [];
+  for (const w of holes(2, 1, "b")) out.push(w);
+  console.log("for…of to string[]", out);
+});
+show("forEach control", () => {
+  holes(2, 1, new P(1)).forEach((p: P) => console.log("forEach control", p.x));
+});
+
+// expect:
+// required find threw RangeError
+// inferred findIndex threw RangeError
+// null union threw RangeError
+// shortened inferred threw RangeError
+// shortened numbers threw RangeError
+// for…of to string parameter threw TypeError
+// for…of to string[] threw TypeError
+// forEach control 1

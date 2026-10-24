@@ -1,0 +1,34 @@
+// skip: known issue (H29, C314): a loose local that is undefined, compared by `===`, `!==` or `==` with a string, throws D-090's TypeError where JS gives false or true
+// A loose local (D-090, D-220, H11b) that is undefined: an element-read local, an array
+// pattern's name and a `for…of` variable at a hole, compared with a string by `===`,
+// `!==` or `==`. Equality takes any value, so JS gives false, true and false; pts reads
+// it as its type there and throws D-090's TypeError (H11b's reproducer N3, pre-existing).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const words = ["a"];
+const missing = words[3];
+if (missing === undefined) console.log("tested");
+show("strict equal", () => console.log("strict equal", missing === "b"));
+show("strict not equal", () => console.log("strict not equal", missing !== "c"));
+show("loose equal", () => console.log("loose equal", missing == "b"));
+const [k, v] = "key".split("=");
+show("pattern", () => console.log("pattern", k, v === "b", v !== "c"));
+show("for...of", () => {
+  const holey = new Array<string>(2);
+  holey[1] = "b";
+  for (const w of holey) console.log("for...of", w === "b", w !== "c");
+});
+
+// expect:
+// tested
+// strict equal false
+// strict not equal true
+// loose equal false
+// pattern key false true
+// for...of false true
+// for...of true true

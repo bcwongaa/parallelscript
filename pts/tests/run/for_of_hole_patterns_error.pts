@@ -1,0 +1,41 @@
+// skip: known issue (H22, C316): a for…of pattern over a hole throws D-085's RangeError where JS throws TypeError (undefined can't be destructured), as C305's nested patterns do
+// A `for…of` whose binding destructures the element (an object pattern, or an array
+// pattern over an array of arrays) throws TypeError at a hole, since undefined can't be
+// destructured, as JS does; a default inside the pattern doesn't apply to the element
+// itself. pts throws D-085's RangeError at the hole (H11b's reproducer N5; the same class
+// as C305). A tuple's pattern stays typed (control).
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes<T>(n: number, at: number, value: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = value;
+  return a;
+}
+show("object pattern", () => {
+  for (const { x } of holes(2, 1, new P(1))) console.log("object pattern", x);
+});
+show("object pattern default", () => {
+  for (const { x = 0 } of holes(2, 0, new P(1))) console.log("object pattern default", x);
+});
+show("array pattern", () => {
+  for (const [a, b] of holes(2, 1, ["r", "s"])) console.log("array pattern", a, b);
+});
+show("tuple control", () => {
+  const rows: [string, number][] = [["a", 1]];
+  for (const [k, v] of rows) console.log("tuple control", k, v);
+});
+
+// expect:
+// object pattern threw TypeError
+// object pattern default 1
+// object pattern default threw TypeError
+// array pattern threw TypeError
+// tuple control a 1

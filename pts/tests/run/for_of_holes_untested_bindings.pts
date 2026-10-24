@@ -1,0 +1,127 @@
+// `for…of` reads a hole as undefined, as JS's array iterator does. A binding the loop
+// body never tests for undefined still goes on as undefined where any value goes:
+// printed, in a template literal or String(), captured by a closure that
+// prints it, kept in a `T | undefined` or `unknown` place (a local, an outer `let`, an
+// array or map of `T | undefined`, an optional property), passed to an optional
+// parameter; and where it is used as its type, JS throws TypeError (`x.length`), as
+// D-090's checked read does. pts threw D-085's RangeError at the first hole (H11b).
+// Compared by `===` with a string, it still throws D-090's TypeError (C314, H29;
+// loose_locals_strict_equality.pts).
+// for_of_holes_tested_bindings.pts has the bindings a program tests for undefined.
+class P {
+  constructor(public x: number) {}
+}
+interface Box {
+  p?: P;
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes<T>(n: number, at: number, value: T): T[] {
+  const a = new Array<T>(n);
+  a[at] = value;
+  return a;
+}
+function opt(label: string, s?: string): void {
+  console.log(label, s);
+}
+show("printed", () => {
+  for (const w of holes(2, 1, "b")) console.log("printed", w);
+});
+show("printed object", () => {
+  for (const p of holes(2, 1, new P(1))) console.log("printed object", p);
+});
+show("let", () => {
+  for (let w of holes(2, 1, "b")) console.log("let", w);
+});
+show("template", () => {
+  for (const w of holes(2, 1, "b")) console.log(`template <${w}>`);
+});
+show("String()", () => {
+  for (const p of holes(2, 1, new P(1))) console.log("String()", String(p));
+});
+show("closure", () => {
+  const prints: (() => void)[] = [];
+  for (const w of holes(2, 1, "b")) prints.push(() => console.log("closure", w));
+  for (const print of prints) print();
+});
+show("unknown local", () => {
+  for (const p of holes(2, 0, new P(1))) {
+    const u: unknown = p;
+    console.log("unknown local", u);
+  }
+});
+show("outer let", () => {
+  let last: string | undefined = "start";
+  for (const w of holes(2, 0, "a")) last = w;
+  console.log("outer let", last);
+});
+show("maybe array", () => {
+  const out: (string | undefined)[] = [];
+  for (const w of holes(3, 1, "b")) out.push(w);
+  console.log("maybe array", out);
+});
+show("map", () => {
+  const m = new Map<number, P | undefined>();
+  let i = 0;
+  for (const p of holes(2, 1, new P(1))) m.set(i++, p);
+  console.log("map", m);
+});
+show("optional property", () => {
+  const boxes: Box[] = [];
+  for (const p of holes(2, 1, new P(1))) boxes.push({ p });
+  console.log("optional property", boxes);
+});
+show("optional parameter", () => {
+  for (const w of holes(2, 1, "b")) opt("optional parameter", w);
+});
+show("returned", () => {
+  function first(xs: string[]): string | undefined {
+    for (const x of xs) return x;
+    return "none";
+  }
+  console.log("returned", first(holes(2, 1, "b")));
+});
+show("member", () => {
+  for (const w of holes(2, 1, "b")) console.log("member", w.length);
+});
+show("member object", () => {
+  for (const p of holes(2, 0, new P(1))) console.log("member object", p.x);
+});
+show("generator", () => {
+  function* all(xs: string[]): Generator<string | undefined> {
+    for (const x of xs) yield x;
+  }
+  console.log("generator", [...all(holes(3, 1, "b"))]);
+});
+
+// expect:
+// printed undefined
+// printed b
+// printed object undefined
+// printed object P { x: 1 }
+// let undefined
+// let b
+// template <undefined>
+// template <b>
+// String() undefined
+// String() [object Object]
+// closure undefined
+// closure b
+// unknown local P { x: 1 }
+// unknown local undefined
+// outer let undefined
+// maybe array [ undefined, 'b', undefined ]
+// map Map(2) { 0 => undefined, 1 => P { x: 1 } }
+// optional property [ { p: undefined }, { p: P { x: 1 } } ]
+// optional parameter undefined
+// optional parameter b
+// returned undefined
+// member threw TypeError
+// member object 1
+// member object threw TypeError
+// generator [ undefined, 'b', undefined ]

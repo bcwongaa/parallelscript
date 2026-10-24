@@ -1,4 +1,3 @@
-// skip: known issue (H11b, C112): find and its kin stop at the length a callback shortened the array to, where JS visits every starting index
 // find, findIndex, findLast and findLastIndex visit every index below the length they
 // start with, so a callback that shortens the array is called with undefined for each
 // index it cut off, as JS does (D-183). A callback whose element parameter takes

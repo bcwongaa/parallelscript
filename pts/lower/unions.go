@@ -186,13 +186,30 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 			}
 			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
 		}
-		if !isClass(narrow) && l.mayHaveChanged(node) {
-			// Its value is checked as a dynamic value is (classes' always are) (D-089, D-140).
-			return &ir.FromUnion{X: box(x), To: narrow}
+		return l.narrowedUnionRead(x, narrow, node)
+	}
+	if narrow != nil && narrow != union && !holdsAsItIs(narrow, union) && node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) {
+		// A loose local narrowed to a type its union doesn't hold. In an instance (`T & Sq`
+		// for a Ci T, code its undefined keeps from being dead, D-195): what it holds,
+		// converted with a check where it is used. Elsewhere (a type predicate's class of an
+		// interface): its own type once undefined is tested for, which its use converts as
+		// it would the local's (D-067's check).
+		if l.subst != nil && len(l.subst.parameters) > 0 {
+			return box(x)
 		}
-		return &ir.FromUnion{X: x, To: narrow}
+		return &ir.FromUnion{X: x, To: l.withoutUndefined(union), Defined: true}
 	}
 	return x
+}
+
+// narrowedUnionRead is x, a value of a union read at node, as narrow, the member or smaller
+// union tsc narrowed it to there.
+func (l *lowerer) narrowedUnionRead(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
+	if !isClass(narrow) && l.mayHaveChanged(node) {
+		// Its value is checked as a dynamic value is (classes' always are) (D-089, D-140).
+		return &ir.FromUnion{X: box(x), To: narrow}
+	}
+	return &ir.FromUnion{X: x, To: narrow}
 }
 
 // testsAnyValue reports whether node is an operand of a test that takes any value:

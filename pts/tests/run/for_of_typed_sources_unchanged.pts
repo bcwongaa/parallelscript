@@ -1,0 +1,124 @@
+// for…of loops that a hole can't reach keep their typed reads and results (H11b's
+// guard): arrays of numbers and booleans have no holes (D-085), a tuple's elements and
+// a map's, set's, string's and typed array's items are all there, and a string[] or an
+// object array without holes binds each element as its type, used as one in any way,
+// each iteration's binding its own (closures). find and its kin over arrays without
+// holes call the callback with each element, and the methods that skip holes still do.
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+show("number[]", () => {
+  let sum = 0;
+  for (const n of [1, 2, 3]) sum += n * 2;
+  console.log("number[]", sum);
+});
+show("number[] let", () => {
+  const out: number[] = [];
+  for (let n of [1, 2, 3]) {
+    n += 10;
+    out.push(n);
+  }
+  console.log("number[] let", out);
+});
+show("boolean[]", () => {
+  let count = 0;
+  for (const b of [true, false, true]) if (b) count++;
+  console.log("boolean[]", count);
+});
+show("number[] entries", () => {
+  for (const [i, n] of [5, 6].entries()) console.log("number[] entries", i + n);
+});
+show("tuple", () => {
+  const pair: [string, number] = ["a", 1];
+  for (const item of pair) console.log("tuple", item);
+});
+show("tuple rows", () => {
+  const rows: [string, number][] = [["ab", 1], ["c", 2]];
+  let total = 0;
+  for (const [k, v] of rows) total += k.length * v;
+  console.log("tuple rows", total);
+});
+show("map", () => {
+  const m = new Map([["a", 1], ["bc", 2]]);
+  for (const [k, v] of m) console.log("map", k.length + v);
+  for (const k of m.keys()) console.log("map keys", k.toUpperCase());
+});
+show("set", () => {
+  for (const w of new Set(["x", "yz"])) console.log("set", w.length);
+});
+show("string", () => {
+  for (const c of "hé😀") console.log("string", c, c.length);
+});
+show("Float64Array", () => {
+  let sum = 0;
+  for (const x of new Float64Array([0.5, 1.5])) sum += x;
+  console.log("Float64Array", sum);
+});
+show("string[] used as strings", () => {
+  const out: string[] = [];
+  for (const w of ["ab", "c"]) {
+    out.push(w.toUpperCase());
+    console.log("string[] used as strings", w.length, w.charCodeAt(0), w + "!", w < "b");
+  }
+  console.log("string[] used as strings", out);
+});
+show("objects used as objects", () => {
+  let sum = 0;
+  for (const p of [new P(1), new P(2)]) {
+    sum += p.x;
+    p.x *= 10;
+  }
+  console.log("objects used as objects", sum);
+});
+show("closures", () => {
+  const fns: (() => string)[] = [];
+  for (const w of ["a", "b", "c"]) fns.push(() => w);
+  console.log("closures", fns.map((f) => f()));
+});
+show("find without holes", () => {
+  const words = ["a", "bb", "c"];
+  console.log("find without holes", words.find((w) => w.length === 2), words.findIndex((w) => w === "c"),
+    words.findLast((w) => w.length === 1), words.findLastIndex((w) => w.startsWith("b")));
+  console.log("find without holes", [new P(1), new P(2)].find((p) => p.x > 1)?.x, [1, 2, 3].findLast((n) => n < 3));
+});
+show("maybe control", () => {
+  const a = new Array<string | undefined>(2);
+  a[1] = "b";
+  for (const w of a) console.log("maybe control", w);
+});
+
+// expect:
+// number[] 12
+// number[] let [ 11, 12, 13 ]
+// boolean[] 2
+// number[] entries 5
+// number[] entries 7
+// tuple a
+// tuple 1
+// tuple rows 4
+// map 2
+// map 4
+// map keys A
+// map keys BC
+// set 1
+// set 2
+// string h 1
+// string é 1
+// string 😀 2
+// Float64Array 2
+// string[] used as strings 2 97 ab! true
+// string[] used as strings 1 99 c! false
+// string[] used as strings [ 'AB', 'C' ]
+// objects used as objects 3
+// closures [ 'a', 'b', 'c' ]
+// find without holes bb 2 c 1
+// find without holes 2 2
+// maybe control undefined
+// maybe control b

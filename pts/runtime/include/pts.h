@@ -1169,6 +1169,13 @@ pts_value pts_call_getter(pts_function getter, pts_field_kind kind, pts_object *
 
 /* A value from `any` that isn't of the type expected where it goes. */
 _Noreturn void pts_throw_type_mismatch(pts_value value, const char *expected);
+/* A loose local's value (D-090), of a union of a type and undefined: TypeError for undefined, as a conversion to expected says it; anything else as it is. */
+static inline pts_value pts_value_defined(pts_value value, const char *expected) {
+  if (__builtin_expect(value == PTS_VALUE_UNDEFINED, 0)) {
+    pts_throw_type_mismatch(value, expected);
+  }
+  return value;
+}
 bool pts_value_is_integer_of(pts_value value, pts_field_kind kind);
 static inline bool pts_value_is_string(pts_value value) {
   return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_STRING;

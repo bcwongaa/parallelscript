@@ -71,6 +71,7 @@ parallel for (const i of range(0, ROUNDS)) {
     });
     racing(() => {
       for (const item of items.slice(0, 32)) {
+        if (item === undefined) continue; // a hole a lost push left, which for…of reads as undefined (H11b)
         if (!(item.id >= 0 && item.id < ROUNDS)) throw new Error("an item nobody made");
       }
     });

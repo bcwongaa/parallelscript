@@ -1,0 +1,54 @@
+// `+` that tsc types as a string, with an element past the end, a hole, or a loose
+// local's undefined (D-090, D-220, H11b) on one side: next to a string or an object it is
+// "undefined", as in JS; next to a number, a boolean or null, JS adds undefined as a number
+// and gets NaN, which a string can't hold, so the element is read as its type there (D-085's
+// RangeError, D-090's TypeError). pts concatenated "undefined" (`undefined1`, H11b's
+// reproducer N2, C313).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const words = ["a"];
+show("element number", () => console.log("element number", words[5] + 1));
+show("element string", () => console.log("element string", words[5] + "!"));
+show("element boolean", () => console.log("element boolean", true + words[5]));
+show("element null", () => {
+  const n: number | null = null;
+  console.log("element null", words[3] + n);
+});
+show("present", () => console.log("present", words[0] + 1, 2 + words[0]));
+show("pattern number", () => {
+  const [a, b] = words;
+  console.log("pattern number", a, b + 1);
+});
+show("pattern string", () => {
+  const [a, b] = words;
+  console.log("pattern string", b + "?", a + 1);
+});
+show("for...of", () => {
+  const holey = new Array<string>(2);
+  holey[1] = "z";
+  for (const w of holey) console.log("for...of", w + "!");
+  for (const w of holey) console.log("for...of number", w + 1);
+});
+show("template", () => {
+  const [a, b] = words;
+  console.log("template", `${b}-${a}`);
+});
+
+// no-diff: JS's undefined + 1 is NaN, which a string can't hold: pts throws where it would be read as one
+// expect:
+// element number threw RangeError
+// element string undefined!
+// element boolean threw RangeError
+// element null threw RangeError
+// present a1 2a
+// pattern number threw TypeError
+// pattern string undefined? a1
+// for...of undefined!
+// for...of z!
+// for...of threw TypeError
+// template undefined-a

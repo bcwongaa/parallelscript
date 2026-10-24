@@ -463,13 +463,17 @@ func (h *helperBuilder) loopFrom(backwards bool, from ir.Expr, start []ir.Stmt, 
 	}
 	// JS visits only the indices the array still has: a callback may shorten it. find and
 	// its kin visit every index below the length they start with, reading what isn't
-	// there as undefined, where the element type holds undefined (D-183).
+	// there as undefined, where the element type holds undefined (D-183). Array.from's
+	// mapping iterates the array, whose iterator reads the length before each step, so it
+	// also visits elements the mapper pushes (H11b).
 	present := ir.Expr(&ir.Binary{Op: ir.Lt, X: i, Y: h.length()})
 	switch {
 	case h.hasHoles():
 		present = h.has(i)
 	case h.readsEveryIndex():
 		present = nil
+	case h.key.method == "map from":
+		cond, present = present, nil
 	}
 	element := l.newLocal("element", h.elementType())
 	body := append([]ir.Stmt{h.declare(element, h.element(i))}, each(&ir.LocalRef{Local: element}, i)...)
@@ -543,6 +547,17 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 			l.notSupportedYet(node, fmt.Sprintf("a callback of type %s, which takes more parameters than the method passes, is", ft))
 			return nil
 		}
+		if optional && isPure(args[next]) && l.maybeUndefinedFor(args[next].Type(), param) {
+			// an element that may be undefined (a hole): left out where it is, so the
+			// parameter is undefined or takes its default, as with JS's undefined (C111)
+			passed := l.maybePassed(args[next], param, node)
+			if passed == nil {
+				return nil
+			}
+			next++
+			converted = append(converted, passed...)
+			continue
+		}
 		arg := l.convert(args[next], param, node)
 		if arg == nil {
 			return nil
@@ -558,16 +573,32 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 
 // nthParam is the type of the parameter of ft at position n, Given flags aside; nil if it has fewer.
 func nthParam(ft *ir.FuncType, n int) ir.Type {
-	for _, param := range ft.Params {
+	if i := nthParamIndex(ft, n); i >= 0 {
+		return ft.Params[i]
+	}
+	return nil
+}
+
+// nthParamOptional reports whether the parameter of ft at position n is optional or has a
+// default: a Given flag follows it (D-055).
+func nthParamOptional(ft *ir.FuncType, n int) bool {
+	i := nthParamIndex(ft, n)
+	return i >= 0 && hasDefault(ft.Params, i)
+}
+
+// nthParamIndex is the index in ft.Params of the parameter at position n, Given flags
+// aside; -1 if it has fewer.
+func nthParamIndex(ft *ir.FuncType, n int) int {
+	for i, param := range ft.Params {
 		if param == ir.Given {
 			continue
 		}
 		if n == 0 {
-			return param
+			return i
 		}
 		n--
 	}
-	return nil
+	return -1
 }
 
 // declaresFewer reports whether node is an arrow function or function expression that
@@ -640,7 +671,7 @@ func (h *helperBuilder) element(index ir.Expr) ir.Expr {
 		return h.l.typedArrayRead(&ir.LocalRef{Local: h.array}, index)
 	}
 	if h.widened() { // a slot of pointers holds its element as the wider type holds it (D-002)
-		return &ir.ArrayCall{Op: ir.ArrayElementOrUndefined, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}, As: h.elementParam()}
+		return &ir.ArrayCall{Op: ir.ArrayElementOrUndefined, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}, As: h.elementType()}
 	}
 	op := ir.ArrayElementChecked
 	if !h.skipsHoles() && ir.HoldsUndefined(h.key.array.Elem) {
@@ -660,45 +691,61 @@ func (h *helperBuilder) skipsHoles() bool {
 	return h.key.method != "map from"
 }
 
-// readsEveryIndex reports whether the helper is find or one of its kin over an array whose
-// elements it reads as values that may be undefined, which reads every index below the
-// length it starts with.
+// readsEveryIndex reports whether the helper is find or one of its kin over an array,
+// which reads every index below the length it starts with: one a callback cut off is
+// read as a hole is (D-183, C112).
 func (h *helperBuilder) readsEveryIndex() bool {
 	switch baseMethod(h.key.method) {
 	case "find", "findLast", "findIndex", "findLastIndex":
-		return h.key.typed == nil && (ir.HoldsUndefined(h.key.array.Elem) || h.widened())
+		return h.key.typed == nil
 	}
 	return false
 }
 
-// elementType is the type the helper reads each element as: the array's element type,
-// or the callback's element parameter's where it takes undefined and the array's elements
-// can't be (widened).
+// elementType is the type the helper reads each element as: the array's element type;
+// where it is widened, the callback's element parameter's if that holds an element and
+// undefined as they are, else (an optional parameter's) the element type or undefined,
+// which the call passes as left out (callbackArguments).
 func (h *helperBuilder) elementType() ir.Type {
-	if h.widened() {
+	switch {
+	case !h.widened():
+		return h.key.elem()
+	case h.takesElementAsItIs():
 		return h.elementParam()
 	}
-	return h.key.elem()
+	return h.l.withUndefined(h.key.elem())
 }
 
 // widened reports whether the helper reads the elements as the callback's element
 // parameter takes them, where that reaches it as JS has it: a hole that find, its kin and
-// Array.from's mapping visit, in an array of strings or objects, or a match's group that
-// took no part (D-133), in a string[]. Only where the parameter holds an element as it is:
-// a dynamic value, or a union with undefined that has the element type among its members
-// (holdsAsItIs); others convert each element (review round 2: a tuple read as an array).
+// Array.from's mapping visit, in an array of strings or objects, an index a callback cut
+// off that find and its kin visit, or a match's group that took no part (D-133), in a
+// string[]. Only where the parameter takes undefined: optional (C111), or holding an
+// element as it is (takesElementAsItIs); others convert each element (review round 2: a
+// tuple read as an array).
 func (h *helperBuilder) widened() bool {
 	if h.key.typed != nil || h.key.callback == nil || h.key.narrowed != nil {
 		return false
 	}
-	elem, param := h.key.array.Elem, h.elementParam()
-	if param == nil || ir.HoldsUndefined(elem) || ir.IsNumeric(elem) || elem == ir.Bool {
+	elem := h.key.array.Elem
+	if h.elementParam() == nil || ir.HoldsUndefined(elem) {
 		return false
 	}
-	if param != ir.Value && !(isUnion(param) && ir.HoldsUndefined(param) && holdsAsItIs(param, elem)) {
+	if (ir.IsNumeric(elem) || elem == ir.Bool) && !h.readsEveryIndex() {
+		return false // no holes (D-085)
+	}
+	if !h.takesElementAsItIs() && !nthParamOptional(h.key.callback, h.elementParamPosition()) {
 		return false
 	}
 	return !h.skipsHoles() || elem == ir.String
+}
+
+// takesElementAsItIs reports whether the callback's element parameter holds an element
+// and undefined as they are: a dynamic value, or a union with undefined that has the
+// element type among its members (holdsAsItIs).
+func (h *helperBuilder) takesElementAsItIs() bool {
+	param := h.elementParam()
+	return param == ir.Value || isUnion(param) && ir.HoldsUndefined(param) && holdsAsItIs(param, h.key.array.Elem)
 }
 
 // narrowedElement is x, an element as the helper reads it, converted to t: through a
@@ -713,10 +760,15 @@ func (h *helperBuilder) narrowedElement(x ir.Expr, t ir.Type) ir.Expr {
 
 // elementParam is the type of the callback's element parameter, nil if it has none.
 func (h *helperBuilder) elementParam() ir.Type {
+	return nthParam(h.key.callback, h.elementParamPosition())
+}
+
+// elementParamPosition is the position of the callback's element parameter.
+func (h *helperBuilder) elementParamPosition() int {
 	if base := baseMethod(h.key.method); base == "reduce" || base == "reduceRight" {
-		return nthParam(h.key.callback, 1) // after the accumulator
+		return 1 // after the accumulator
 	}
-	return nthParam(h.key.callback, 0)
+	return 0
 }
 
 // hasHoles reports whether the helper skips the holes of its arrays, which only arrays of

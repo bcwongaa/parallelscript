@@ -1,0 +1,24 @@
+// Array.from(array, mapper) iterates the array with its iterator, which reads the length
+// before each step: elements the mapper pushes are mapped too, and one it cuts off isn't.
+// pts read the length once and stopped at it (H11b's reproducer N6, C317).
+const words = ["a", "b"];
+let n = 0;
+console.log(Array.from(words, (w, i) => {
+  if (n < 2) words.push("n" + n++);
+  return w + i;
+}));
+const shrink = ["a", "b", "c"];
+console.log(Array.from(shrink, (w) => {
+  shrink.length = 1;
+  return w;
+}));
+const nums = [1, 2];
+console.log(Array.from(nums, (x) => {
+  if (nums.length < 4) nums.push(x * 10);
+  return x;
+}));
+
+// expect:
+// [ 'a0', 'b1', 'n02', 'n13' ]
+// [ 'a' ]
+// [ 1, 2, 10, 20 ]

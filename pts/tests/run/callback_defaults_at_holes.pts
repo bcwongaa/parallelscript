@@ -1,0 +1,54 @@
+// find and its kin and Array.from's mapper visit every index, a hole too, which JS passes
+// to the callback as undefined, so a callback parameter with a default takes the default
+// there (H11b, with C111's optional parameters); over a string[], every callback method
+// passes a match's group that took no part as undefined (D-133). Until H11b the default
+// was dropped from callbacks of these builtins, which always pass the argument, and the
+// hole threw RangeError.
+class Point {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function points(): Point[] {
+  const a = new Array<Point>(3);
+  a[1] = new Point(1);
+  return a;
+}
+const origin = new Point(-5);
+show("findIndex", () => console.log("findIndex", points().findIndex((p: Point = origin) => p.x === 1)));
+show("find", () => console.log("find", points().find((p: Point = origin) => p.x < 0)));
+show("findLast", () => console.log("findLast", points().findLast((p: Point = origin) => p.x > 0)));
+show("findLastIndex", () => console.log("findLastIndex", points().findLastIndex((p: Point = origin, i = 0) => p.x < 0 && i > 0)));
+show("Array.from", () => console.log("Array.from", Array.from(points(), (p: Point = origin) => p.x)));
+show("Array.from index", () => console.log("Array.from index", Array.from(points(), (p: Point = origin, i?: number) => p.x + (i ?? 0))));
+show("function expression", () => {
+  console.log("function expression", points().findIndex(function (p: Point = origin) {
+    return p.x < 0;
+  }));
+});
+show("words", () => console.log("words", Array.from(new Array<string>(2), (w = "w") => w + "!")));
+show("match groups", () => {
+  const groups = /(a)|(b)/.exec("b")!;
+  console.log("match groups", groups.map((g = "-") => g));
+});
+show("present", () => console.log("present", [new Point(2)].map((p: Point = origin) => p.x)));
+
+// expect:
+// findIndex 1
+// find undefined
+// findLast Point { x: 1 }
+// findLastIndex 2
+// Array.from [ -5, 1, -5 ]
+// Array.from index [ -5, 2, -3 ]
+// function expression 0
+// words [ 'w!', 'w!' ]
+// match groups [ 'b', '-', 'b' ]
+// present [ 2 ]
