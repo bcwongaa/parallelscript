@@ -561,3 +561,28 @@ R8-F1 (`r8f1`, listener identity for `object` and `unknown` sources; only `new S
 
 ### What READY would take
 1. R9-F1: an "every part is the instance's own" test for the skip, judging the rest by type; keep mixed-source function initializers out of dynamic locals or check them where given or stored. 2. R9-F3: calls of callees holding instance values as `instanceofDynamicSource`s. 3. R9-F2: the same test inside literals, `r9f2` as a run guard. 4. Re-run `mix/`, `kept/`, `own/` and `f04*`. "With those green, I know of nothing else blocking."
+
+## Round 10: `29444bf3c`
+
+NOT READY
+
+# H10a review, round 10: commit `29444bf3c` (fix10) against `3d72b7177` (fix9)
+
+(The same reviewer, resumed. Probes: [h10a-review10-probes.tar.gz](h10a-review10-probes.tar.gz).)
+
+All three round-9 findings are fixed for the forms reported, and none of 199 earlier probes got worse. Two problems remain; the first blocks.
+
+### R10-F1 (High, regression: fix8 PTS1001, fix9 and fix10 silent, base threw): reads of a mixed `concat`/`with` result count as the instance's own
+`c.cfg.onRows = c.list.concat([addRow])[1]; const h = c.list.with(0, addRow).at(0)!; c.list.push(h); c.list.concat([addRow]).concat([]).forEach((f, i) => { if (i === 1) c.list.push(f); });`: Node 5, fix8 three PTS1001s, fix9/fix10 2. One form per file in `own/a_*.pts` (`.find(…)` stored, `.at(-1)` pushed, a `forEach` parameter of the result, `.slice(1)[0]`, `with(0, addRow)[0]`, a local of the result indexed). Honest PTS1001s: `for (const f of c.list.concat([addRow]))`, `const all = [...c.list, addRow]; … all[1]`. Cause: `isInstanceOwnValue` checks adding methods' arguments only at the outermost node. Fix: follow reads to their receivers and callback parameters to their call's source, or report copying functions given to `concat`/`with`/`toSpliced` where given, as keeping methods do.
+
+### R10-F2 (Medium, silent; base threw; same on fix8–fix10; not recorded): `??` and `||` between the instance's own functions give adapters
+`const b = c.maybe ?? c.list[1]; const o = c.maybe || c.list[1];` then `b === c.list[1]`, `c.list.indexOf(b)`, …: Node `true 1 true 1 b1 true`, fix8–fix10 `false -1 false -1 b1 false`. A conditional between the same values keeps identity (`b01_own_positive_forms.pts`). Fix: lower `??`/`||` of own function values as dynamic values, or record with R8-F1's typed-local gap.
+
+### Note (pre-existing, not H10a's)
+Storing the program's `(v: any) => void` into a `(value: number) => void` array creates an adapter, so `indexOf`/`includes` miss it: through the narrowing (`b03_program_function_identity.pts`: Node `0 1 true`, fix10 `0 -1 false`) and in typed code on the base too (`b03b_typed_control.pts`): the general adapter-identity class, next to C288.
+
+### What holds (verified)
+R9-F1 (all `mix/m_*`, `r9f1`, round 7's `n_concat_assign` honest PTS1001s), R9-F2 (`r9f2`, `d_swap_own`), R9-F3 (`r9f3`, `f04`, `f04b`); positive own forms (a conditional between two instance functions, `c.maybe ?? undefined`, `.find(…)` over the instance's list, callback parameters of `forEach` and of the instance's own method, re-storing `[...c.list]`, two instances of a generic function) match Node except R10-F2's `??` line. Rerun of 199 round 6–9 probes: 16 change, all improvements. Matrix `new9` identical to `new8`; `rerun9` changes only `s03b`, `t04`; emit-c identical on fix9 and fix10 for 50 random programs without instanceof.
+
+### What READY would take
+1. R10-F1 (one of the two fixes), `r10f1` as an error test. 2. R10-F2: keep `??`/`||` of own function values dynamic, or record. "With those, every divergence I know of is a recorded gap or belongs to H10b/H29, and I'd expect READY."

@@ -898,9 +898,11 @@ func (l *lowerer) handsInstanceObjects(parameter *ast.Node) bool {
 	return call.Arguments()[0] == argument && slices.Contains(l.arrayCallbackObjectParameters(method, call.Arguments()), index)
 }
 
-// keepingArrayMethods are the array methods that keep their arguments in the array, where
-// code that reads it may call a kept function with any of its objects (R7-F2).
-var keepingArrayMethods = map[string]bool{"push": true, "unshift": true, "splice": true, "fill": true}
+// keepingArrayMethods are the array methods that keep their arguments in the array, or in the
+// array they make of its elements and them (`concat`, `with`, `toSpliced`, whose elements code
+// reads as the instance's own: R10-F1), where code that reads it may call a kept function with
+// any of its objects (R7-F2).
+var keepingArrayMethods = map[string]bool{"push": true, "unshift": true, "splice": true, "fill": true, "concat": true, "with": true, "toSpliced": true}
 
 // returnsToDynamicInstanceCall reports whether fn, a function written without a result type,
 // is a callback (callbackArgument) of a method whose code an instanceof narrowing's dynamic
@@ -1082,6 +1084,14 @@ func (l *lowerer) isInstanceOwnValue(node *ast.Node) bool {
 
 // addingArrayMethods are the array methods whose results hold their arguments too.
 var addingArrayMethods = map[string]bool{"concat": true, "with": true, "toSpliced": true}
+
+// isInstanceOwnFunction reports whether node, a `??`, `||` or `&&` of functions, gives only the
+// instance's own (isInstanceOwnValue: `c.maybe ?? c.list[1]`), which stays the function it is
+// rather than an adapter of tsc's type, so `===` and `indexOf` find it (R10-F2).
+func (l *lowerer) isInstanceOwnFunction(node *ast.Node) bool {
+	t := l.checker.GetNonNullableType(l.typeAt(node))
+	return len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) > 0 && l.isInstanceOwnValue(node)
+}
 
 // holdsCopyingFunction reports whether tsc types node as, or as holding, a function with a
 // parameter a dynamic value converts to by a copy (copyingParameterIn).

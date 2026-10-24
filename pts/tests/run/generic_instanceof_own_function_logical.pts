@@ -1,0 +1,25 @@
+// H10a review round 10 (R10-F2, the reviewer's r10f2_nullish_identity.pts and
+// b01_own_positive_forms.pts): `??` and `||` between the instance's own
+// functions give the function itself, not an adapter, so `===` and `indexOf` find it. As in Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  list: ((x: V) => string)[] = [];
+  maybe?: (x: V) => string;
+  constructor(public key: K, public val: V) {
+    this.list.push((x) => "a" + x, (x) => "b" + x);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const b = c.maybe ?? c.list[1];
+  const o = c.maybe || c.list[1];
+  console.log(b === c.list[1], c.list.indexOf(b), o === c.list[1], c.list.indexOf(o), b(1), (c.maybe ?? c.list[0]) === c.list[0]);
+}
+run(new MapLRU<string, number>("k", 0));
+// expect:
+// true 1 true 1 b1 true

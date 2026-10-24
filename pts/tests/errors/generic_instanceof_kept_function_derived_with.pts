@@ -1,0 +1,32 @@
+// H10a review round 10 (R10-F1, the reviewer's r10f1_derived_reads.pts and own/a_*.pts): `with` puts the program's function into an array of the instance's, which reads of it would hand on as the instance's own; the function is judged where it is given, as one the method keeps; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[][] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  list: ((rows: V[][]) => void)[] = [];
+  cfg: { onRows: (rows: V[][]) => void } = { onRows: () => {} };
+  constructor(public key: K, public val: V) {
+    this.list.push(() => {});
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+    this.cfg.onRows(this.matrix);
+  }
+}
+function addRow(rows: any[][]): void {
+  rows.push([9]);
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    c.list.push(c.list.with(0, addRow).at(0)!);
+  }
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+m.fire();
+console.log(m.matrix.length);

@@ -628,6 +628,9 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 		t = l.checker.GetUnionType([]*checker.Type{t, l.typeAt(expr.Right)})
 	}
 	result := l.irType(t, node)
+	if x.Type() == ir.Value && isFunction(result) && l.isInstanceOwnFunction(node) {
+		result = ir.Value // `c.maybe ?? c.list[1]`: the instance's own functions, as they are (R10-F2)
+	}
 	y := right()
 	if result == nil || y == nil {
 		return nil

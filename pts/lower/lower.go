@@ -3550,6 +3550,13 @@ func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right
 	if trap := l.deadOperand(right); trap != nil {
 		return l.logicalWithDeadRight(node, op, left, trap)
 	}
+	if l.isInstanceOwnFunction(node) {
+		x, y := l.expression(left), l.expression(right) // `c.maybe || c.list[1]`, as they are (R10-F2)
+		if x == nil || y == nil {
+			return nil
+		}
+		return &ir.Logical{Op: op, X: box(x), Y: box(y)}
+	}
 	loose := l.isLooseIdentifier(left) || l.isMatchElement(ast.SkipParentheses(left)) // a union of its type and undefined (D-090, D-133)
 	if op == ir.And && !loose && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
 		x, y := l.expression(left), l.expression(right) // `obj && test` is test, after obj (D-089)
