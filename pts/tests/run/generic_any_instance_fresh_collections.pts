@@ -1,0 +1,23 @@
+// H10b review round 2 (R2-F1), the reviewer's probe r2b_as_is_fresh_collections.pts:
+// R2: Box<any> objects only: new Map(b.store), Object.values/entries(b.rec), Array.from(…), concat of their members into annotated places throw the as-is TypeError where HEAD ran as Node (filter and slice pass).
+class Box<T> {
+  store = new Map<string, T[]>([["k", []]]);
+  rec: Record<string, T[]> = { a: [] };
+  matrix: T[][] = [[]];
+  constructor(public v: T) {}
+}
+const b = new Box<any>(1);
+const out: string[] = [];
+const t = (name: string, f: () => void) => { try { f(); out.push(`${name}:ok`); } catch (e) { out.push(`${name}:${(e as Error).message.slice(0, 30)}`); } };
+t("newMap", () => { const m: Map<string, any[]> = new Map(b.store); m.get("k")!.push(1); });
+t("values", () => { const vs: any[][] = Object.values(b.rec); vs[0].push(2); });
+t("entries", () => { const es: [string, any[]][] = Object.entries(b.rec); es[0][1].push(3); });
+t("from", () => { const rs: any[][] = Array.from(b.store.values()); rs[0].push(4); });
+t("filter", () => { const rs: any[][] = b.matrix.filter(() => true); rs[0].push(5); });
+t("concat", () => { const rs: any[][] = b.matrix.concat([]); rs[0].push(6); });
+t("slice", () => { const rs: any[][] = b.matrix.slice(); rs[0].push(7); });
+console.log(out.join(" | "));
+console.log(JSON.stringify([[...b.store], b.rec, b.matrix]));
+// expect:
+// newMap:ok | values:ok | entries:ok | from:ok | filter:ok | concat:ok | slice:ok
+// [[["k",[1,4]]],{"a":[2,3]},[[5,6,7]]]

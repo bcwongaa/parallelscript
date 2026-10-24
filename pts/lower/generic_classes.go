@@ -109,7 +109,7 @@ func (l *lowerer) receiverClass(receiver *ast.Node) *ir.Class {
 	case l.chainDepth > 0 && ast.IsOptionalChain(receiver) && !l.chainRests[receiver]:
 		t = l.checker.GetNonOptionalType(t) // a link inside the chain being lowered (`o?.box(5).value`, as typeAt)
 	}
-	wantClass := receiver.Kind == ast.KindSuperKeyword // the class a subclass extends, also C<any, …> (H10b)
+	wantClass := receiver.Kind == ast.KindSuperKeyword || l.classReceivers[receiver] // the class a subclass extends, also C<any, …>; a generic method's receiver (H10b)
 	if t.Flags()&checker.TypeFlagsTypeParameter != 0 {
 		wantClass = wantClass || t.AsTypeParameter().IsThisType()
 		if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {

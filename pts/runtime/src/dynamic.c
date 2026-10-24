@@ -848,6 +848,24 @@ pts_value pts_dynamic_method_of(pts_value object, pts_value key) {
   return pts_dynamic_get(object, key);
 }
 
+pts_value pts_dynamic_method_for(pts_value object, pts_value key, pts_value self) {
+  char buffer[MAX_KEY];
+  const char *name = key_text(key, buffer);
+  if (self != object && pts_value_is_object(object) && pts_value_as_object(object)->type->kind == PTS_KIND_OBJECT) {
+    const pts_type *type = pts_value_as_object(object)->type;
+    int64_t method = method_named(type, name, PTS_METHOD);
+    if (method >= 0) { /* a method, which runs only on an object whose class has the same one */
+      const pts_type *other = pts_value_is_object(self) ? pts_value_as_object(self)->type : NULL;
+      int64_t same = other != NULL && other->kind == PTS_KIND_OBJECT ? method_named(other, name, PTS_METHOD) : -1;
+      if (same < 0 || other->methods[same].dynamic != type->methods[method].dynamic) {
+        pts_throw_new(&pts_type_builtin_TypeError, "%s.%s called with a `this` of another class (%s) is not supported", type->name, name, pts_value_description(self));
+      }
+      return pts_dynamic_get(self, key);
+    }
+  }
+  return pts_dynamic_get(object, key);
+}
+
 pts_value pts_dynamic_call_found(pts_value object, pts_value key, pts_value found, const pts_string *text, uint32_t argc, const pts_value *argv) {
   char buffer[MAX_KEY];
   if (found_by_name(object, key_text(key, buffer))) {

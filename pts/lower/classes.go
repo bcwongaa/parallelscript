@@ -1147,17 +1147,30 @@ func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 		l.notSupportedYet(expr.Right, fmt.Sprintf("`#private in` on a %s is", x.Type()))
 		return nil
 	}
-	if generic, ok := l.genericClasses[l.declaredSymbol(member.Parent)]; ok {
-		if generic == nil {
-			return nil // the class failed, which was reported
+	var test func(object ir.Expr) ir.Expr
+	switch generic, ok := l.genericClasses[l.declaredSymbol(member.Parent)]; {
+	case ast.HasSyntacticModifier(member, ast.ModifierFlagsStatic):
+		test = func(ir.Expr) ir.Expr { return &ir.BoolConst{} } // only the class itself has it, which is no value here
+	case ok && generic == nil:
+		return nil // the class failed, which was reported
+	case ok:
+		test = func(object ir.Expr) ir.Expr { return &ir.InstanceOf{X: object, Family: &generic.classes} }
+	default:
+		class := l.classes[l.declaredSymbol(member.Parent)]
+		if class == nil {
+			return nil
 		}
-		return &ir.InstanceOf{X: x, Family: &generic.classes}
+		test = func(object ir.Expr) ir.Expr { return &ir.InstanceOf{X: object, Class: class} }
 	}
-	class := l.classes[l.declaredSymbol(member.Parent)]
-	if class == nil {
-		return nil
+	if !isDynamic(x.Type()) {
+		return &ir.Sequence{X: x, Y: test(x)}
 	}
-	return &ir.InstanceOf{X: x, Class: class}
+	// A dynamic value may be a primitive, for which JS throws: `in`'s TypeError, which the
+	// runtime's DynamicHas throws for its key, not found on an object.
+	object := l.newLocal("object", x.Type())
+	ref := &ir.LocalRef{Local: object}
+	checked := &ir.CallBuiltin{Builtin: ir.DynamicHas, Args: []ir.Expr{box(ref), box(&ir.StringConst{Value: expr.Left.Text()})}}
+	return &ir.Bind{Local: object, Value: x, In: &ir.Sequence{X: checked, Y: test(ref)}}
 }
 
 // collectionTest is the test of `x instanceof Map` or `x instanceof Set` when constructor

@@ -1,0 +1,24 @@
+// H10b review round 1's note (the reviewer's probe p13_self_ref.pts): a generic class's own code in
+// its instance for any reads `this.next.items` of a `ListNode<T> | null` field, a ListNode<any> |
+// null there, which tsc's type for the reference holds: no narrowing. H10a took the field's
+// uninstantiated type for the declared type, so the reference looked narrowed by instanceof and
+// the ternary's any[] was D-218's PTS1001 (HEAD too).
+// A generic linked list used for `any`: the class's own code reads Node<T> fields (Node<any> in its instance for any)
+class ListNode<T> {
+  next: ListNode<T> | null = null;
+  items: T[] = [];
+  constructor(public value: T) { this.items.push(value); }
+  nextItems(): T[] { return this.next ? this.next.items : []; }
+  append(v: T): ListNode<T> { const n = new ListNode(v); this.next = n; return n; }
+  all(): T[] { const out: T[] = []; let c: ListNode<T> | null = this; while (c) { out.push(c.value); c = c.next; } return out; }
+  merge(other: ListNode<T>): T[] { const xs = other.items; xs.push(this.value); return xs; }
+}
+const head = new ListNode<any>(1);
+head.append("two").append(3);
+console.log(head.all(), head.nextItems(), head.merge(head.next!));
+const typed = new ListNode<number>(1);
+typed.append(2);
+console.log(typed.all(), typed.nextItems());
+// expect:
+// [ 1, 'two', 3 ] [ 'two', 1 ] [ 'two', 1 ]
+// [ 1, 2 ] [ 2 ]

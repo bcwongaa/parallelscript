@@ -296,6 +296,28 @@ static void as_is_throws_where_only_a_copy_converts(void) {
   }
 }
 
+/* pts_value_convert_fresh (D-219): a new container is copied, what it holds taken as it is. */
+static void fresh_copies_the_container_but_not_what_it_holds(void) {
+  pts_value rows[] = {pts_value_from_object(values_of(0, NULL))};
+  pts_array *outer = values_of(1, rows); /* an any[] holding an any[], converted to any[][] */
+  pts_array *copy = (pts_array *)pts_value_as_object(pts_value_convert_fresh(pts_value_from_object(outer), &nested_check));
+  CHECK(copy != outer && copy->type == &nested_type);
+  CHECK(pts_array_element(copy, 0) == rows[0]);
+}
+
+static void fresh_throws_where_what_it_holds_converts_only_as_copies(void) {
+  double elements[] = {1};
+  pts_value rows[] = {pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 1))};
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_value_convert_fresh(pts_value_from_object(values_of(1, rows)), &nested_check); /* a number[] where an any[] goes */
+    CHECK(false);
+  } else {
+    CHECK(pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_TypeError));
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   an_array_of_the_right_kind_is_the_same_array();
@@ -310,5 +332,7 @@ int main(int argc, char **argv) {
   a_map_of_other_value_types_is_copied();
   as_is_takes_an_array_of_the_type_itself();
   as_is_throws_where_only_a_copy_converts();
+  fresh_copies_the_container_but_not_what_it_holds();
+  fresh_throws_where_what_it_holds_converts_only_as_copies();
   return pts_runtime_exit(CHECK_DONE());
 }

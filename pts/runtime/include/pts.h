@@ -1030,6 +1030,8 @@ pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_str
  * object literal or a builtin, which nothing can change, is found by name in both.
  */
 pts_value pts_dynamic_method_of(pts_value object, pts_value key);
+/* object.key, a method, bound to self, the `this` of `object.key.call(self, …)`, where self's class has that same method; TypeError for another (D-219). */
+pts_value pts_dynamic_method_for(pts_value object, pts_value key, pts_value self);
 pts_value pts_dynamic_call_found(pts_value object, pts_value key, pts_value found, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* Calls the method name of object through its dynamic entry, as a method adapter does (D-078). */
 pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t argc, const pts_value *argv);
@@ -1140,6 +1142,8 @@ pts_value pts_dynamic_call_closure(struct pts_closure *function, uint32_t argc, 
 pts_value pts_value_convert(pts_value value, const pts_check *check);
 /* pts_value_convert of a value that is one of check's type already, as it is: TypeError where only a copy converts it (D-219). */
 pts_value pts_value_convert_as_is(pts_value value, const pts_check *check);
+/* pts_value_convert of a new container nothing else holds, which may be copied, what it holds as it is: TypeError where only copies of that convert it (D-219). */
+pts_value pts_value_convert_fresh(pts_value value, const pts_check *check);
 /* pts_value_convert, which reports whether value converts instead of throwing. */
 bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out);
 /* For a read (D-192): pts_value_try_convert without a copy, whether value is one of check's type as it is (a closure of another type adapted; any object as an object type, whose sites verify each property they read), given in check's representation. */

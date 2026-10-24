@@ -2,9 +2,11 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -279,6 +281,43 @@ func (l *lowerer) isFunctionMethod(callee *ast.Node) bool {
 	return false
 }
 
+// functionMethods are the methods of functions that give them a `this`.
+var functionMethods = map[string]bool{"call": true, "apply": true, "bind": true}
+
+// dynamicMethodWithThis lowers `o.m.call(self, …)`, `o.m.apply(self, …)` or `o.m.bind(self,
+// …)` (call, of callee) for target `o.m`, a method of o held as a dynamic value (a Box<any>
+// place's, an any's): the method o's class has, bound to self where self's class has the same
+// one (DynamicMethodFor), so it runs on self as JS's does, then call, apply or bind through any
+// (R2-F6). ok is false for other calls.
+func (l *lowerer) dynamicMethodWithThis(call *ast.CallExpression, callee, target *ast.Node) (ir.Expr, bool) {
+	args := call.Arguments.Nodes
+	if target.Kind != ast.KindPropertyAccessExpression || target.AsPropertyAccessExpression().Name().Kind == ast.KindPrivateIdentifier || len(args) == 0 ||
+		slices.ContainsFunc(args, isSpreadElement) || !l.isAny(target.Expression()) && !l.isNarrowedDynamic(target.Expression()) {
+		return nil, false
+	}
+	object, self := l.expression(target.Expression()), l.valueExpression(args[0])
+	key := l.dynamicKey(target)
+	if object == nil || self == nil || key == nil {
+		return nil, true
+	}
+	l.wantDynamicMember(target)
+	objectLocal, selfLocal := l.newLocal("object", ir.Value), l.newLocal("self", ir.Value)
+	method := &ir.CallBuiltin{Builtin: ir.DynamicMethodFor, Args: []ir.Expr{&ir.LocalRef{Local: objectLocal}, key, &ir.LocalRef{Local: selfLocal}}}
+	values := []ir.Expr{method, box(&ir.StringConst{Value: callee.AsPropertyAccessExpression().Name().Text()}), &ir.StringConst{Value: scanner.GetTextOfNode(callee)}, &ir.LocalRef{Local: selfLocal}}
+	for _, argument := range args[1:] {
+		value := l.valueExpression(argument)
+		if value == nil {
+			return nil, true
+		}
+		values = append(values, box(value))
+	}
+	if l.firstDynamicCall == nil {
+		l.firstDynamicCall = call.AsNode()
+	}
+	result := l.narrowedValue(call.AsNode(), &ir.CallBuiltin{Builtin: ir.DynamicCallMethod, Args: values})
+	return &ir.Bind{Local: objectLocal, Value: box(object), In: &ir.Bind{Local: selfLocal, Value: box(self), In: result}}, true
+}
+
 // functionMethodCall lowers `f.call(thisArg, args…)`, `f.apply(thisArg, [args…])` and
 // `f.bind(thisArg, args…)` (D-044, D-045). For a method `o.m`, thisArg is the object it
 // runs on; a function ignores it (it is still evaluated). `apply` takes its arguments as
@@ -318,6 +357,9 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	target := ast.SkipParentheses(callee.Expression())
 	if target.Kind == ast.KindPropertyAccessExpression && (l.isInstanceMethod(target) || l.isGenericInstanceMethod(target) && l.runsOnThisArg(args, target)) {
 		return l.methodCallOrBind(call, args, tuple, target, name)
+	}
+	if x, ok := l.dynamicMethodWithThis(call, callee, target); ok {
+		return x
 	}
 	fn := l.expression(target)
 	if fn == nil {

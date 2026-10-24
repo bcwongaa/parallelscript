@@ -166,13 +166,21 @@ func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
 
 // destructuresAnyInstance reports whether declaration is a name an object pattern binds
 // from a value tsc types C<any, …> (`for (const { items } of boxes)` over a Box<any>[], `({
-// items }: Box<any>) => …`, nested in an array pattern too): that object's member, held as
-// a dynamic value as `b.items` is (H10b).
+// items }: Box<any>) => …`, nested in an array pattern too), or one a pattern nested in it
+// binds: that object's member or what it holds, held as a dynamic value as `b.items` is
+// (H10b).
 func (l *lowerer) destructuresAnyInstance(declaration *ast.Node) bool {
-	if declaration == nil || declaration.Kind != ast.KindBindingElement || declaration.Parent.Kind != ast.KindObjectBindingPattern {
+	if declaration == nil || declaration.Kind != ast.KindBindingElement {
 		return false
 	}
-	return l.anyInstanceIn(l.typeAt(declaration.Parent)) != nil
+	for pattern := declaration.Parent; ; pattern = pattern.Parent.Parent { // also `{ meta: { tags } }`, `{ rows: [first] }` (R2-F4)
+		if pattern.Kind == ast.KindObjectBindingPattern && l.anyInstanceIn(l.typeAt(pattern)) != nil {
+			return true
+		}
+		if pattern.Parent == nil || pattern.Parent.Kind != ast.KindBindingElement {
+			return false
+		}
+	}
 }
 
 // instanceofLocal is a variable in the instance being lowered.
@@ -387,9 +395,6 @@ func (l *lowerer) copiesInstanceofDynamicValue(value ir.Expr, target ir.Type, no
 	if node != nil && node.Kind == ast.KindParenthesizedExpression {
 		node = ast.SkipParentheses(node)
 	}
-	if _, isInterface := target.(*ir.Interface); isInterface && node != nil && l.holdsAnyInstance(node) {
-		return false // a C<any, …> value's object, an instance of C, which an interface takes as it is, checked (H10b)
-	}
 	return value.Type() == ir.Value && target != ir.Value && !isCheckable(target) && !isFunction(target) &&
 		holdsDynamicValues(target, map[ir.Type]bool{}) && node != nil && l.madeDynamicByInstanceof(node) &&
 		!((l.isReadOnlyArgument(node) || l.isNewArray(node)) && !copiesElements(target)) &&
@@ -517,7 +522,8 @@ func (l *lowerer) isInstanceofNestedObject(node *ast.Node) bool {
 	if t.Flags()&checker.TypeFlagsObject == 0 || l.isCheckedValueType(t) || len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) > 0 {
 		return false
 	}
-	return copiesInstanceObjects(l.irType(t, node))
+	irType := l.irType(t, node)
+	return copiesInstanceObjects(irType) || irType != nil && !isFunction(irType) && holdsFunctions(irType, map[ir.Type]bool{}) // a container of functions converts by adapters (H10b)
 }
 
 // isInstanceofDynamicLocalRef reports whether node reads a variable isInstanceofDynamicLocal holds.
@@ -895,19 +901,21 @@ func (l *lowerer) declaredTypeOfReference(node *ast.Node) *checker.Type {
 			}
 			return nil
 		}
+		// instantiated: `this.next`'s ListNode<T> | null is a ListNode<any> | null in the
+		// instance for any, which tsc's type for it holds, no narrowing (H10b)
 		if t := l.checker.GetTypeOfPropertyOfType(object, name.Text()); t != nil {
-			return t
+			return l.instantiate(t)
 		}
 		if infos := l.checker.GetIndexInfosOfType(object); len(infos) > 0 {
-			return infos[0].ValueType() // `rec.main` of a Record<string, …>
+			return l.instantiate(infos[0].ValueType()) // `rec.main` of a Record<string, …>
 		}
 	case ast.KindElementAccessExpression:
 		object := l.typeAt(node.Expression())
 		if t := l.checker.GetTypeOfPropertyOfType(object, node.AsElementAccessExpression().ArgumentExpression.Text()); t != nil {
-			return t // a tuple's element, an object type's property
+			return l.instantiate(t) // a tuple's element, an object type's property
 		}
 		if infos := l.checker.GetIndexInfosOfType(object); len(infos) > 0 {
-			return infos[0].ValueType() // an array's or record's element
+			return l.instantiate(infos[0].ValueType()) // an array's or record's element
 		}
 	}
 	return nil
@@ -1094,33 +1102,68 @@ func callbackArgument(fn *ast.Node) (call, argument *ast.Node) {
 // converts as one given through `any` does (D-075, D-071), since the place may hold C's
 // instance for any, whose objects it takes as they are (D-219).
 func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.Node, index int, argument *ast.Node, value ir.Expr) bool {
-	if value.Type() == ir.Value && l.narrowedByInstanceof(callee) && !l.isInstanceOwnValue(argument) && l.holdsCopyingFunction(argument) {
-		// `c.list.push(flag ? c.list[0] : addRow)`: a dynamic value that may be the program's
-		// function, judged by tsc's type (R9-F1)
-		l.reportCallbackCopy(copyingParameterIn(l.irType(l.typeAt(argument), argument), map[ir.Type]bool{}), argument)
-		return true
+	t, _ := l.callbackCopy(call, callee, index, argument, value, true)
+	if t != nil {
+		l.reportCallbackCopy(t, argument)
 	}
-	if !holdsFunctions(value.Type(), map[ir.Type]bool{}) || !l.narrowedByInstanceof(callee) || l.isInstanceOwnValue(argument) {
-		return false // `c.list.concat([c.list[0]])`: the instance's own functions (R11-F2)
+	return t != nil
+}
+
+// instanceCallbackArgument is value, a function (or a value holding functions) given to a method of
+// callee's object that an instanceof narrowing made dynamic (copiesCallbackArgument's
+// PTS1001: nil, reported), or of a C<any, …> place's value (H10b): there, a function given
+// by reference whose parameter would get a copy of an object the method hands it takes its
+// arguments as they are (asIsAdapter); others, as through `any`.
+func (l *lowerer) instanceCallbackArgument(call *ast.CallExpression, callee *ast.Node, index int, argument *ast.Node, value ir.Expr) ir.Expr {
+	if l.narrowedByInstanceof(callee) {
+		if l.copiesCallbackArgument(call, callee, index, argument, value) {
+			return nil
+		}
+		return value
+	}
+	if !l.madeDynamicByInstanceof(callee) {
+		return value
+	}
+	t, function := l.callbackCopy(call, callee, index, argument, value, false)
+	if t == nil {
+		return value
+	}
+	if function {
+		if adapted := l.asIsAdapter(value, argument); adapted != nil {
+			return adapted
+		}
+	}
+	l.reportCallbackCopy(t, argument)
+	return nil
+}
+
+// callbackCopy is copiesCallbackArgument's test for callee's object, one an instanceof
+// narrowing made dynamic (narrowed) or else a C<any, …> place's: the type of the copying
+// parameter it finds, if any, and whether value is the function itself (not a dynamic value
+// or a literal holding one).
+func (l *lowerer) callbackCopy(call *ast.CallExpression, callee *ast.Node, index int, argument *ast.Node, value ir.Expr, narrowed bool) (ir.Type, bool) {
+	if value.Type() == ir.Value && narrowed && !l.isInstanceOwnValue(argument) && l.holdsCopyingFunction(argument) {
+		// `c.list.push(flag ? c.list[0] : addRow)`: a dynamic value that may be the program's
+		// function, judged by tsc's type (R9-F1); a C<any, …> place's converts as through any
+		return copyingParameterIn(l.irType(l.typeAt(argument), argument), map[ir.Type]bool{}), false
+	}
+	if !holdsFunctions(value.Type(), map[ir.Type]bool{}) || l.isInstanceOwnValue(argument) {
+		return nil, false // `c.list.concat([c.list[0]])`: the instance's own functions (R11-F2)
 	}
 	var parameters []int // those the method hands its objects; nil for every one
 	method, isArrayMethod := l.arrayMethodName(callee)
 	if isArrayMethod && !keepingArrayMethods[method] {
 		parameters = l.arrayCallbackObjectParameters(method, call.Arguments.Nodes)
 		if index != 0 || parameters == nil {
-			return false // an array's method calls no other argument
+			return nil, false // an array's method calls no other argument
 		}
 	}
 	fn, ok := value.Type().(*ir.FuncType)
 	if !ok {
 		if parameters != nil {
-			return false
+			return nil, false
 		}
-		if t := copyingParameterIn(value.Type(), map[ir.Type]bool{}); t != nil {
-			l.reportCallbackCopy(t, argument)
-			return true
-		}
-		return false
+		return copyingParameterIn(value.Type(), map[ir.Type]bool{}), false
 	}
 	declaration := l.callbackFunction(argument)
 	for i := range parameterCount(fn) {
@@ -1132,10 +1175,9 @@ func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.N
 			i == 0 && l.ownsAccumulator(method, call.Arguments.Nodes, t) {
 			continue
 		}
-		l.reportCallbackCopy(t, argument)
-		return true
+		return t, true
 	}
-	return false
+	return nil, false
 }
 
 // copiesSpreadCallbacks is copiesCallbackArgument for spread, a spread argument of a call
@@ -1289,6 +1331,24 @@ func (l *lowerer) storesCopyingFunction(target, value *ast.Node) bool {
 	}
 	l.notSupportedYet(value, fmt.Sprintf("storing a function whose parameter is a %s in the object an `instanceof` narrowing holds as a dynamic value, whose code may call it with that object's own values (the parameter would get a copy, which wouldn't show changes; a parameter of type `any` takes them as they are), is", copying))
 	return true
+}
+
+// storedFunctionValue is value, the lowered right side (valueNode) of an assignment to
+// target, a member of a C<any, …> place's value (`m.cfg.onRows = addAll`, `m.list[0] =
+// addRow`), as asIsAdapter makes it where it is a function with a parameter that would get a
+// copy of the instance's objects when its code calls it (H10b); otherwise value, also where
+// an instanceof narrowing made the object dynamic (storesCopyingFunction's PTS1001).
+func (l *lowerer) storedFunctionValue(target, valueNode *ast.Node, value ir.Expr) ir.Expr {
+	target = ast.SkipParentheses(target)
+	fn, ok := value.Type().(*ir.FuncType)
+	if !ok || !ast.IsAccessExpression(target) || l.isInstanceOwnValue(valueNode) || copyingParameterIn(fn, map[ir.Type]bool{}) == nil ||
+		!l.madeDynamicByInstanceof(target) && !l.madeDynamicByInstanceof(target.Expression()) {
+		return value
+	}
+	if adapted := l.asIsAdapter(value, valueNode); adapted != nil {
+		return adapted
+	}
+	return value
 }
 
 // arrayMethodName is the name of the method callee calls, if its receiver is an array or a

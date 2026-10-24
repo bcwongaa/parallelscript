@@ -453,8 +453,9 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 		return nil
 	}
 	objectType := restType // tsc keeps source's order in restType
+	ofAnyInstance := false
 	if pattern := l.typeAt(element.Parent); source.Type() == ir.Value && l.anyInstanceIn(pattern) != nil {
-		objectType = pattern // a C<any, …> place's object, whose own properties are C's fields (H10b)
+		objectType, ofAnyInstance = pattern, true // a C<any, …> place's object, whose own properties are C's fields (H10b)
 	}
 	names, ok := l.spreadNames(source, objectType, element)
 	if !ok {
@@ -481,7 +482,7 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 			l.notSupportedYet(element, fmt.Sprintf("rest properties holding `%s`, which the object's type lacks, are", name))
 			return nil
 		}
-		value := l.convert(copiedRead(read, field), field.Type, element)
+		value := l.convertMember(copiedRead(read, field), field.Type, element, ofAnyInstance)
 		if value == nil {
 			return nil
 		}
@@ -669,10 +670,7 @@ func (l *lowerer) destructuringAssignment(pattern *ast.Node, valueNode *ast.Node
 		return nil
 	}
 	whole := l.newLocal("destructured", value.Type())
-	outer := l.partsAsIs
-	l.partsAsIs = outer || l.holdsAnyInstance(valueNode) // `({ items: it } = boxes[0])` for a Box<any>[] (H10b)
-	stores, ok := l.assignParts(pattern, &ir.LocalRef{Local: whole})
-	l.partsAsIs = outer
+	stores, ok := l.assignParts(pattern, &ir.LocalRef{Local: whole}, l.holdsAnyInstance(valueNode)) // `({ items: it } = boxes[0])` for a Box<any>[] (H10b)
 	if !ok {
 		return nil
 	}
@@ -684,8 +682,9 @@ func (l *lowerer) destructuringAssignment(pattern *ast.Node, valueNode *ast.Node
 }
 
 // assignParts assigns each target of an array or object literal on the left of an
-// assignment its part of source.
-func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr) ([]ir.Expr, bool) {
+// assignment its part of source; asIs, for a source tsc types C<any, …>, takes a part that
+// would be copied as it is (asIsConversion, D-219).
+func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr, asIs bool) ([]ir.Expr, bool) {
 	var stores []ir.Expr
 	var elements []*ast.Node
 	if pattern.Kind == ast.KindObjectLiteralExpression {
@@ -737,7 +736,7 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr) ([]ir.Expr, boo
 		if part == nil {
 			return nil, false
 		}
-		store := l.assignPart(target, part)
+		store := l.assignPart(target, part, asIs)
 		if store == nil {
 			return nil, false
 		}
@@ -747,11 +746,11 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr) ([]ir.Expr, boo
 }
 
 // assignPart assigns value to a target of a destructuring assignment: a place, or a
-// nested array or object literal.
-func (l *lowerer) assignPart(target *ast.Node, value ir.Expr) ir.Expr {
+// nested array or object literal; asIs as for assignParts.
+func (l *lowerer) assignPart(target *ast.Node, value ir.Expr, asIs bool) ir.Expr {
 	if nested := ast.SkipParentheses(target); nested.Kind == ast.KindArrayLiteralExpression || nested.Kind == ast.KindObjectLiteralExpression {
 		inner := l.newLocal("destructured", value.Type())
-		stores, ok := l.assignParts(nested, &ir.LocalRef{Local: inner})
+		stores, ok := l.assignParts(nested, &ir.LocalRef{Local: inner}, asIs)
 		if !ok {
 			return nil
 		}
@@ -765,7 +764,7 @@ func (l *lowerer) assignPart(target *ast.Node, value ir.Expr) ir.Expr {
 	if !ok {
 		return nil
 	}
-	if l.partsAsIs && value.Type() == ir.Value && copiesInstanceObjects(destination.valueType()) {
+	if asIs && value.Type() == ir.Value && copiesInstanceObjects(destination.valueType()) {
 		value = l.asIsConversion(value, destination.valueType(), target) // a C<any, …> object's member, taken as it is (D-219)
 	} else {
 		value = l.convert(value, destination.valueType(), target)

@@ -1195,6 +1195,9 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 	}
 	if x.X.Type() == ir.Value && x.To != ir.Value && x.AsIs && !hasValueTest(x.To) { // as it is, never copied (D-219)
 		converted := "pts_value_convert_as_is(" + value + ", &" + e.checks[x.To] + ")"
+		if x.Fresh {
+			converted = "pts_value_convert_fresh(" + value + ", &" + e.checks[x.To] + ")"
+		}
 		if isUnion(x.To) {
 			return converted
 		}
@@ -1615,6 +1618,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueLooseEquals:            "pts_value_loose_equals",
 	ir.DynamicGet:                  "pts_dynamic_get",
 	ir.DynamicMethodOf:             "pts_dynamic_method_of",
+	ir.DynamicMethodFor:            "pts_dynamic_method_for",
 	ir.DynamicSet:                  "pts_dynamic_set",
 	ir.DynamicHas:                  "pts_dynamic_has",
 	ir.ValueIsArray:                "pts_value_is_array",

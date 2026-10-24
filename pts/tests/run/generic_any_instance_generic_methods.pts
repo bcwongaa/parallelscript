@@ -1,0 +1,23 @@
+// H10b review round 2 (R2-F5), the reviewer's probe r2_generic_method_result.pts:
+// R2: a generic method returning Box<R> called on a Box<any> value (Box<any> objects only, no instanceof).
+// HEAD called the typed instance (map<any[]>) and ran as Node; the snapshot calls it through any, whose
+// erased copy makes a Box<any>, and the checked conversion to tsc's Box<any[]> throws.
+class Box<T> {
+  constructor(public v: T) {}
+  map<R>(f: (v: T) => R): Box<R> { return new Box(f(this.v)); }
+  pair<U>(u: U): Box<[T, U]> { return new Box<[T, U]>([this.v, u]); }
+}
+const a = new Box<any>(1);
+const m = a.map((v) => [v]);
+console.log("map", m.v, m instanceof Box);
+const s: Box<string> = a.map((v) => String(v));
+console.log("typed", s.v.length);
+function len(b: Box<number>): number { return b.v; }
+console.log("param", len(a.map((v) => 7)));
+const p = a.pair("x");
+console.log("pair", p.v[1]);
+// expect:
+// map [ 1 ] true
+// typed 1
+// param 7
+// pair x

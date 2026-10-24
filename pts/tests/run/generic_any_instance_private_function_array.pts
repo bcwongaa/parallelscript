@@ -1,0 +1,17 @@
+// H10b review round 2 (R2-F8), the reviewer's probe r2_private_function_array.pts:
+// R2: a push onto a private array of functions of an instance held as a dynamic value (object-source
+// narrowing; a Hold<any> place) is lost silently: the private read converts the array to tsc's
+// ((x: any) => any)[] by a copy (R1-F8's fix keeps arrays and objects of data, not of functions).
+// HEAD: lost too for the narrowing; PTS1001 for the place.
+class Hold<T> {
+  #fns: ((x: T) => T)[] = [];
+  count(): number { return this.#fns.length; }
+  static poke(o: object): void { if (o instanceof Hold) o.#fns.push((y: any) => y); }
+  static pokePlace(h: Hold<any>): void { h.#fns.push((y: any) => y); }
+}
+const h = new Hold<number>();
+Hold.poke(h);
+Hold.pokePlace(h);
+console.log(h.count());
+// expect:
+// 2

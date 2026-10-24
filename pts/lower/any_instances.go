@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"fmt"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -35,7 +37,25 @@ func (l *lowerer) isAnyInstance(t *checker.Type) bool {
 // type arguments, which typeAt gives as their instance (D-218).
 func (l *lowerer) holdsAnyInstance(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
-	return node.Kind != ast.KindSuperKeyword && l.anyInstanceIn(l.typeAt(node)) != nil
+	return node.Kind != ast.KindSuperKeyword && !l.classReceivers[node] && l.anyInstanceIn(l.typeAt(node)) != nil
+}
+
+// callsAnyInstanceGenericMethod reports whether call calls a generic method of C, whose
+// result may hold generic class instances (`map<R>(f): Box<R>`), on a value tsc types
+// C<any, …>: called through any, its erased copy would make C's instance for any where tsc
+// says C<R> (R2-F5), so it is called as on C's instance for any, the receiver converted to it
+// with a check (classReceivers): a TypeError for another instance, as the base did.
+func (l *lowerer) callsAnyInstanceGenericMethod(call *ast.CallExpression) bool {
+	callee := ast.SkipParentheses(call.Expression)
+	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Kind == ast.KindPrivateIdentifier || !l.holdsAnyInstance(callee.Expression()) {
+		return false
+	}
+	declaration := l.memberDeclaration(callee)
+	if declaration == nil || declaration.Kind != ast.KindMethodDeclaration || len(declaration.TypeParameters()) == 0 {
+		return false
+	}
+	signature := l.checker.GetSignatureFromDeclaration(declaration)
+	return signature != nil && l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(signature), signature.TypeParameters())
 }
 
 // anyInstanceIn is t if it is tsc's C<any, …> (isAnyInstance), or an intersection's covering
@@ -63,5 +83,78 @@ func (l *lowerer) asIsConversion(value ir.Expr, target ir.Type, node *ast.Node) 
 		return nil
 	}
 	converted.AsIs = true
+	converted.Fresh = l.isNewArray(node) || l.isInstanceofContainer(node) // `[b.items]`, `b.matrix.map(f)`, `new Set(b.matrix)`: copied, its items as they are
+	return converted
+}
+
+// convertMember converts value, a member a rest pattern or a spread reads (D-058), to target:
+// as it is (asIsConversion) where the object is a C<any, …> place's (ofAnyInstance) and a
+// conversion would copy it, as `b.items` is (R2-F4); otherwise as convert does.
+func (l *lowerer) convertMember(value ir.Expr, target ir.Type, node *ast.Node, ofAnyInstance bool) ir.Expr {
+	if ofAnyInstance && value.Type() == ir.Value && copiesInstanceObjects(target) {
+		return l.asIsConversion(value, target, node)
+	}
+	return l.convert(value, target, node)
+}
+
+// asIsAdapter is value, a function of the program given to a method of, or stored in, a
+// value of a C<any, …> place (`b.rows.forEach(addRow)`, `m.cfg.onRows = addAll` for an
+// `addRow(row: any[])`), as a function of dynamic values that takes each argument its
+// parameter would get as a copy as it is (asIsConversion): the instance for any's rows
+// themselves, a TypeError for another instance's `number[]`, where the instance's code
+// calls it (D-219). nil for a function with defaults or a rest parameter, which the caller
+// reports as D-218 does.
+func (l *lowerer) asIsAdapter(value ir.Expr, node *ast.Node) ir.Expr {
+	from, ok := value.Type().(*ir.FuncType)
+	if !ok {
+		return nil
+	}
+	to := &ir.FuncType{Params: make([]ir.Type, len(from.Params)), Result: from.Result}
+	for i, t := range from.Params {
+		if t == ir.Given || isRest(t) {
+			return nil
+		}
+		to.Params[i] = ir.Value
+	}
+	wrapped := l.newLocal("adapted", from)
+	fn := &ir.Func{Name: l.closureName("adapter", node), Module: l.function.Module, Pos: l.pos(node), Result: to.Result,
+		Closure: true, Outer: l.function, Adapts: true, Captures: []*ir.Local{wrapped}}
+	failed := false
+	l.inFunction(fn, func() {
+		args := make([]ir.Expr, len(from.Params))
+		for i, t := range from.Params {
+			param := l.newLocal(fmt.Sprintf("arg%d", i+1), ir.Value)
+			fn.Params = append(fn.Params, param)
+			if copiesInstanceObjects(t) {
+				args[i] = l.asIsConversion(&ir.LocalRef{Local: param}, t, node)
+			} else {
+				args[i] = l.convert(&ir.LocalRef{Local: param}, t, node)
+			}
+			if failed = args[i] == nil; failed {
+				return
+			}
+		}
+		call := ir.Expr(&ir.CallValue{Callee: &ir.LocalRef{Local: wrapped}, Args: args})
+		if to.Result == ir.Void {
+			fn.Body = &ir.Block{At: fn.Pos, Stmts: []ir.Stmt{&ir.ExprStmt{At: fn.Pos, X: call}}}
+			return
+		}
+		fn.Body = &ir.Block{At: fn.Pos, Stmts: []ir.Stmt{&ir.Return{At: fn.Pos, Value: call}}}
+	})
+	if failed {
+		return nil
+	}
+	return &ir.Bind{Local: wrapped, Value: value, In: &ir.MakeClosure{Func: fn, FuncType: to}}
+}
+
+// freshConversion is asIsConversion of value, a new container nothing else holds (the
+// array a rest parameter gets from a spread: `pushRest(...b.matrix)`), whose items are
+// taken as they are.
+func (l *lowerer) freshConversion(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
+	converted, ok := l.asIsConversion(value, target, node).(*ir.FromUnion)
+	if !ok {
+		return nil
+	}
+	converted.Fresh = true
 	return converted
 }

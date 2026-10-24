@@ -183,8 +183,10 @@ func (l *lowerer) promiseCall(call *ast.CallExpression) (x ir.Expr, handled bool
 		if value == nil {
 			return nil, true
 		}
-		if len(values) > 0 && l.copiesCallbackArgument(call, callee, i, arg, value) {
-			return nil, true // `Promise.resolve(c.matrix[0]).then(pushRow)`: pushRow would get a copy of the instance's row (C285)
+		if len(values) > 0 {
+			if value = l.instanceCallbackArgument(call, callee, i, arg, value); value == nil {
+				return nil, true // `Promise.resolve(c.matrix[0]).then(pushRow)`: pushRow would get a copy of the instance's row (C285)
+			}
 		}
 		if instantiated, ok := l.instantiatingAdapter(value, nil, arg); ok {
 			if value = instantiated; value == nil { // a generic callback's instance for the value it gets (D-194)

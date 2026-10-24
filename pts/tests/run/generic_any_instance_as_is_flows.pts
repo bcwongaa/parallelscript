@@ -1,0 +1,99 @@
+// no-diff: a Box<number> held in a Box<any> place throws TypeError where its arrays would reach code that takes any[] only as copies, where Node shares them (D-219)
+// H10b review round 2 (R2-F2, R2-F3, R2-F4, R2-F5): where a value of a Box<any> place (an
+// explicit one, or one a value narrowed by instanceof flowed into) is another instance than
+// the instance for any, the places that would get its number[] rows as copies take them as
+// they are and so throw TypeError where they would have lost writes silently: a function
+// given by reference to its method or stored in it, rows spread into an any[][] rest
+// parameter, a read through an interface whose member is any[], a rest object, an object
+// spread and a generic method called on it (as on the instance for any, checked). The instance for any runs each
+// as Node does (generic_any_instance_adapted_callbacks.pts and the other tests).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+interface Lister<V> {
+  items: V[];
+}
+class Box<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  rows: V[][] = [[], []];
+  cfg: { onRows?: (rows: V[][]) => void } = {};
+  constructor(public key: K) {}
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+  fire(): void {
+    this.cfg.onRows?.(this.rows);
+  }
+  map<R>(f: (key: K) => R): Box<R, V> {
+    return new Box<R, V>(f(this.key));
+  }
+}
+function addRow(row: any[]): void {
+  row.push(1);
+}
+function addAll(rows: any[][]): void {
+  rows[0].push(2);
+}
+function pushRest(...rows: any[][]): void {
+  rows[0].push(3);
+}
+function attempt(label: string, form: () => void): void {
+  try {
+    form();
+    console.log(label, "ran");
+  } catch (e) {
+    console.log(label, (e as Error).constructor.name, (e as Error).message);
+  }
+}
+function forms(b: Box<any, any>): void {
+  attempt("callback", () => b.rows.forEach(addRow));
+  attempt("stored", () => {
+    b.cfg.onRows = addAll;
+    b.fire();
+  });
+  attempt("rest spread", () => pushRest(...b.rows));
+  attempt("interface", () => {
+    const l: Lister<any> = b;
+    l.items.push(4);
+  });
+  attempt("rest object", () => {
+    const { key, ...rest } = b;
+    rest.items.push(5);
+  });
+  attempt("generic method", () => b.map((k) => String(k)));
+  attempt("object spread", () => {
+    const copy = { ...b };
+    (copy as any).items.push(6); // `copy.items` itself is PTS1001, also on the base
+  });
+}
+function flows(c: Cache<string, number>): void {
+  if (c instanceof Box) {
+    const m = c;
+    attempt("flow callback", () => m.rows.forEach(addRow));
+  }
+}
+const typed = new Box<string, number>("k");
+forms(typed);
+flows(typed);
+console.log("typed", JSON.stringify([typed.items, typed.rows]));
+const loose = new Box<any, any>("k");
+forms(loose);
+console.log("any", JSON.stringify([loose.items, loose.rows]));
+// expect:
+// callback TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// stored TypeError Expected value[][], got Array, which converts to it only as a copy that wouldn't show later changes
+// rest spread TypeError Expected value[][], got Array, whose items convert to it only as copies that wouldn't show later changes
+// interface TypeError Cannot read property items of Box as value[]: it is declared number[]
+// rest object TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// generic method TypeError Expected Box<any, any>, got Box<string, number>
+// object spread TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// flow callback TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// typed [[],[[],[]]]
+// callback ran
+// stored ran
+// rest spread ran
+// interface ran
+// rest object ran
+// generic method ran
+// object spread ran
+// any [[4,5,6],[[1,2,3],[1]]]

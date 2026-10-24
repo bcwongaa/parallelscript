@@ -1,0 +1,15 @@
+// H10b review round 2 (R2-F7), the reviewer's probe r2b_private_in_static_brand_typed.pts:
+// R2: `#count in o` (a static private) in an instance method on a typed receiver: base vs snapshot 2
+
+class Box<T> {
+  static #count = 0;
+  static #reset(): void { Box.#count = 0; }
+  #v: T;
+  constructor(v: T) { this.#v = v; Box.#count++; }
+  hasCount(o: Box<number>): boolean { return #count in o; }
+  hasReset(o: Box<number>): boolean { return #reset in o; }
+}
+const n = new Box<number>(1);
+console.log(n.hasCount(n), n.hasReset(n));
+// expect:
+// false false

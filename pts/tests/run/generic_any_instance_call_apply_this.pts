@@ -1,0 +1,14 @@
+// H10b review round 2 (R2-F6), the reviewer's probe r2_call_apply_this.pts:
+// R2: `b.m.call(other, …)` / `b.m.apply(other, …)` for a Box<any> value b (Box<any> objects only, no
+// instanceof): JS calls m with `this` = other. Snapshot 2 calls it on b, ignoring the thisArg.
+class Box<T> {
+  items: T[] = [];
+  constructor(public v: T) {}
+  add(x: T): number { this.items.push(x); return this.items.length; }
+  who(): string { return `${this.v}`; }
+}
+const b = new Box<any>("b");
+const other = new Box<any>("o");
+console.log(b.add.call(other, "x"), b.who.apply(other, []), b.who.call(b), b.items.length, other.items.length);
+// expect:
+// 1 o b 0 1

@@ -4,7 +4,8 @@
 // a spread into a Record, a spread before a yield, `for…in`, `in`, `bind`/`call`/`apply` of a
 // method, passing one where an interface goes, accessors and a conditional. The first H10b
 // build made the spreads, `bind` and the interface PTS1001 (or PTS9001), where HEAD ran the
-// instance for any as Node does.
+// instance for any as Node does. (A Box<number> held there spreads its number[] into an any[]
+// only as a copy, a TypeError since review round 2: generic_any_instance_as_is_flows.pts.)
 interface HasV {
   label: string;
   m(): number;
@@ -50,9 +51,8 @@ function operations(x: Box<any>): void {
 }
 const anyBox = new Box<any>(3);
 operations(anyBox);
-const numberBox = new Box<number>(4);
-const held: Box<any> = numberBox;
-operations(Math.random() < 2 ? held : anyBox);
+const parsed: Box<any> = new Box(JSON.parse("4")); // an instance for any too (another instance is generic_any_instance_as_is_flows.pts's)
+operations(Math.random() < 2 ? parsed : anyBox);
 // expect:
 // in [ 'v', 'label', 'items' ] true 3
 // spread { v: 3, label: 'box', items: [ 3 ], extra: 1 }

@@ -1,0 +1,25 @@
+// H10b review round 2 (R2-F1), the reviewer's probe r2_as_is_fresh_containers.pts:
+// R2: Box<any> objects only (no instanceof, no other instance): new arrays and sets of their any[] members (literals, map, spread, Set, Array.of, a literal argument) converted to annotated any[][] / Set<any[]> places throw the as-is TypeError (`Expected value[][], got Array, which converts to it only as a copy…`) where HEAD ran as Node; the copy would only copy the new outer array.
+class Box<T> {
+  items: T[] = [];
+  matrix: T[][] = [[]];
+  constructor(public v: T) { this.items.push(v); }
+}
+const b = new Box<any>(1);
+const out: string[] = [];
+const t = (name: string, f: () => void) => { try { f(); out.push(`${name}:ok`); } catch (e) { out.push(`${name}:${(e as Error).message.slice(0, 40)}`); } };
+t("arrayLit", () => { const all: any[][] = [b.items]; all[0].push("a"); });
+t("returnLit", () => { const f = (x: Box<any>): any[][] => [x.items]; f(b)[0].push("r"); });
+t("tuple", () => { const p: [any[], number] = [b.items, 0]; p[0].push("t"); });
+t("objLit", () => { const o: { xs: any[] } = { xs: b.items }; o.xs.push("o"); });
+t("mapLit", () => { const m: Map<string, any[]> = new Map([["k", b.items]]); m.get("k")!.push("m"); });
+t("mapRows", () => { const rs: any[][] = b.matrix.map((r) => r); rs[0].push("mr"); });
+t("spreadRows", () => { const rs: any[][] = [...b.matrix]; rs[0].push("sr"); });
+t("setRows", () => { const s: Set<any[]> = new Set(b.matrix); [...s][0].push("s"); });
+t("param", () => { const g = (rows: any[][]) => rows[0].push("p"); g([b.items]); });
+t("ofRows", () => { const rs: any[][] = Array.of(...b.matrix); rs[0].push("of"); });
+console.log(out.join(" | "));
+console.log(JSON.stringify([b.items, b.matrix]));
+// expect:
+// arrayLit:ok | returnLit:ok | tuple:ok | objLit:ok | mapLit:ok | mapRows:ok | spreadRows:ok | setRows:ok | param:ok | ofRows:ok
+// [[1,"a","r","t","o","m","p"],[["mr","sr","s","of"]]]

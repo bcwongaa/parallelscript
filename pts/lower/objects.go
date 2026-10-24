@@ -627,7 +627,8 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 			if earlier, ok := values[field]; ok && isOptionalRead(read) {
 				read = l.spreadOver(read.(*ir.FieldRef), earlier, field, part.node)
 			} else {
-				read = l.convert(copiedRead(read, field), field.Type, part.node)
+				ofAnyInstance := part.node.Kind == ast.KindSpreadAssignment && l.holdsAnyInstance(part.node.Expression())
+				read = l.convertMember(copiedRead(read, field), field.Type, part.node, ofAnyInstance)
 			}
 			if read == nil {
 				return nil

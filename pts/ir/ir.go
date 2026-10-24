@@ -1117,7 +1117,9 @@ type FromUnion struct {
 	Checked bool
 	// AsIs, for X a dynamic value and To a type it converts to by a copy, converts it only
 	// where it is one already: otherwise TypeError, never a copy writes would miss (D-219).
-	AsIs bool
+	// Fresh, with AsIs, is for X a new container nothing else holds: it may be copied, what
+	// it holds only taken as it is.
+	AsIs, Fresh bool
 }
 
 // IsNullish is whether X, a value of a union or a dynamic value, is null or undefined
@@ -1274,7 +1276,10 @@ var (
 	// whose arguments suspend (H08): DynamicMethodOf (the object, the key) finds what the
 	// call calls before the arguments are evaluated, as JS does, and DynamicCallFound calls
 	// it: the object, the key, what DynamicMethodOf found, the source text, then the arguments.
-	DynamicMethodOf  = &Builtin{Name: "method of", Params: []Type{Value, Value}, Result: Value}
+	DynamicMethodOf = &Builtin{Name: "method of", Params: []Type{Value, Value}, Result: Value}
+	// DynamicMethodFor is the method `o.m` (object, key) names bound to self, the `this` that
+	// `o.m.call(self, …)`, `apply` and `bind` give it, where self has that same method (D-219).
+	DynamicMethodFor = &Builtin{Name: "method for", Params: []Type{Value, Value, Value}, Result: Value}
 	DynamicCallFound = &Builtin{Name: "call found", Result: Value}
 	// ValueIsArray is Array.isArray of a dynamic value or a union (D-076).
 	ValueIsArray = &Builtin{Name: "Array.isArray", Params: []Type{Value}, Result: Bool}

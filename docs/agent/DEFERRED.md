@@ -24,3 +24,9 @@ here is done; each entry names the later task that owns it and must be listed ag
 - **Why deferred:** programs behave correctly (as Node, or an honest checked TypeError); it is run time: review round 2's `q02` sums `c.items[i]` in about 1.1 s against 0.22 s through a typed parameter (Node 64 ms, a loaded host), and `q16`'s 2M dynamic calls take 280 ms against 10 ms typed.
 - **Owner:** H27 (numeric and array code generation), with `q02_hot_loop.pts` and `q16_hot_dynamic_calls.pts` as the measurement.
 - **Evidence:** docs/agent/hardening-evidence/h10a.md, h10a-review.md (round 2), `h10a-review2-probes.tar.gz`.
+
+## H10b
+- **What remains (D-219's cost):** a place tsc types `C<any, …>` holds any of C's instances as a dynamic value, so reads, writes and calls through it are found at run time, also where the place provably holds C's instance for any (`const hot = new Box<any>(0)`, which the base lowered as a typed class). Keep such a place typed where every value it holds is made by `new C<any>(…)` (or another proof of the exact class), as H09b5c's exact constructed receivers do, boxing it where it flows into other C<any, …> places.
+- **Why deferred:** programs behave correctly (as Node, or D-070's checked TypeError for a write of another type); it is run time: 1M iterations of a write, a read and a method call through `const hot = new Box<any>(0)` run 140.8M instructions on the base and 761.8M with H10b (callgrind, 5.4×).
+- **Owner:** H27 (numeric and array code generation), with the probe `hot.pts` in `h10b-parent-probes.tar.gz` as the measurement.
+- **Evidence:** docs/agent/hardening-evidence/h10b.md.

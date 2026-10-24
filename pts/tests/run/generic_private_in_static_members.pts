@@ -1,0 +1,16 @@
+// H10b review round 2 (R2-F7), the reviewer's probe r2_private_in_static_brand.pts:
+// R2: `#count in o` for a STATIC private field is true only for the class constructor itself;
+// for an instance it is false (Node). And `#v in 5` / `#v in null` throw TypeError in JS.
+class Box<T> {
+  static #count = 0;
+  static #reset(): void { Box.#count = 0; }
+  #v: T;
+  constructor(v: T) { this.#v = v; Box.#count++; }
+  hasCount(o: Box<number>): boolean { return #count in o; }
+  hasReset(o: Box<number>): boolean { return #reset in o; }
+  static anyHas(o: any): string { try { return String(#v in o); } catch (e) { return (e as Error).name; } }
+}
+const n = new Box<number>(1);
+console.log(n.hasCount(n), n.hasReset(n), Box.anyHas(5), Box.anyHas(null), Box.anyHas(n));
+// expect:
+// false false TypeError TypeError true

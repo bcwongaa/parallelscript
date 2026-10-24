@@ -30,6 +30,8 @@ typedef struct converting {
   bool results_last;
   /* Set for a read that converts only as it is (pts_value_try_convert_as_is): a closure of another type is still adapted, since an adapter holds no data a write could change. */
   bool adapt;
+  /* Set for a new container nothing else holds (pts_value_convert_fresh): it may be copied, what it holds only taken as it is (D-219). */
+  bool fresh;
 } converting;
 
 static bool convert(converting *c, pts_value value, const pts_check *check, bool copy, pts_value *out);
@@ -968,6 +970,13 @@ static bool union_member_copy(converting *c, pts_value value, const pts_check *c
 
 static bool convert(converting *c, pts_value value, const pts_check *check, bool copy, pts_value *out) {
   *out = value;
+  bool adapt = c->adapt;
+  if (c->fresh && c->depth > 0) {
+    /* What a fresh container holds: as it is, a closure adapted; but an entry pair the call
+     * made (`Object.entries`), an array, becomes its tuple, of what it holds as it is. */
+    copy = c->depth == 1 && check->kind == PTS_CHECK_TUPLE && is_kind(value, PTS_KIND_ARRAY);
+    adapt = true;
+  }
   bool results_last = c->results_last;
   c->results_last = false;
   switch (check->kind) {
@@ -995,7 +1004,7 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
     if (closure->type->signature == check) {
       return true;
     }
-    if ((!copy && !c->adapt) || closure->type->call == NULL || check->adapt == NULL) {
+    if ((!copy && !adapt) || closure->type->call == NULL || check->adapt == NULL) {
       return false;
     }
     *out = pts_value_from_object(check->adapt(closure)); /* a closure of another type, called through its dynamic entry */
@@ -1069,7 +1078,7 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
   bool converted = false;
   switch (check->kind) {
   case PTS_CHECK_OBJECT:
-    if (object->type->kind == PTS_KIND_OBJECT && (c->adapt || object_fits(object, check))) {
+    if (object->type->kind == PTS_KIND_OBJECT && (adapt || object_fits(object, check))) {
       /*
        * As it is. A read (adapt) takes any object as an object type: its properties are only
        * ever read through sites, which verify each one's declared type as it is read (D-192),
@@ -1112,6 +1121,7 @@ bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *o
   c.depth = 0;
   c.results_last = false;
   c.adapt = false;
+  c.fresh = false;
   return convert(&c, value, check, true, out);
 }
 
@@ -1120,6 +1130,7 @@ bool pts_value_try_convert_as_is(pts_value value, const pts_check *check, pts_va
   c.depth = 0;
   c.results_last = false;
   c.adapt = true;
+  c.fresh = false;
   return convert(&c, value, check, false, out);
 }
 
@@ -1138,6 +1149,23 @@ pts_value pts_value_convert_as_is(pts_value value, const pts_check *check) {
   }
   if (pts_value_try_convert(value, check, &result)) { /* a copy, which writes through either wouldn't show in the other */
     pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s, which converts to it only as a copy that wouldn't show later changes", check->name,
+                  pts_value_description(value));
+  }
+  pts_throw_type_mismatch(value, check->name);
+}
+
+pts_value pts_value_convert_fresh(pts_value value, const pts_check *check) {
+  converting c; /* as in pts_value_try_convert */
+  c.depth = 0;
+  c.results_last = false;
+  c.adapt = false;
+  c.fresh = true;
+  pts_value result;
+  if (convert(&c, value, check, true, &result)) {
+    return result;
+  }
+  if (pts_value_try_convert(value, check, &result)) { /* copies of what it holds, which writes through either wouldn't show in the other */
+    pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s, whose items convert to it only as copies that wouldn't show later changes", check->name,
                   pts_value_description(value));
   }
   pts_throw_type_mismatch(value, check->name);

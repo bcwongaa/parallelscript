@@ -1,0 +1,21 @@
+// H10b review round 2 (R2-F4), the reviewer's probe r2_nested_patterns_two_levels.pts:
+// R2: object patterns two levels below a Box<any> value holding a Box<number> (a parameter, a callback parameter, a for…of binding) bind copies; the writes are lost silently (Node [1,2,3,4,5], snapshot 2 [2,5]; HEAD PTS1001 at the Box<any> place).
+class Box<T> {
+  meta = { tags: [] as T[] };
+  constructor(public v: T) {}
+}
+function param({ meta: { tags } }: Box<any>): void { tags.push(1); }
+function probe(b: Box<any>): void {
+  const { meta: { tags } } = b;
+  tags.push(2);
+  [b].forEach(({ meta: { tags: t } }) => t.push(3));
+  for (const { meta: { tags: t } } of [b]) t.push(4);
+  const { meta } = b;
+  meta.tags.push(5);
+}
+const n = new Box<number>(0);
+param(n);
+probe(n);
+console.log(JSON.stringify(n.meta.tags));
+// expect:
+// [1,2,3,4,5]

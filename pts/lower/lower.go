@@ -191,7 +191,7 @@ func programWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		yielded: map[*ast.Node]ir.Expr{}, kept: map[*ast.Node]ir.Expr{}, keptCurrent: map[*ast.Node]ir.Expr{}, keptSpreads: map[*ast.Node]keptSpread{}, hoisting: map[*ast.Node]bool{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
-		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, instanceofInstances: map[instanceofKey]instanceofResult{}, instanceofLocals: map[instanceofLocal]bool{}, anyMentions: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
+		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, instanceofInstances: map[instanceofKey]instanceofResult{}, instanceofLocals: map[instanceofLocal]bool{}, anyMentions: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{}, classReceivers: map[*ast.Node]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, classIdentities: map[string]classIdentity{}, classComputed: map[*genericClass]*classComputed{}, computingDecls: map[*ast.Node]*declarationTypes{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
@@ -391,7 +391,7 @@ type lowerer struct {
 	instanceofInstances  map[instanceofKey]instanceofResult // what references narrowed by instanceof hold (instanceofNarrowing)
 	instanceofLocals     map[instanceofLocal]bool           // variables that hold dynamic values of instanceof narrowings (isInstanceofDynamicLocal)
 	instanceofContainers map[instanceofContainerKey]bool    // the answers of instanceofContainer, per instance being lowered
-	partsAsIs            bool                               // assignParts takes apart a value tsc types C<any, …> (destructuringAssignment)
+	classReceivers       map[*ast.Node]bool                 // receivers of C<any, …> called as C's instance for any (callsAnyInstanceGenericMethod)
 	anyMentions          map[*checker.Type]bool             // mentionsAny's answers
 	narrowingAnswers     narrowingAnswers                   // isNarrowedDynamic's and instanceofDynamicSource's answers within one question
 	chainDepth           int                                // how many optional chains are being lowered past their tests
@@ -1737,7 +1737,11 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	case ast.KindSuperKeyword:
 		return l.superCall(node)
 	}
-	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
+	if l.callsAnyInstanceGenericMethod(call) {
+		receiver := ast.SkipParentheses(ast.SkipParentheses(call.Expression).Expression())
+		l.classReceivers[receiver] = true // as on C's instance for any, checked (H10b, R2-F5)
+		defer delete(l.classReceivers, receiver)
+	} else if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
 	}
 	if callee := ast.SkipParentheses(call.Expression); !ast.IsAccessExpression(callee) && l.holdsInstanceofDynamicValue(callee) {
@@ -2188,9 +2192,20 @@ func (l *lowerer) restArray(values []ir.Expr, at []*ast.Node, array *ir.Array) i
 	spread := false
 	for i, value := range values {
 		if s, ok := value.(*spreadValue); ok {
-			if at[i].Kind == ast.KindSpreadElement && copiesInstanceObjects(array.Elem) && l.narrowedByInstanceof(at[i].Expression()) {
-				l.reportInstanceofCopy(array, at[i]) // `pushRest(...c.matrix)`: its rows would be copies (D-218's rule, C285)
-				return nil
+			if at[i].Kind == ast.KindSpreadElement && copiesInstanceObjects(array.Elem) {
+				switch {
+				case l.narrowedByInstanceof(at[i].Expression()):
+					l.reportInstanceofCopy(array, at[i]) // `pushRest(...c.matrix)`: its rows would be copies (D-218's rule, C285)
+					return nil
+				case l.madeDynamicByInstanceof(at[i].Expression()):
+					// `pushRest(...b.matrix)` for a C<any, …> place's b: its rows as they are, or a
+					// TypeError (H10b)
+					if parts[i] = l.freshConversion(box(s.x), array, at[i]); parts[i] == nil {
+						return nil
+					}
+					spread = true
+					continue
+				}
 			}
 			if s.x.Type() != array && s.x.Type() != ir.ValueArray {
 				l.notSupportedYet(at[i], fmt.Sprintf("spreading a %s into a rest parameter of type %s is", s.x.Type(), array))
@@ -3074,6 +3089,7 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	if !ok || value == nil {
 		return nil
 	}
+	value = l.storedFunctionValue(expr.Left, expr.Right, value) // `m.cfg.onRows = addAll` for a C<any, …> place's m (H10b)
 	if value = l.convert(value, target.valueType(), expr.Right); value == nil {
 		return nil
 	}

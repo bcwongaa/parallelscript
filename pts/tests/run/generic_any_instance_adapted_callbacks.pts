@@ -1,0 +1,22 @@
+// H10b review round 2 (R2-F2): a function given by reference to a method of, or stored in, a value
+// of a Box<any> place, whose parameter is any[], gets the instance for any's arrays as they are,
+// through an adapter that takes them as they are (a TypeError for another instance's number[]:
+// generic_any_instance_as_is_flows.pts); rows spread into an any[][] rest parameter too.
+class Box<T> {
+  rows: T[][] = [[], []];
+  cfg: { onRows?: (rows: T[][]) => void } = {};
+  handlers: ((row: T[]) => void)[] = [];
+  fire(): void { this.cfg.onRows?.(this.rows); for (const h of this.handlers) h(this.rows[0]); }
+}
+function addRow(row: any[]): void { row.push("r"); }
+function addAll(rows: any[][]): void { rows[1].push("all"); }
+function pushRest(...rows: any[][]): void { rows[0].push("rest"); }
+const b: Box<any> = new Box<any>();
+b.rows.forEach(addRow);
+b.cfg.onRows = addAll;
+b.handlers.push(addRow);
+b.fire();
+pushRest(...b.rows);
+Promise.resolve(b.rows[1]).then(addRow).then(() => console.log(JSON.stringify(b.rows)));
+// expect:
+// [["r","r","rest"],["r","all","r"]]

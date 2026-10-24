@@ -224,6 +224,11 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	if x, ok := l.familyPrivateCall(call, callee); ok {
 		return x
 	}
+	if callee.Kind == ast.KindPropertyAccessExpression && functionMethods[callee.AsPropertyAccessExpression().Name().Text()] {
+		if x, ok := l.dynamicMethodWithThis(call, callee, ast.SkipParentheses(callee.Expression())); ok {
+			return x // `o.m.call(other)` through any: o's method on other (R2-F6)
+		}
+	}
 	// A method of an array that erased code makes (`[x].slice(1)`, `new Array<T>(n).fill(x)`),
 	// whose signature mentions an erased type parameter, is found at run time too.
 	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamic(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
@@ -274,7 +279,10 @@ func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, bu
 			continue
 		}
 		value := l.valueExpression(argument)
-		if value == nil || l.copiesCallbackArgument(call, callee, i, argument, value) {
+		if value == nil {
+			return nil
+		}
+		if value = l.instanceCallbackArgument(call, callee, i, argument, value); value == nil {
 			return nil
 		}
 		args = append(args, box(value))

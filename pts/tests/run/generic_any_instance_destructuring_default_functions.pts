@@ -1,0 +1,16 @@
+// H10b review round 2 (R2-F9), the reviewer's probe r2_parts_as_is_leak.pts:
+// R2 (Low): `partsAsIs`, set while a destructuring assignment of a Box<any> value lowers its parts
+// (destructuring.go:672), stays set for a destructuring assignment of an unrelated `any` value
+// nested in a default's function; that one then takes the as-is TypeError instead of D-179's copy.
+class Box<T> { items: T[] = []; constructor(public v: T) {} }
+const typedNums: number[] = [3, 4];
+const anyHoldingNums: any = { list: typedNums };
+let it: any = [];
+let other: any[] = [];
+const b = new Box<any>(undefined);
+({ v: it = (() => { ({ list: other } = anyHoldingNums); return 0; })() } = b);
+let other2: any[] = [];
+({ list: other2 } = anyHoldingNums);
+console.log(other.length, other2.length, it);
+// expect:
+// 2 2 0
