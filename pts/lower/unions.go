@@ -205,11 +205,19 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 // narrowedUnionRead is x, a value of a union read at node, as narrow, the member or smaller
 // union tsc narrowed it to there.
 func (l *lowerer) narrowedUnionRead(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
-	if !isClass(narrow) && l.mayHaveChanged(node) {
-		// Its value is checked as a dynamic value is (classes' always are) (D-089, D-140).
+	if !isCheckedClass(narrow) && l.mayHaveChanged(node) {
+		// Its value is checked as a dynamic value is (D-089, D-140): a tuple's or an object
+		// type's too, whose narrowed read isn't (H11b review round 1).
 		return &ir.FromUnion{X: box(x), To: narrow}
 	}
 	return &ir.FromUnion{X: x, To: narrow}
+}
+
+// isCheckedClass reports whether t is a class, not a shape or a tuple: a union's value
+// narrowed to it is checked to be an instance of it (D-067).
+func isCheckedClass(t ir.Type) bool {
+	class, ok := t.(*ir.Class)
+	return ok && !class.Shape
 }
 
 // testsAnyValue reports whether node is an operand of a test that takes any value:
@@ -984,13 +992,6 @@ func (l *lowerer) unsetFieldFallback(x ir.Expr, right *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.Conditional{Cond: &ir.Truthy{X: x}, Then: &ir.FieldRef{X: field.X, Field: field.Field}, Else: y}
-}
-
-// takesUnion reports whether a parameter of type param takes values of the union u as
-// they are.
-func (l *lowerer) takesUnion(param ir.Type, u *ir.Union) bool {
-	p, ok := param.(*ir.Union)
-	return ok && !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !p.Has(m) })
 }
 
 // maybePassed is the argument and Given flag (D-055) for an optional parameter of type

@@ -773,6 +773,11 @@ func (l *lowerer) caseMatch(clause *ast.Node, tag *ir.Local) ir.Expr {
 	if test == nil {
 		return nil
 	}
+	if tag.Type != ir.Void && (isDynamic(tag.Type) || test.Type() == ir.Undefined || test.Type() == ir.Null) {
+		// `case undefined:`, or a loose local's tag (`number | undefined`): what they hold,
+		// strictly equal, where a numeric case would convert them to numbers
+		return unionEquality(ir.Eq, &ir.LocalRef{Local: tag}, test)
+	}
 	return l.operation(clause, ir.Eq, &ir.LocalRef{Local: tag}, test, clause.Parent.Parent.Expression(), clause.Expression())
 }
 
@@ -1526,7 +1531,7 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 	case ast.KindTypeOfExpression:
 		return l.typeOf(node)
 	case ast.KindVoidExpression:
-		x := l.expression(node.Expression())
+		x := l.valueExpression(node.Expression()) // any value: `void s` of a loose local's undefined, `void a[9]`
 		if x == nil {
 			return nil
 		}
@@ -2071,21 +2076,22 @@ func (l *lowerer) lastMaybePassed(values []ir.Expr, params []ir.Type) int {
 		}
 		value := values[next]
 		next++
-		if optional && !isPure(value) && l.maybeUndefinedFor(value.Type(), param) {
+		if optional && !isPure(value) && maybeUndefined(value.Type()) {
 			last = next - 1
 		}
 	}
 	return last
 }
 
-// maybeUndefinedFor reports whether a value of type t passed to an optional parameter of
-// type param may be undefined, which leaves the argument out: a union with undefined that
-// the parameter doesn't take as it is, or a dynamic value.
-func (l *lowerer) maybeUndefinedFor(t ir.Type, param ir.Type) bool {
+// maybeUndefined reports whether a value of type t passed to an optional parameter may be
+// undefined, which leaves the argument out, so that a default applies as with JS's
+// undefined argument: a union with undefined or a dynamic value, whatever the parameter's
+// type takes (H11b review round 1: `(s: unknown = "D") => …`).
+func maybeUndefined(t ir.Type) bool {
 	if u, ok := t.(*ir.Union); ok {
-		return u.Has(ir.Undefined) && !l.takesUnion(param, u)
+		return u.Has(ir.Undefined)
 	}
-	return t == ir.Value && param != ir.Value
+	return t == ir.Value
 }
 
 // typedArguments lowers the arguments of a call, each converted to its parameter's type
@@ -2273,7 +2279,7 @@ func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir
 			args = append(args, discard(arg, &ir.LeftOut{T: param}), &ir.GivenConst{Value: false})
 			continue
 		}
-		if optional && l.maybeUndefinedFor(arg.Type(), param) {
+		if optional && maybeUndefined(arg.Type()) {
 			passed := l.maybePassed(arg, param, node) // `f(x)` with x: T | undefined for `f(p?: T)`
 			if passed == nil {
 				return nil
@@ -3209,6 +3215,12 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		var value ir.Expr
 		switch op, ok := binaryOps[operator]; {
 		case operator == ast.KindPlusToken && (t == ir.String || current.Type() == ir.String): // a loose local's narrowed read too
+			if l.isLooseIdentifier(expr.Left) && concatenatesAsString(l.typeAt(expr.Right)) {
+				// `s += "x"` for a loose local's undefined is "undefinedx", as `+` makes it (concatenationOperand)
+				if current = l.toString(unnarrowed(current), expr.Left); current == nil {
+					return nil
+				}
+			}
 			if y := l.valueExpression(expr.Right); y != nil && hasValueOf(y.Type()) { // `s += c` is `s + c.valueOf()`, as for `+` (D-089)
 				value = l.checkedConversion(&ir.CallBuiltin{Builtin: ir.ValueAdd, Args: []ir.Expr{box(current), box(y)}}, ir.String, node)
 			} else if y != nil {
@@ -3947,24 +3959,28 @@ func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 
 // concatenationOperand lowers operand, a side of a `+` that tsc types as a string: as any
 // value, so that an element past the end or a loose local's undefined (D-090) concatenates
-// as "undefined", where the other side is a string or an object; as its type, checked, where
-// the other side adds to it as a number would (a number, boolean, null or undefined), since
-// with undefined JS's `+` makes NaN, not a string (H11b).
+// as "undefined", where the other side is a string or an object; elsewhere as its type,
+// checked, since the other side may add to it as a number would (a number, boolean, null
+// or undefined, or a union, `any` or type parameter that may hold one), and with undefined
+// JS's `+` then makes NaN, not a string (H11b).
 func (l *lowerer) concatenationOperand(operand, other *ast.Node) ir.Expr {
-	if addsAsNumber(l.typeAt(other)) {
-		return l.expression(operand)
+	if concatenatesAsString(l.typeAt(other)) {
+		return l.valueExpression(operand)
 	}
-	return l.valueExpression(operand)
+	return l.expression(operand)
 }
 
-// addsAsNumber reports whether a value of type t is one that `+` with undefined converts to
-// a number (NaN): a number, bigint or boolean, null or undefined, or a union of them.
-func addsAsNumber(t *checker.Type) bool {
-	if t.Flags()&checker.TypeFlagsUnion != 0 && t.Flags()&checker.TypeFlagsBoolean == 0 {
-		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !addsAsNumber(member) })
+// concatenatesAsString reports whether every value of type t is a string or an object,
+// which `+` with undefined concatenates with "undefined".
+func concatenatesAsString(t *checker.Type) bool {
+	switch {
+	case t.Flags()&checker.TypeFlagsUnion != 0:
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !concatenatesAsString(member) })
+	case t.Flags()&checker.TypeFlagsIntersection != 0: // a branded string's members: a string and an object
+		return slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return member.Flags()&checker.TypeFlagsStringLike != 0 }) ||
+			!slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !concatenatesAsString(member) })
 	}
-	const numeric = checker.TypeFlagsNumberLike | checker.TypeFlagsBigIntLike | checker.TypeFlagsBooleanLike | checker.TypeFlagsNull | checker.TypeFlagsUndefined | checker.TypeFlagsVoid
-	return t.Flags()&numeric != 0
+	return t.Flags()&(checker.TypeFlagsStringLike|checker.TypeFlagsObject|checker.TypeFlagsNonPrimitive) != 0
 }
 
 // hasValueOf reports whether t is a class with a valueOf method, which `+` calls.

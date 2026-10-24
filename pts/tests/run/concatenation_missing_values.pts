@@ -2,8 +2,9 @@
 // local's undefined (D-090, D-220, H11b) on one side: next to a string or an object it is
 // "undefined", as in JS; next to a number, a boolean or null, JS adds undefined as a number
 // and gets NaN, which a string can't hold, so the element is read as its type there (D-085's
-// RangeError, D-090's TypeError). pts concatenated "undefined" (`undefined1`, H11b's
-// reproducer N2, C313).
+// RangeError, D-090's TypeError), as it is next to a union, `any` or a type parameter that
+// may hold one. pts concatenated "undefined" (`undefined1`, H11b's reproducer N2, C313;
+// review round 1, R1-F2).
 function show(label: string, f: () => void): void {
   try {
     f();
@@ -34,6 +35,15 @@ show("for...of", () => {
   for (const w of holey) console.log("for...of", w + "!");
   for (const w of holey) console.log("for...of number", w + 1);
 });
+show("union side", () => {
+  const sn: string | number = [5, "x"][0];
+  const [a, b] = words;
+  console.log("union side", a + sn, b + sn);
+});
+show("any side", () => {
+  const an: any = 5;
+  console.log("any side", words[0] + an, words[5] + an);
+});
 show("template", () => {
   const [a, b] = words;
   console.log("template", `${b}-${a}`);
@@ -51,4 +61,6 @@ show("template", () => {
 // for...of undefined!
 // for...of z!
 // for...of threw TypeError
+// union side threw TypeError
+// any side threw RangeError
 // template undefined-a

@@ -1,0 +1,74 @@
+// A loose local (an element-read local, an array pattern's name, a `for…of` variable;
+// D-090, D-220, H11b) that tsc narrows to a member of its union other than a class (a
+// primitive, a tuple), by a type predicate that lies or by a narrowing a closure's
+// assignment made stale (D-140), is checked as a dynamic value is: TypeError, never a
+// value of another type read as that member. H11b's first version tested only for
+// undefined there and crashed (SIGSEGV; review round 1, R1-F1). A stale narrowing to a
+// tuple of an ordinary local crashed before H11b too (D-140's check skipped tuples).
+type Pair = [number, string];
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+function isPair(_v: Pair | number): _v is Pair {
+  return true; // lies for a number
+}
+function isText(_v: string | number): _v is string {
+  return true; // lies for a number
+}
+const values: (string | number)[] = [1, "abc"];
+const pairs: (Pair | number)[] = [7];
+show("element local", () => {
+  const v = values[0];
+  if (v === undefined) return;
+  if (isText(v)) console.log("element local", v.toUpperCase());
+});
+show("pattern name", () => {
+  const [a] = values;
+  if (isText(a)) console.log("pattern name", a.toUpperCase());
+});
+show("for...of", () => {
+  for (const v of values) if (isText(v)) console.log("for...of", v.toUpperCase());
+});
+show("lying tuple", () => {
+  for (const p of pairs) if (isPair(p)) console.log("lying tuple", p[1].length);
+});
+show("stale tuple, element local", () => {
+  const xs: (Pair | string)[] = [[1, "a"]];
+  let v = xs[0];
+  if (v === undefined) return;
+  const change = () => {
+    v = "str";
+  };
+  if (typeof v !== "string") {
+    change();
+    console.log("stale tuple, element local", v[1].length);
+  }
+});
+show("stale tuple, ordinary local", () => {
+  let v: Pair | string = [1, "a"];
+  const change = () => {
+    v = "str";
+  };
+  if (typeof v !== "string") {
+    change();
+    console.log("stale tuple, ordinary local", v[1].length);
+  }
+});
+show("present", () => {
+  const [a, b] = values;
+  if (typeof b === "string") console.log("present", a, b.toUpperCase());
+});
+
+// no-diff: a lying predicate or a stale narrowing is a TypeError in pts (D-067, D-140); Node reads on
+// expect:
+// element local threw TypeError Expected string, got number
+// pattern name threw TypeError Expected string, got number
+// for...of threw TypeError Expected string, got number
+// lying tuple threw TypeError Expected [number, string], got number
+// stale tuple, element local threw TypeError Expected [number, string], got string
+// stale tuple, ordinary local threw TypeError Expected [number, string], got string
+// present 1 ABC

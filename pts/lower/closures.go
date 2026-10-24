@@ -211,7 +211,11 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 		// An array method's callback or Array.from's mapper is called with as many
 		// arguments as it takes (callbackArguments), an element that is undefined (a hole)
 		// left out, where JS's default applies (C111); others always pass them.
-		if keepsDefaults = l.isArrayMethodCallback(node) || l.isArrayFromMapper(node); !keepsDefaults {
+		argument := node
+		for argument.Parent.Kind == ast.KindParenthesizedExpression {
+			argument = argument.Parent // `Array.from(xs, ((s = "d") => s))`
+		}
+		if keepsDefaults = l.isArrayMethodCallback(argument) || l.isArrayFromMapper(argument); !keepsDefaults {
 			l.bindAlwaysPassed(fn, flags)
 		}
 	}
@@ -744,7 +748,7 @@ func (l *lowerer) adaptedArguments(params []*ir.Local, from, to *ir.FuncType, no
 			i += 2
 			continue
 		}
-		if optional && !passedOrNot && l.maybeUndefinedFor(params[i].Type, t) { // `(state = [], a) => …` for `(state: S | undefined, a: A) => …`
+		if optional && !passedOrNot && maybeUndefined(params[i].Type) { // `(state = [], a) => …` for `(state: S | undefined, a: A) => …`
 			passed := l.maybePassed(&ir.LocalRef{Local: params[i]}, t, node) // undefined leaves the argument out (D-055)
 			if passed == nil {
 				return nil

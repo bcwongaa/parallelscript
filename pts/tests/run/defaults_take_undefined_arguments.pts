@@ -1,0 +1,63 @@
+// A parameter with a default takes it when its argument is undefined, whatever the
+// parameter's type: an `unknown` or `any` one, or one whose type holds undefined, in a
+// callback that find and its kin or Array.from's mapper call with a hole, in
+// Array.from({ length }, (v = d) => …), whose elements are all undefined, in a
+// parenthesized callback, and in an ordinary call. pts passed the undefined as given
+// there and the default never applied (H11b review round 1, R1-F4 and R1-F6).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes(): string[] {
+  const a = new Array<string>(3);
+  a[1] = "b";
+  return a;
+}
+show("unknown default", () => {
+  const seen: unknown[] = [];
+  holes().find((s: unknown = "D") => {
+    seen.push(s);
+    return false;
+  });
+  console.log("unknown default", seen);
+});
+show("any default", () => {
+  const seen: unknown[] = [];
+  holes().findLast((s: any = "D") => {
+    seen.push(s);
+    return false;
+  });
+  console.log("any default", seen);
+});
+show("union default", () => console.log("union default", Array.from(holes(), (s: string | undefined = "D") => s)));
+show("from unknown", () => console.log("from unknown", Array.from(holes(), (s: unknown = "D") => s)));
+show("from length", () => console.log("from length", Array.from({ length: 2 }, (v = 5) => v)));
+show("from length index", () => console.log("from length index", Array.from({ length: 2 }, (v = "5", i?: number) => `${v}${i}`)));
+show("parenthesized", () => console.log("parenthesized", Array.from(holes(), ((s = "d") => s))));
+show("parenthesized find", () => console.log("parenthesized find", holes().findIndex(((s = "d") => s === "d"))));
+function g(x: unknown = 5): unknown {
+  return x;
+}
+function h(x: string | undefined = "dflt"): string | undefined {
+  return x;
+}
+show("ordinary calls", () => {
+  const u: unknown = undefined;
+  const m: string | undefined = [""][3];
+  const a: any = undefined;
+  console.log("ordinary calls", g(u), g(a), h(m), h("x"), g(7));
+});
+
+// expect:
+// unknown default [ 'D', 'b', 'D' ]
+// any default [ 'D', 'b', 'D' ]
+// union default [ 'D', 'b', 'D' ]
+// from unknown [ 'D', 'b', 'D' ]
+// from length [ 5, 5 ]
+// from length index [ '50', '51' ]
+// parenthesized [ 'd', 'b', 'd' ]
+// parenthesized find 0
+// ordinary calls 5 5 dflt x 7

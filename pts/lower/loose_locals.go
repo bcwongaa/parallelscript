@@ -443,9 +443,11 @@ func (l *lowerer) looseValue(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr 
 }
 
 // looseRead is the use of a loose local, x, where tsc gives it the type narrow: checked,
-// since it may be undefined. It holds a value of its own type or undefined: undefined is
-// tested for, then what tsc narrowed it to is read as a local's narrowed read is
-// (narrowedUnionRead), not checked as a dynamic value's is (H11b).
+// since it may be undefined. It holds a value of its own type or undefined, so as its own
+// type only undefined is tested for (H11b); narrowed to a class of its union, undefined is
+// tested for and the class's narrowed read checks the rest (D-067); narrowed to anything
+// else (a primitive, a tuple or an object type a type predicate may lie about), what it
+// holds is checked as a dynamic value's is.
 func (l *lowerer) looseRead(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
 	if narrow == ir.I64 || narrow == ir.U64 {
 		return &ir.FromUnion{X: box(x), To: narrow} // exact past 2^53: it holds one of these integers or undefined, never a double (D-012)
@@ -459,7 +461,7 @@ func (l *lowerer) looseRead(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
 	switch {
 	case own == narrow:
 		return defined
-	case isUnion(own) && isNarrowing(own.(*ir.Union), narrow):
+	case isCheckedClass(narrow) && isUnion(own) && isNarrowing(own.(*ir.Union), narrow):
 		return l.narrowedUnionRead(defined, narrow, node)
 	}
 	return l.checkedConversion(x, narrow, node)

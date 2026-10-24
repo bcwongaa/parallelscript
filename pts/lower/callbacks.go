@@ -547,7 +547,12 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 			l.notSupportedYet(node, fmt.Sprintf("a callback of type %s, which takes more parameters than the method passes, is", ft))
 			return nil
 		}
-		if optional && isPure(args[next]) && l.maybeUndefinedFor(args[next].Type(), param) {
+		if optional && isUndefinedConst(args[next]) { // `Array.from({ length: n }, (v = 5) => v)`'s element
+			converted = append(converted, notPassed(param)...)
+			next++
+			continue
+		}
+		if optional && isPure(args[next]) && maybeUndefined(args[next].Type()) {
 			// an element that may be undefined (a hole): left out where it is, so the
 			// parameter is undefined or takes its default, as with JS's undefined (C111)
 			passed := l.maybePassed(args[next], param, node)
@@ -569,6 +574,15 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 		}
 	}
 	return converted
+}
+
+// isUndefinedConst reports whether x is undefined itself, as a dynamic value or not.
+func isUndefinedConst(x ir.Expr) bool {
+	if b, ok := x.(*ir.Box); ok {
+		x = b.X
+	}
+	_, ok := x.(*ir.UndefinedConst)
+	return ok
 }
 
 // nthParam is the type of the parameter of ft at position n, Given flags aside; nil if it has fewer.

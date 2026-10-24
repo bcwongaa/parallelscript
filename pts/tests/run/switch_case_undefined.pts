@@ -2,7 +2,8 @@
 // strictly, never equal, where pts stopped with an internal error (PTS9001; H11b's
 // reproducer N1, C312); over a loose local (an element-read local, an array pattern's
 // name, a `for…of` variable at a hole, D-090, H11b) it is a test for undefined, so the
-// switch reads what the local holds and the case matches, as in JS.
+// switch reads what the local holds and the case matches, as in JS; over a number tag too,
+// which pts converted to a number for the comparison (PTS1001; review round 1, R1-F3).
 function show(label: string, f: () => void): void {
   try {
     f();
@@ -59,6 +60,39 @@ show("null case", () => {
       console.log("null case", q);
   }
 });
+function numberKind(n: number): string {
+  switch (n) {
+    case undefined:
+      return "u";
+    case 1:
+      return "one";
+    default:
+      return "d";
+  }
+}
+show("number parameter", () => console.log("number parameter", numberKind(1), numberKind(2)));
+show("number pattern", () => {
+  const one: number[] = [1];
+  const [a, b] = one;
+  switch (b) {
+    case undefined:
+      console.log("number pattern", "missing", a);
+      break;
+    case 1:
+      console.log("number pattern", "one");
+  }
+});
+show("number element", () => {
+  const one: number[] = [1];
+  const c = one[3];
+  switch (c) {
+    case undefined:
+      console.log("number element", "missing");
+      break;
+    default:
+      console.log("number element", c + 1);
+  }
+});
 
 // expect:
 // parameter a other
@@ -66,3 +100,6 @@ show("null case", () => {
 // for...of hole
 // for...of z
 // null case undefined
+// number parameter one d
+// number pattern missing 1
+// number element missing

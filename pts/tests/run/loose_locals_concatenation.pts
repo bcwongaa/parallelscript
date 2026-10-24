@@ -1,0 +1,44 @@
+// A loose local (D-090, D-220, H11b) that is undefined, in `s += "x"` or `void s`:
+// undefined goes on as in JS ("undefinedx", undefined), as with `s + "x"`. pts read it
+// as its type there and threw TypeError (H11b review round 1, R1-F5).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes(): string[] {
+  const a = new Array<string>(2);
+  a[1] = "b";
+  return a;
+}
+show("plus-equals", () => {
+  for (let s of holes()) {
+    s += "x";
+    console.log("plus-equals", s);
+  }
+});
+show("plus-equals element local", () => {
+  const words = ["a"];
+  let w = words[4];
+  if (w === undefined) console.log("plus-equals element local", "missing");
+  w += "!";
+  console.log("plus-equals element local", w);
+});
+show("void", () => {
+  for (const s of holes()) console.log("void", void s);
+});
+show("void element", () => {
+  const words = ["a"];
+  console.log("void element", void words[9]);
+});
+
+// expect:
+// plus-equals undefinedx
+// plus-equals bx
+// plus-equals element local missing
+// plus-equals element local undefined!
+// void undefined
+// void undefined
+// void element undefined
