@@ -608,3 +608,28 @@ R10-F1 (`r10f1` and all ten `own/a_*` honest PTS1001s; the error tests print 2 o
 
 ### What READY would take
 1. R11-F1: the non-nullable result type in `nullishCoalescing`'s own-function branch, or record. 2. R11-F2: skip `isInstanceOwnValue` arguments in the keeping-method path, or record. "With either fix or record for both, I know of no unrecorded divergence in H10a's scope, and I'd call it READY."
+
+## Round 12: `e8354b641`
+
+READY
+
+# H10a review, round 12: commit `e8354b641` (fix12) against `623bb50d6` (fix11), and verdict for H10a as a whole
+
+(The same reviewer, resumed. Probes: [h10a-review12-probes.tar.gz](h10a-review12-probes.tar.gz).)
+
+Both round-11 fixes hold, and fix12 broke nothing. Every divergence from Node still seen is a recorded D-218 known gap or H10b's scope; behaviour that is the same in typed code or for `unknown` sources on the base; a checked TypeError in programs where the base also threw one; or an invalid probe. No unrecorded silent wrong output where the base threw, and no unrecorded regression of a program that ran as Node.
+
+### Round-11 fixes: verified
+R11-F1: `r11f1` prints `true 1 true`; `l01_logical_functions` matches Node on every line; the run test fails on fix11, passes on fix12. R11-F2: `r11f2` and `k01_own_concat` print Node's output (`4 2`, `12 6`). The new early return, checked with 12 literal probes (`p/lit/`): literals mixing the instance's own and the program's functions stay honest PTS1001s (`concat([c.list[0], addRow])`, `push(...[c.list[0], addRow])`, `{ cb: flag() ? c.list[0] : addRow }`, mixed literals given to a user method that calls or keeps them, `concat([readRows])`); literals of own functions now run as Node when given to user methods (`c.runAll([c.list[0], c.list[0]])`, `c.keepAll([c.list[0]])`); `[c.list[0]].forEach((f) => c.list.push(f))` and `c.list.concat([[c.list[0]][0]])` stay conservative PTS1001s; `c.boxes.push({ cb: c.list[0] })` went from PTS1001 to a checked TypeError (note 1).
+
+### Rerun of all round 6–12 probes, fix11 against fix12
+233 files: 7 change (six to Node's output: `r11f1`, `r11f2`, `k01`, `l01`, the two own-literal user-method cases; `l_own_object_push` PTS1001 → checked TypeError). On fix12: 84 Node's output, 109 honest PTS1001s, 40 differ: C285 (`r6f3`, `v13_*`, `v14_*`, `v12`, `v13b`, `v14b`, `v21`); C288's class (`v04`; `v06*`, `h04`, `q_unknown_*` for `unknown` sources, also on the base; `v07` with its typed control `v07b`); known gaps of adapter identity (`new Set([c.cb, c.cb])`; `b03` with its typed control `b03b`); typed or plain controls the same on the base (`v19`, `v27c`, `c01`, `g01`, `g02`, `i_identity_any_control`); D-015's documented hole write (`h01`); invalid probes (`v15d`, `v25`, `q_comma_assign`); checked TypeErrors (`s01`, `l_own_object_push`, `v09`, `v24`). Matrix `new11` identical to `new10` (230 OK on the base → 622, none worse, none silently wrong across all rounds); `rerun11` changes only `s03b`, `t04`; emit-c identical on fix11 and fix12 for 40 random programs without instanceof.
+
+### Recorded gaps accepted
+1. H10b (C279), with C285 filed under it (its control `c01` shows the same copies for `any` values in plain code on the base, D-179's class; H10b's acceptance must cover it explicitly, as its plan line does). 2. R3-F3's honest PTS1001s (members and nested objects in keeping sinks, also unreached; deep read-only helpers; functions with copying parameters given by reference, in literals, kept by push/unshift/splice/fill/concat/with/toSpliced, or written untyped in an assignment). 3. Adapter identity for functions read into typed places and for the program's functions stored where the instance's function type goes (also typed code, C288's class). 4. D-179/D-071 copies (C288 → H29). 5. C286 → H22, C287 → H29. 6. R2-F5, R2-F6 (H27), C274's rest.
+
+### Non-blocking notes (checked TypeErrors since fix5; the base threw at the narrowing in the same programs)
+1. An object literal pushed into a shape-typed array member through the narrowing throws `Cannot set property element of Array: expected {list: number[]; name: string}, got Object` where Node pushes (`p/s01_push_object_literal.pts`); `c.groups.push({ … })` is common enough for its own line. 2. A callback returning a fresh object literal to the narrowed instance's typed method throws `Expected {list: number[]}, got Object` (round 6's `v09`). 3. `.then(…)` on a Promise member held as a dynamic value throws `c.pending.then is not a function` (round 6's `v24`).
+
+### Test quality
+The two new run tests are RED on fix11 and GREEN on fix12, with Node's expected output; over rounds 6–12 each finding got a RED test or a recorded known gap; error tests each assert one PTS1001 with the expected text.
