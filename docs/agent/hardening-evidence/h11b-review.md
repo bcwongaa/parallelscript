@@ -279,3 +279,30 @@ Probe archive: `/tmp/h11b/h11b-review1-probes.tar.gz`. Probe files: `/tmp/h11b/r
   - m07 and m15 still crash (C321, as recorded).
 - **emit-c sweep** of the 1,062 run tests, snapshot 5 against snapshot 6: only 4 C files changed (`array_pattern_loose_concat`, `builtin_property_patterns`, `evaluation_order`, `string_indexing`), all at concatenations, with no new diagnostics.
 - **Tests:** the extended `loose_locals_concatenation.pts` matches Node, and `concatenation_missing_values.pts`'s rewrapped header and no-diff marker are fine.
+
+## Round 5 (snapshot 7 = `288ba50be`; [archive](h11b-review5-probes.tar.gz))
+
+**Verdict: READY.** R4-F1 is fixed, nothing else changed against snapshot 6, and I found no new problems. The parent's suite on snapshot 7 finished with 0 failures and 5,918 passes. Probes are archived at `/tmp/h11b/h11b-review5-probes.tar.gz` and the marker `/tmp/h11b/review5.done` is written. I made no changes to the snapshot.
+
+## Findings
+None.
+
+## R4-F1 verified
+- **h02 now matches Node:**
+  - `vals[0] + strs[0]` and `strs[0] + vals[0]` give `3a a3` (snapshot 6 and the base gave `Va aV`).
+  - A pattern name next to an element gives `3a`.
+  - `s += vals[0]` with `s` present gives `p3` (snapshot 6 and the base gave `pV`).
+- **New probe k01** checks string-like and non-string-like kinds, with values present and missing. Snapshot 7 matches Node in every case except two, where JS gives NaN and pts throws TypeError as designed (`s += mixed[0]` with `s` undefined, and `lits[5] + tpls[5]`):
+  - unions of strings and a class with `valueOf`: `3a a3`
+  - string enums: `xa xundefined ax`
+  - branded strings: `i1a i1undefined`
+  - template-literal types: `t-1a t-1p undefinedp`
+  - string-literal unions: `pa pundefined`
+  - loose `+=` of a `valueOf` union, an enum (`undefinedxundefined`) and a branded string (`bi1`)
+- **The gap from round 4 that the base already had is unchanged:** a `valueOf` class next to a side that can't be missing, such as `vals[0] + "s"`, still gives `Vs` where Node gives `3s`. The base and snapshot 6 give the same.
+
+## Nothing else changed
+- **Replay of all 94 earlier probes** on snapshot 7, snapshot 6, the base and Node: nothing that matched Node on snapshot 6 or the base differs now. Only two outputs changed from snapshot 6, and both now match Node: g03's `valueOf` line and h02. m07 and m15 still crash (C321, as recorded).
+- **emit-c sweep** of the 1,062 run tests: no C file differs from snapshot 6.
+- **Cost is the same as round 4** (callgrind, loop only, 1M ×10): `strs[i] + strs[i + 1]` 4783.5M, `text[i] + text[i + 1]` 4255.0M (1.01× and 1.03× the base).
+- `loose_locals_concatenation.pts` with its new `valueOf` case matches Node.
