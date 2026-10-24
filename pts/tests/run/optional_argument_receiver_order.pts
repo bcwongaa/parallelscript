@@ -1,0 +1,47 @@
+// skip: known issue (H29, C323): an argument that may leave a plain optional parameter out (`p?: T` given a `T | undefined`) is evaluated before the call's receiver or callee
+// JS evaluates a call's receiver or callee, then its arguments. Where an argument that may
+// be undefined goes to a plain optional parameter (`a?: string`), pts puts it in a
+// temporary that it evaluates before the receiver or a callee computed by a call
+// (`inTemporaries`), so their effects run in the other order (H11b review round 2,
+// pre-existing on the base).
+const log: string[] = [];
+function s(tag: string, x: string | undefined): string | undefined {
+  log.push(tag);
+  return x;
+}
+class R {
+  str(a?: string): string {
+    return String(a);
+  }
+}
+function recv(tag: string): R {
+  log.push(tag);
+  return new R();
+}
+console.log(recv("r").str(s("1", undefined)), log.join(""));
+log.length = 0;
+function pickString(): (a?: string) => string {
+  log.push("c");
+  return (a = "S") => a;
+}
+console.log(pickString()(s("1", undefined)), log.join(""));
+log.length = 0;
+class Holder {
+  items: string[] = [];
+  add(x?: string): Holder {
+    this.items.push(x ?? "-");
+    return this;
+  }
+}
+const h = new Holder();
+function hold(): Holder {
+  log.push("h");
+  return h;
+}
+hold().add(s("1", undefined)).add(s("2", "b"));
+console.log(h.items, log.join(""));
+
+// expect:
+// undefined r1
+// S c1
+// [ '-', 'b' ] h12

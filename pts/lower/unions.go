@@ -994,6 +994,13 @@ func (l *lowerer) unsetFieldFallback(x ir.Expr, right *ast.Node) ir.Expr {
 	return &ir.Conditional{Cond: &ir.Truthy{X: x}, Then: &ir.FieldRef{X: field.X, Field: field.Field}, Else: y}
 }
 
+// takesUnion reports whether a parameter of type param takes values of the union u as
+// they are.
+func (l *lowerer) takesUnion(param ir.Type, u *ir.Union) bool {
+	p, ok := param.(*ir.Union)
+	return ok && !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !p.Has(m) })
+}
+
 // maybePassed is the argument and Given flag (D-055) for an optional parameter of type
 // param of x, a value of a union that includes undefined or a dynamic value: undefined
 // means the argument is left out, as in JS. x is read twice, so it must be pure

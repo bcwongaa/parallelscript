@@ -659,11 +659,19 @@ func (l *lowerer) parameterDefault(binding *parameterBinding) ir.Expr {
 	}
 	var passed ir.Expr = &ir.LocalRef{Local: binding.arg}
 	var cond ir.Expr = &ir.LocalRef{Local: binding.given}
-	if u, ok := binding.arg.Type.(*ir.Union); ok && u.Has(ir.Undefined) && binding.value.Type != u {
+	switch u, ok := binding.arg.Type.(*ir.Union); {
+	case ok && u.Has(ir.Undefined) && binding.value.Type != u:
 		cond = &ir.Logical{Op: ir.And, X: cond, Y: &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: passed, Only: ir.Undefined}}}
 		passed = fromUnion(passed, binding.value.Type)
-	} else if passed = l.convert(passed, binding.value.Type, at); passed == nil {
-		return nil
+	case binding.arg.Type == ir.Value && binding.node.Initializer() != nil:
+		// an `unknown` or `any` parameter's default applies to an undefined argument too, as
+		// in JS, which calls pass as given (H11b review round 1, R1-F4)
+		cond = &ir.Logical{Op: ir.And, X: cond, Y: &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: passed, Only: ir.Undefined}}}
+		fallthrough
+	default:
+		if passed = l.convert(passed, binding.value.Type, at); passed == nil {
+			return nil
+		}
 	}
 	return &ir.Conditional{Cond: cond, Then: passed, Else: value}
 }

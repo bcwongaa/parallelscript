@@ -552,7 +552,7 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 			next++
 			continue
 		}
-		if optional && isPure(args[next]) && maybeUndefined(args[next].Type()) {
+		if optional && isPure(args[next]) && l.maybeUndefinedFor(args[next].Type(), param) {
 			// an element that may be undefined (a hole): left out where it is, so the
 			// parameter is undefined or takes its default, as with JS's undefined (C111)
 			passed := l.maybePassed(args[next], param, node)

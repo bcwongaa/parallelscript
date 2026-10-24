@@ -1,0 +1,46 @@
+// A call evaluates its receiver or callee before its arguments, also where an argument
+// that may be undefined goes to an `unknown` or `T | undefined` parameter with a default,
+// which then applies its default (H11b review round 2, R2-F1: H11b's round-1 fix had put
+// those arguments in temporaries evaluated first, `21h` for `h12`).
+const log: string[] = [];
+function v(tag: string, x: unknown): unknown {
+  log.push(tag);
+  return x;
+}
+function s(tag: string, x: string | undefined): string | undefined {
+  log.push(tag);
+  return x;
+}
+class Holder {
+  items: string[] = [];
+  addU(x: unknown = "-"): Holder {
+    this.items.push(String(x));
+    return this;
+  }
+  addN(x: string | undefined = "+"): Holder {
+    this.items.push(String(x));
+    return this;
+  }
+}
+const h = new Holder();
+function hold(): Holder {
+  log.push("h");
+  return h;
+}
+hold().addU(v("1", undefined)).addU(v("2", "b"));
+console.log(h.items, log.join(""));
+log.length = 0;
+h.items.length = 0;
+hold().addN(s("1", undefined)).addN(s("2", "b"));
+console.log(h.items, log.join(""));
+log.length = 0;
+function pickUnknown(): (a?: unknown) => string {
+  log.push("c");
+  return (a = "A") => String(a);
+}
+console.log(pickUnknown()(v("1", undefined)), log.join(""));
+
+// expect:
+// [ '-', 'b' ] h12
+// [ '+', 'b' ] h12
+// A c1

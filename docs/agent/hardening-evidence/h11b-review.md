@@ -96,3 +96,87 @@ Narrowed reads of a loose local to a member of its own union are no longer check
 - **D-221's cost numbers reproduced:** strings 980.0M → 1021.0M (1.04×), interfaces 1440.0M → 1600.0M (1.11×), generic number instance 1000.0M → 1160.0M (1.16×). D-221's HEAD figures come from the reproducer's run and sit within about 10M of the parent's own HEAD run.
 
 Probe archive: `/tmp/h11b/h11b-review1-probes.tar.gz`. Probe files: `/tmp/h11b/review1/{m,s,c,r,f,w,a}/` (`.pts` sources with `.out` captures). Cost results: `/tmp/h11b/review1/cost/results.txt` and `/tmp/h11b/review1/cost/d221/results.txt`.
+
+## Round 2 (snapshot 3 = `594341ee3`; [archive](h11b-review2-probes.tar.gz))
+
+**Verdict: NOT READY.** The round-1 fixes work, but the R1-F4 fix introduced a Medium regression: arguments are now evaluated before the receiver, and in a chain the later call's arguments run first. Every claim below comes from a command I ran on snapshot 3, snapshot 2, the base and Node. Probes are archived at `/tmp/h11b/h11b-review2-probes.tar.gz`; the marker `/tmp/h11b/review2.done` is written. Snapshot 3 is untouched.
+
+## Findings
+
+**R2-F1 · Medium · the argument order regressed against snapshot 2 and the base for `unknown`, `any` and `T | undefined` optional parameters. The same bug already existed for `p?: T` parameters.**
+- **Where:** `inTemporaries` and `lastMaybePassed` (`lower.go:2048-2083`, used at 2249) bind an argument's temporary before the receiver or callee is evaluated. R1-F4's `maybeUndefined` now sends more calls through this path.
+- **Emitted C (snapshot 3):** `({ pts_value arg_3 = pts_fn_s("2"…); ({ … arg_4 = pts_fn_s("1"…); … pts_fn_hold() …`
+- **Repro d11:**
+  ```ts
+  const log: string[] = [];
+  function s(tag: string, x: string | undefined): string | undefined { log.push(tag); return x; }
+  class Holder { items: string[] = []; addN(x: string | undefined = "+"): Holder { this.items.push(String(x)); return this; } }
+  const h = new Holder();
+  function hold(): Holder { log.push("h"); return h; }
+  hold().addN(s("1", undefined)).addN(s("2", "b"));
+  console.log(h.items, log.join(""));
+  ```
+  - Node, base and snapshot 2: `[ '+', 'b' ] h12`
+  - snapshot 3: `[ '+', 'b' ] 21h`
+- For `addN` the values were already right on snapshot 2, because the callee applies a union parameter's default itself. The reorder buys nothing there.
+- With `addU(x: unknown = "-")` the value is now fixed, but the order is still `21h`.
+- **Single call (d08):** `recv("r").unk(v("1", undefined))`. Node, base and snapshot 2 give `r1`; snapshot 3 gives `1r`.
+- **Callee computed by a call (d09):** `pickUnknown()(v(…))`. Node gives `c1`; snapshot 3 gives `1c`.
+- **Already wrong on all three CLIs:** `recv().str(s(…))` with `str(a?: string)` gives `1r`, and the chained `add(x?: string)` gives `21h`.
+- Short-circuits are not affected (d10): `&&`, `?:`, `?.` and a `while` condition evaluate nothing, as in Node.
+- **Fix options:** bind the receiver or callee before the argument temporaries, which also fixes the existing `p?: T` cases. Alternatively, keep the old rule where the callee already handles undefined (`T | undefined` with a default) and apply `unknown`/`any` defaults in the callee.
+
+**R2-F2 · Low · `+` still gives two wrong values. Element reads and pattern names already did this on the base; `for…of` variables are newly exposed (the base threw RangeError there).**
+- **Where:** `concatenatesAsString` counts `{}` (TypeFlagsObject) as "always an object", although a `{}` can hold a number. It also trusts the other side's string type when that side may itself be missing.
+- **Repro y03** (Node gives `NaN` for every line):
+
+  | Expression | Snapshot 3 |
+  |---|---|
+  | `words[3] + empty`, with `const empty: {} = 5` | `undefined5` |
+  | `for (const s of holey) s + empty` | `undefined5` |
+  | `words[3] + words[4]` | `undefinedundefined` |
+  | `s + s` | `undefinedundefined` |
+  | `q + r` (pattern names) | `undefinedundefined` |
+  | `s += s` (y02) | `undefinedundefined` |
+
+**R2-F3 · Low (already wrong on all three CLIs) · a closure's default is lost when its contextual parameter is `unknown` or `any`.**
+- `const f: (x: unknown) => unknown = (x = "D") => x; f(undefined)` gives `undefined` on all three CLIs; Node gives `D` (d04).
+- `bindAlwaysPassed` drops the default here. D-221's sentence "a default takes undefined arguments, whatever the parameter's type" overclaims.
+- The `T | undefined` context and function adapters (d05) are fine.
+
+**R2-F4 · Note (by design under the updated D-221) · some uses that snapshot 2 got right now throw.**
+- `s + an`, with `an: any` holding `"q"`, now throws TypeError where Node and snapshot 2 give `undefinedq` (y01).
+- `s += anyStr` and `s += sn` (with `sn: string | number`) also throw TypeError (y02).
+
+**R2-F5 · Note (already failing on all three CLIs) · two PTS9001 cases came up along the way.**
+- A lying predicate narrowing an interface to an array (n04).
+- A lying predicate narrowing a loose `HasLen | number` local to a tuple, in the element, `for…of` and pattern forms (n06). The ordinary-local form compiles and throws TypeError.
+
+**R2-F6 · Note (cost) · R1-F1's checked reads cost a little on `for…of` over union arrays narrowed at each use.**
+- `(string | number)[]` with `typeof`: 1080.0M on the base → 1105.0M on snapshot 2 → 1125.0M on snapshot 3 (1.04× the base).
+- `(Sq | Ci)[]` with a discriminant: 1760.0M → 1838.5M (1.045×; the same on snapshots 2 and 3).
+- D-221's cost table doesn't cover either case. D-221's own probes are unchanged on snapshot 3: strings 1020.0M, interfaces 1600.0M, tested 1040.0M.
+
+**R2-F7 · Note (a suspicion, not reproduced) · `maybePassed` reads a shared module variable up to three times.**
+- It reads it once for the undefined test, once for the cast and once for the Given flag.
+- A write from another thread between the test and the cast would pass `(pts_string *)0x0a`. SPEC §4.1 requires reading a slot once before checking it.
+- The q01 probe (three tasks toggling a global) didn't crash in 6 runs, but its main loop never saw a change, so the race was never exercised. This was already the case for `p?: T` parameters.
+
+## Fixes verified
+- **R1-F1:**
+  - The round-1 crash probes m12, m13, m20 and m26, and the already-crashing m21 and m23, now throw TypeError.
+  - n01 (stale narrowings to an interface, an array, a function type, a union of shapes, a tuple pattern, a `for…of` array): all TypeError; snapshot 2 crashed.
+  - n02 (lying predicates to the same kinds): all TypeError; snapshot 2 and the base crashed.
+  - n03 and n07 (lying predicates to types outside the union): checked.
+  - m07 and m15 still crash, as recorded under C321.
+- **R1-F2:** the union and `any` sides throw instead of giving wrong values. Branded strings, string enums and template-literal types match Node.
+- **R1-F3:** w02 and w03 match Node. x01–x04 match Node for union, `any`, enum, literal, object, boolean, integer and i64 tags, and for fallthrough with `default` in the middle. The C for non-loose union switches is identical to snapshot 2.
+- **R1-F4:**
+  - r05, d01, d05 (including the adapter for an `unknown` parameter) and d06 (spread, generic, `?.()` and constructor calls) match Node.
+  - i64 values stay exact through `maybePassed` (d02).
+  - Hot-call costs are unchanged: 1114.3M → 1113.3M, 1126.7M → 1126.7M, 1013.3M → 1013.3M.
+- **R1-F5:** `+=` with a string, an object, inside a closure and on a pattern name, and every `void` form, match Node.
+- **R1-F6:** double parentheses, function expressions, `satisfies` and `{ length }` match Node. An `as` cast to a required-parameter type keeps D-085's RangeError, by design.
+- **Replay of all 55 round-1 probes:** nothing that matched Node on snapshot 2 or the base differs now. The 10 outputs that changed against snapshot 2 are all improvements or the TypeErrors D-221 intends.
+- **emit-c sweeps** (1,062 run tests plus 329 other programs, snapshot 2 against snapshot 3): no new diagnostics. All 58 changed C files are explained by checked narrowed reads, `maybePassed` at union or `any` arguments, `+=`/`void`, and reordered check tables and adapters.
+- The new tests' `// expect:` blocks match Node, and their no-diff markers are justified.

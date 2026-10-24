@@ -3,8 +3,9 @@
 // "undefined", as in JS; next to a number, a boolean or null, JS adds undefined as a number
 // and gets NaN, which a string can't hold, so the element is read as its type there (D-085's
 // RangeError, D-090's TypeError), as it is next to a union, `any` or a type parameter that
-// may hold one. pts concatenated "undefined" (`undefined1`, H11b's reproducer N2, C313;
-// review round 1, R1-F2).
+// may hold one, or a `{}` (which holds numbers); where both sides may be missing, JS's
+// `+` of what they hold, a string where one is there and NaN (TypeError) where neither is. pts concatenated "undefined" (`undefined1`, H11b's
+// reproducer N2, C313; review rounds 1 and 2, R1-F2, R2-F2).
 function show(label: string, f: () => void): void {
   try {
     f();
@@ -44,6 +45,22 @@ show("any side", () => {
   const an: any = 5;
   console.log("any side", words[0] + an, words[5] + an);
 });
+show("{} side", () => {
+  const empty: {} = 5;
+  console.log("{} side", words[0] + empty, words[3] + empty);
+});
+show("both missing", () => {
+  const [p, q, r] = words;
+  console.log("both missing", p + q, q + r);
+});
+show("one missing", () => {
+  const [p, q] = words;
+  console.log("one missing", p + q, words[0] + words[7]);
+});
+show("itself", () => {
+  const holey = new Array<string>(1);
+  for (const s of holey) console.log("itself", s + s);
+});
 show("template", () => {
   const [a, b] = words;
   console.log("template", `${b}-${a}`);
@@ -63,4 +80,8 @@ show("template", () => {
 // for...of threw TypeError
 // union side threw TypeError
 // any side threw RangeError
+// {} side threw RangeError
+// both missing threw TypeError
+// one missing aundefined aundefined
+// itself threw TypeError
 // template undefined-a
