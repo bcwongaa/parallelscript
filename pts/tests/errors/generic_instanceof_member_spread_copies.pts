@@ -1,0 +1,20 @@
+// H10b review round 4 (R4-F3), the parent's probe p07_narrowed_member_spread.pts: an object
+// spread of a member of an instanceof narrowing (`{ ...o.meta }` for an `object` or an
+// interface source) would copy the instance's array into the spread's `tags: any[]`, which a
+// later write would miss (silently, on round 3's code): D-218's PTS1001, as on the base.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[]
+interface Shape { kind(): string; }
+class Box<T> implements Shape {
+  meta: { name: string; tags: T[] } = { name: "m", tags: [] };
+  constructor(public v: T) {}
+  kind(): string { return "box"; }
+}
+function fromShape(s: Shape): string[] {
+  if (s instanceof Box) {
+    const m = { ...s.meta };
+    m.tags.push(2);
+    return Object.keys(m);
+  }
+  return [];
+}
+console.log(fromShape(new Box<number>(0)));

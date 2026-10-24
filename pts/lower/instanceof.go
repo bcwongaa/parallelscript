@@ -1247,7 +1247,9 @@ func (l *lowerer) isInstanceOwnValue(node *ast.Node) bool {
 		// `c.list.concat([f])`, `c.list.with(0, f)`: an array of the instance's elements and the
 		// arguments' (R9-F1)
 		if callee := ast.SkipParentheses(node.Expression()); callee.Kind == ast.KindPropertyAccessExpression && addingArrayMethods[callee.AsPropertyAccessExpression().Name().Text()] &&
-			slices.ContainsFunc(node.Arguments(), func(argument *ast.Node) bool { return !l.isInstanceOwnValue(argument) && l.holdsCopyingFunction(argument) }) {
+			slices.ContainsFunc(node.Arguments(), func(argument *ast.Node) bool {
+				return !l.isInstanceOwnValue(argument) && l.holdsCopyingFunction(argument)
+			}) {
 			return false
 		}
 	case ast.KindIdentifier:
