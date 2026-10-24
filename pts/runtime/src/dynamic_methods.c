@@ -1529,8 +1529,8 @@ bool pts_builtin_method_named(pts_value value, const pts_string *name) {
   }
   if (is_generator(value)) {
     char buffer[16]; /* longer than any generator method's name */
-    if (name->byte_len >= sizeof buffer) {
-      return false;
+    if (name->byte_len >= sizeof buffer || memchr(name->bytes, '\0', name->byte_len) != NULL) {
+      return false; /* a NUL would cut the name short (`"next\0"`, H10b's R8-F1) */
     }
     memcpy(buffer, name->bytes, name->byte_len);
     buffer[name->byte_len] = '\0';

@@ -717,3 +717,72 @@ Files are in `/tmp/h10b/review7/`:
 - tooling: `bin/`
 
 The archive is `/tmp/h10b/h10b-review7-probes.tar.gz` (no binaries), and `/tmp/h10b/review7.done` is touched.
+
+## Round 8 (snapshot 10: `297a6aa43`, R7-F1's runtime fix; the same reviewer, resumed)
+
+# H10b review, round 8 (snapshot 10: `297a6aa43`, runtime only)
+
+**VERDICT: READY**
+
+R7-F1 is fixed: `in` on arrays and objects is back to base speed. The `in` answers are byte-for-byte unchanged from snap9, and the new C is memory-safe under ASan/UBSan. One Low edge case remains: a key with embedded NULs on a generator (R8-F1). It's a one-line fix, and I don't think it should block.
+
+## What I checked
+- **Snapshot:** the three runtime files in `/tmp/h10b/snap10` match commit `297a6aa43`.
+- **Timings:** `w05` and `w05c` built on base, snap9 and snap10, three runs interleaved on an idle host (load 0.9). Results are in `timings.txt`.
+- **`in` answers:** 11 programs on snap9 and snap10: my `w01` and `w02`, `u02`, `u02b`, `u23`, `v06`, `r5_in_declared_property_dynamic`, the two new `in` tests, and the parent's `p05`/`p06`.
+- **Memory safety:**
+  - I read the new C.
+  - New probes against Node, snap10, snap9 and base:
+    - `x01`: embedded NULs, empty and 5,000-byte keys, Unicode, numeric strings and numbers, on 11 kinds.
+    - `x03`: booleans, `null`, `undefined` and object keys.
+    - `x04`: the generator buffer at 14–17 bytes, NULs at each position, async generators, a 100,000-byte key.
+    - `x02`: symbol keys.
+  - `x01`, `x03` and `x04` built with the Sanitize profile (ASan + UBSan) through a `go test -overlay` test that adds nothing to the repo. The runtime's own unit tests ran under sanitizers in the same run.
+- **Matrices:** only one case of the 1,525 uses `in` (`A_union_ifaces__pass_src`). I re-ran it: OK on snap10, as on snap9.
+
+## R7-F1 re-checked: fixed
+
+| Case | base | snap9 | snap10 |
+|---|---|---|---|
+| `i in arr`, typed | 42–56 ms | 1,021–1,090 ms | 38–51 ms |
+| `i in arr`, through `any` | 39–42 ms | ~1,030–1,090 ms | 36–38 ms |
+| `k in obj` | 71–91 ms | 94–120 ms | 70–84 ms |
+| `k in rec` (record) | 63–67 ms | 62–71 ms | 61–64 ms |
+| `k in map` | 20–22 ms | 146–152 ms | 52–71 ms |
+
+The Map case is the cost of answering method names correctly, as the parent recorded: base answered `false` for all of them.
+
+## `in` answers
+- All 11 programs print identically on snap9 and snap10.
+- In `x01`, snap10 also removes snap9's false `true`s from text truncated at a NUL. `"push\0x" in arr`, `"get\0" in map`, `"exec\0" in re` and `"getTime\0" in date` now all match Node.
+- Every number, numeric string, empty, long and Unicode key matches Node on every build.
+
+## Memory safety
+- **Non-generator path:** it compares the first byte, then `strlen(methods->name) == byte_len`, then `memcmp` over `byte_len` bytes. It never reads the key past `byte_len`, never runs `strlen` on it, and handles empty keys first. That matters because `pts_string.bytes` points into a shared append buffer and isn't NUL-terminated.
+- **Generator path:** a key of 16 bytes or more returns false before the `memcpy`, and the buffer is NUL-terminated.
+- **Non-string keys:** these never reach the method lookup. Symbols can't get there at all: `Symbol(…)` is PTS1002, and `Symbol.iterator` with `in` is PTS1001.
+- **Sanitizers:** all three probes exit 0 with no ASan or UBSan report, and print exactly what the plain builds print. The runtime unit tests pass under sanitizers too.
+
+## New findings
+
+**R8-F1 · Low · silent · from snap9's generator path (not new in snap10).** A key that is `"next"`, `"return"` or `"throw"` followed by NULs, and under 16 bytes in all, reports `true` on generators and async generators.
+- Repro: `p/x04_in_generator_boundaries.pts`.
+- `"next\0" in gen` and `"next" + 11 NULs` give 1 on snap10; Node and base give 0. At 16 bytes snap10 gives 0.
+- Root cause: `pts_builtin_method_named` (`dynamic_methods.c`, the generator branch) copies the key into a NUL-terminated buffer and calls `pts_iterator_has_method`, which uses `strcmp`. A NUL inside the key cuts the comparison short.
+- It's memory-safe.
+- Fix direction: return false when `memchr(name->bytes, 0, name->byte_len)` finds a NUL, or compare by length as the table path does.
+
+**Note, not counted.** An object used as an `in` key whose string form names a method now answers as base does: `["push"] in arr` is `false` on base and snap10, `true` on snap9 and Node. Snap9 got it right only because it converted every key to text, which was R7-F1's cost. Index-valued object keys (`["0"] in arr`) are false on every build.
+
+## Pre-existing, not counted
+- `"\0push" in { "": 2 }` is `true` on every build, base included: the object path's `key_text` truncates at the NUL.
+- Still missing on every build: a typed array's `length`, the `Object.prototype` members, and the other gaps listed in round 7.
+
+Files are in `/tmp/h10b/review8/`:
+- the probes: `p/` (`x01`–`x04`, plus `w05` and `w05c`)
+- the timings: `timings.txt`
+- the `in` comparisons: `in_snap9.txt`, `in_snap10.txt`
+- the sanitizer runs: `san/` (the overlay test, the emitted C, the `*.san.out` files)
+- the one matrix case: `m777_in_cases.jsonl`
+
+The archive is `/tmp/h10b/h10b-review8-probes.tar.gz` (no binaries), and `/tmp/h10b/review8.done` is touched.

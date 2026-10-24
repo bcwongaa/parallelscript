@@ -2,7 +2,8 @@
 // looked up at run time (through `any`, an optional property of a guarded `unknown`) finds
 // what library objects have on their prototypes: a Map's and a Set's size and methods, a
 // function's length, name and call, a promise's then, an array's and a typed array's
-// methods, a Date's and a RegExp's, a generator's next; and not keys they don't have.
+// methods, a Date's and a RegExp's, a generator's next; and not keys they don't have,
+// also names followed by a NUL (round 8's R8-F1).
 // (A typed array's `set` isn't found through `any`, for calls too: recorded for H29.)
 
 const t = (name: string, v: any, keys: string[]) => console.log(name, keys.map((k) => `${k}=${k in v}`).join(" "));
@@ -16,6 +17,8 @@ t("date", new Date(0), ["getTime", "toISOString", "size"]);
 t("regexp", /a/g, ["lastIndex", "test", "exec", "source", "size"]);
 function* gen(): Generator<number> { yield 1; }
 t("generator", gen(), ["next", "return", "throw", "size"]);
+const g2: any = gen();
+console.log("nul keys", "next\0" in g2, "next\0\0\0" in g2, "push\0x" in ([1] as any), "get\0" in (new Map() as any)); // R8-F1
 type Sized = { size?: number };
 function isSized(u: unknown): u is Sized { return typeof u === "object" && u !== null; }
 for (const v of [new Map(), {}] as unknown[]) if (isSized(v)) console.log("guarded", "size" in v);
@@ -29,5 +32,6 @@ for (const v of [new Map(), {}] as unknown[]) if (isSized(v)) console.log("guard
 // date getTime=true toISOString=true size=false
 // regexp lastIndex=true test=true exec=true source=true size=false
 // generator next=true return=true throw=true size=false
+// nul keys false false false false
 // guarded true
 // guarded false
