@@ -1,0 +1,54 @@
+// H10a review round 8 (R8-F1, R8-F2; the reviewer's r8f1_listener_identity.pts,
+// r8f2_restore_own_functions.pts, own/o_*.pts): functions read through an instanceof
+// narrowing's member are the instance's own: a local bound to one is the same function
+// (`===`, `indexOf`, `includes`, removing a listener), is called, `call`ed, `apply`d and
+// `bind`ed as it is, and storing the instance's own functions back (`c.cfg.onRows =
+// c.list[0]`, `c.list = c.list.toReversed()`, `c.list[0] = c.list[1]`) keeps them. As in Node.
+interface Source<T> {
+  current(): T;
+}
+class Emitter<T> implements Source<T> {
+  listeners: ((value: T) => string)[] = [];
+  matrix: T[][] = [[], []];
+  list: ((rows: T[][]) => void)[] = [];
+  cfg: { onRows: (rows: T[][]) => void } = { onRows: () => {} };
+  constructor(public last: T) {
+    this.list.push((rows) => rows.push([]), (rows) => rows.push([], []));
+  }
+  current(): T {
+    return this.last;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+    this.cfg.onRows(this.matrix);
+  }
+}
+function apply(f: (v: number) => string, v: number): string {
+  return f(v);
+}
+function offFirst(s: Source<number>): void {
+  if (!(s instanceof Emitter)) return;
+  const h = s.listeners[0];
+  const i = s.listeners.indexOf(h);
+  console.log("index", i, h === s.listeners[0], s.listeners.includes(h));
+  console.log(h(2), h.call(null, 5), h.apply(null, [6]), h.bind(null)(8), typeof h, apply(h, 7), [1, 2].map(h));
+  if (i >= 0) s.listeners.splice(i, 1);
+}
+function restore(s: Source<number>): void {
+  if (!(s instanceof Emitter)) return;
+  s.cfg.onRows = s.list[0];
+  s.list = s.list.toReversed();
+  s.list[0] = s.list[1];
+}
+const e = new Emitter<number>(0);
+e.listeners.push((v) => "a" + v, (v) => "b" + v);
+offFirst(e);
+console.log(e.listeners.length, e.listeners[0](1));
+restore(e);
+e.fire();
+console.log(e.matrix.length, e.list.length);
+// expect:
+// index 0 true true
+// a2 a5 a6 a8 function a7 [ 'a1', 'a2' ]
+// 1 b1
+// 5 2

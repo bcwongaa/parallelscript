@@ -508,3 +508,31 @@ All 18 changed or new error tests give exactly one PTS1001 on fix7 with the expe
 
 ### What READY would take
 1. R7-F2: report a typed function with a copying parameter wherever it is stored into a made-dynamic value (array mutators, element and property sets, array literals assigned to members); annotated inline callbacks given to keeping methods as dynamic locals. 2. R7-F1: narrow the reduce rule (fresh objects, collections and same-typed locals don't count) with a run guard. 3. Optional: R7-F3, and a known-gap line for deep read-only helpers. "With 1 and 2 done, every remaining divergence I know of is a recorded gap, and I'd expect READY."
+
+## Round 8: `8099aadb5`
+
+NOT READY
+
+# H10a review, round 8: commit `8099aadb5` (fix8) against `f801eb17d` (fix7)
+
+(The same reviewer, resumed. Probes: [h10a-review8-probes.tar.gz](h10a-review8-probes.tar.gz).)
+
+R7-F1, R7-F2 and R7-F3 are fixed as claimed, and nothing that matched Node on fix7 among the round 6–7 probes or the matrix got worse. Left: one regression against fix7 and two silent divergences where the base threw, none recorded.
+
+### R8-F1 (Medium, silent; base threw for the inferred source; not recorded): functions read through a narrowed member lose their identity
+`const h = s.listeners[0]; const i = s.listeners.indexOf(h); console.log("index", i, h === s.listeners[0]); if (i >= 0) s.listeners.splice(i, 1);` for an `Emitter<T>` with `listeners: ((value: T) => void)[]`: Node `index 0 true` / `[ 'b1' ] 1`; fix5–fix8 `index -1 false` / `[ 'a1', 'b1' ] 2` (never removed); base TypeError. Also `const f = c.cb; f === c.cb` false, `new Set([c.cb, c.cb]).size` 2, `c.list.filter((f) => f !== first)` keeps both, `indexOf` plus `splice(-1, 1)` removes the wrong listener. Cause: a function value read from the dynamic member into a place whose tsc type mentions any gets an adapter; dynamic locals exclude function types (`isFunction`) and `isInstanceofNestedObject` excludes callable types. Same on the base for `any`, `object` and `unknown` sources (C288's class), but H10a routes inferred narrowings, where the base threw, into it. Close by keeping function-typed reads as dynamic values (C284's fix for functions), or record.
+
+### R8-F2 (Medium, regression against fix7, unrecorded): re-storing the instance's own functions is PTS1001
+`c.cfg.onRows = c.list[0]; c.list = c.list.toReversed();` (also `c.list = c.list.slice(1)`, `c.list[0] = c.list[1]`): Node, fix5 and fix7 `6 2`, fix8 two PTS1001s. These are the instance's own closures, which need no adapter; `storesCopyingFunction` judges them by tsc's type. Fix: skip values that `holdsInstanceofDynamicValue` (a typed local holding an adapter, `const h = c.list[0]; c.cfg.onRows = h`, stays PTS1001, rightly).
+
+### R8-F3 (Low, silent; base threw; unrecorded): destructuring assignment and `Object.assign` bypass the R7-F2 store check
+`[c.list[0]] = [addRow]; ({ f: c.cfg.onRows } = { f: addRow }); Object.assign(c.more, { onRows: addRow });`: Node 5, fix5/fix7/fix8 2, base TypeError. Already PTS1001: `??=`, `||=`, aliases (`const l = c.list; l.push(f)`), conditional targets, nested `c.cfgs[0].onRows`, objects holding the function, a `let` function, method values, uninferred sources (`kept/q_*.pts`); `unknown` sources print 2 on the base too (D-179).
+
+### What holds (verified)
+R7-F1 (`{}`, `new Map()`, same-typed locals; literal initial values holding instance objects are honest PTS1001s), R7-F2 (all 15 round-7 `kept/` probes honest or Node's), R7-F3. Rerun of the 145 round 6–7 probes, fix7 against fix8: 19 forms move to an honest PTS1001 or OK; other PTS1001 changes are the shortened hint; remaining differences are C285, C287, C288, D-179 controls and round-6 TypeError notes; v15d (`parallel`, which Node can't parse) and v25 (a non-associative `.par.reduce`) are wrong probes. Matrix `new6` identical to `new5`; `rerun7` changes only `s03b` and `t04`; emit-c identical on fix7 and fix8 for 50 random programs without instanceof.
+
+### Test quality
+The 4 new error tests compile on fix7 and print 2 where Node prints 3; one PTS1001 each on fix8. The run guard matches Node and fails on fix7. Gaps: function identity, re-storing own functions, destructuring and `Object.assign` stores.
+
+### What READY would take
+1. R8-F2: don't report values read through the narrowing; `r8f2` as a run guard. 2. R8-F1: keep function-typed reads as dynamic values, or record with C288. 3. R8-F3: extend the store check to `Object.assign` and destructuring targets, or record. "With those done, every remaining divergence I know of is a recorded gap or H10b's, and I'd expect READY."

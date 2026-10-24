@@ -108,7 +108,8 @@ func (l *lowerer) copiesDynamicValue(node *ast.Node) bool {
 // whose value is a dynamic value that an instanceof narrowing gives (holdsInstanceofDynamicValue):
 // its initializer's (`const it = c.items`), or a for…of binding's over one (`for (const e of
 // c.entries)`), of a type a dynamic value converts to by a copy (dynamic data, an object
-// type) or a generic class's C<any, …>, which no other instance converts to. It holds what
+// type), a function type, whose conversion is an adapter, or a generic class's C<any, …>,
+// which no other instance converts to. It holds what
 // it is given, as a dynamic value, as a variable declared unknown does, so that writes
 // through it reach the object, as in JS, where a copy would miss them (R2-F1).
 func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
@@ -136,8 +137,10 @@ func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
 		t := l.irType(declared, symbol.ValueDeclaration.Name())
 		dynamic = l.handsInstanceObjects(symbol.ValueDeclaration) && (copiesInstanceObjects(t) || t == ir.Value) // `(row: unknown) => (row as any[]).push(x)` too
 	} else if dynamic = l.mentionsPrototypeInstance(declared); !dynamic {
+		// also a function type, whose adapter would be another function than the instance's
+		// (`const h = s.listeners[0]; s.listeners.indexOf(h)`, R8-F1)
 		t := l.irType(declared, symbol.ValueDeclaration.Name())
-		dynamic = t != nil && t != ir.Value && !isCheckable(t) && !isFunction(t)
+		dynamic = t != nil && t != ir.Value && !isCheckable(t)
 	}
 	l.instanceofLocals[key] = dynamic
 	return dynamic
@@ -1004,17 +1007,40 @@ func (l *lowerer) reportCallbackCopy(t ir.Type, argument *ast.Node) {
 	l.notSupportedYet(argument, fmt.Sprintf("giving a function whose parameter is a %s to a method of the object an `instanceof` narrowing holds as a dynamic value, which may hand it that object's own values (the parameter would get a copy, which wouldn't show changes; a parameter of type `any` takes them as they are), is", t))
 }
 
-// storesCopyingFunction reports, at value, a function stored by an assignment into a dynamic
-// value an instanceof narrowing made (`c.list[2] = f`, `c.cfg.onRows = f`, `c.list = [f]`)
-// that has a parameter a dynamic value converts to by a copy: the instance's code may call it
-// later with its own objects, which it would get as copies (R7-F2).
-func (l *lowerer) storesCopyingFunction(target, value *ast.Node) bool {
+// isInstanceofDynamicPlace reports whether target, an assignment's target, is a place in a
+// dynamic value an instanceof narrowing made (`c.list[2]`, `c.cfg.onRows`, `c.list`), or a
+// pattern with one (`[c.list[0]] = …`, `({ f: c.cfg.onRows } = …)`).
+func (l *lowerer) isInstanceofDynamicPlace(target *ast.Node) bool {
 	target = ast.SkipParentheses(target)
-	if !ast.IsAccessExpression(target) || !l.madeDynamicByInstanceof(target) && !l.madeDynamicByInstanceof(target.Expression()) {
-		return false
+	switch target.Kind {
+	case ast.KindArrayLiteralExpression:
+		return slices.ContainsFunc(target.Elements(), l.isInstanceofDynamicPlace)
+	case ast.KindObjectLiteralExpression:
+		return slices.ContainsFunc(target.Properties(), func(property *ast.Node) bool {
+			switch property.Kind {
+			case ast.KindPropertyAssignment:
+				return l.isInstanceofDynamicPlace(property.Initializer())
+			case ast.KindSpreadAssignment:
+				return l.isInstanceofDynamicPlace(property.Expression())
+			}
+			return false
+		})
+	case ast.KindSpreadElement:
+		return l.isInstanceofDynamicPlace(target.Expression())
+	case ast.KindBinaryExpression: // a target with a default, `[c.list[0] = f] = …`
+		return l.isInstanceofDynamicPlace(target.AsBinaryExpression().Left)
 	}
-	if !l.mentionsAny(l.typeAt(value), 0) {
-		return false // no parameter type that a dynamic value converts to by a copy
+	return ast.IsAccessExpression(target) && (l.madeDynamicByInstanceof(target) || l.madeDynamicByInstanceof(target.Expression()))
+}
+
+// storesCopyingFunction reports, at value, a function stored by an assignment into a dynamic
+// value an instanceof narrowing made (`c.list[2] = f`, `c.cfg.onRows = f`, `c.list = [f]`, a
+// destructuring assignment with such a target, `Object.assign(c.cfg, { onRows: f })`) that has
+// a parameter a dynamic value converts to by a copy: the instance's code may call it later
+// with its own objects, which it would get as copies (R7-F2, R8-F3).
+func (l *lowerer) storesCopyingFunction(target, value *ast.Node) bool {
+	if !l.isInstanceofDynamicPlace(target) || !l.mentionsAny(l.typeAt(value), 0) || l.holdsInstanceofDynamicValue(value) {
+		return false // no parameter type a dynamic value converts to by a copy, or the instance's own functions (`c.cfg.onRows = c.list[0]`, R8-F2)
 	}
 	t := l.irType(l.typeAt(value), value)
 	if t == nil || !holdsFunctions(t, map[ir.Type]bool{}) {

@@ -652,6 +652,9 @@ func (l *lowerer) tupleRest(source ir.Expr, tuple *ir.Class, index int, target *
 // left side): value is held in a local, then each target is assigned its part, in order;
 // the assignment's value is value.
 func (l *lowerer) destructuringAssignment(pattern *ast.Node, valueNode *ast.Node) ir.Expr {
+	if l.storesCopyingFunction(pattern, valueNode) {
+		return nil // `[c.list[0]] = [f]` (R8-F3)
+	}
 	value := l.expression(valueNode)
 	if value == nil {
 		return nil

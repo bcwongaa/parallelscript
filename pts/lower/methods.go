@@ -285,6 +285,18 @@ func (l *lowerer) isFunctionMethod(callee *ast.Node) bool {
 // an array literal or a tuple (`appliedTuple`).
 func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
+	if target := ast.SkipParentheses(callee.Expression()); l.isInstanceofDynamicLocalRef(target) {
+		// `h.call(null, x)` for an h holding an instanceof narrowing's function as it is (R8-F1):
+		// found at run time, as through any
+		fn := l.expression(target)
+		if fn == nil {
+			return nil
+		}
+		if x := l.dynamicMethodCall(call, callee, fn); x != nil {
+			return l.narrowedValue(call.AsNode(), x)
+		}
+		return nil
+	}
 	name := callee.AsPropertyAccessExpression().Name().Text()
 	args := call.Arguments.Nodes
 	if (name != "call" || len(args) > 0 && isSpreadElement(args[0])) && l.hasSpreadArgument(call) {

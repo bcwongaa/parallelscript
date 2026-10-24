@@ -1735,6 +1735,15 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
 	}
+	if callee := ast.SkipParentheses(call.Expression); !ast.IsAccessExpression(callee) && l.holdsInstanceofDynamicValue(callee) {
+		// `const h = c.listeners[0]; h(x)`, `h.bind(null)(x)`: the instance's own function, held
+		// as it is (R8-F1), called as a dynamic value's, its result of tsc's type as a narrowed
+		// read is
+		if x := l.dynamicCall(call, callee); x != nil {
+			return l.narrowedValue(call.AsNode(), x)
+		}
+		return nil
+	}
 	if callee := ast.SkipParentheses(call.Expression); ast.IsAccessExpression(callee) && l.callsInstanceofMethodDynamically(call) {
 		// `c.update(k, (o) => ({ a: o.a + 1 }))` after `c instanceof MapLRU`: tsc types the
 		// callback, or literal, for MapLRU<any, any>'s parameter, as the instance's isn't; the

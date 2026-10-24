@@ -23,6 +23,9 @@ func (l *lowerer) objectFunctionCall(call *ast.CallExpression) (x ir.Expr, handl
 	}
 	switch callee.Name().Text() {
 	case "assign":
+		if args := call.Arguments.Nodes; len(args) > 1 && slices.ContainsFunc(args[1:], func(source *ast.Node) bool { return l.storesCopyingFunction(args[0], source) }) {
+			return nil, true // `Object.assign(c.cfg, { onRows: f })` (R8-F3)
+		}
 		return l.objectAssign(call), true
 	case "freeze": // Readonly<T> to tsc; writes to the object then throw (D-157)
 		x := l.expression(call.Arguments.Nodes[0])

@@ -1,0 +1,28 @@
+// H10a review round 8 (R8-F3, the reviewer's r8f3_destructuring_object_assign.pts): Object.assign storing a function with a copying parameter into an instanceof narrowing's dynamic value is judged as the assignment it does; PTS1001, not a silent copy.
+// error: storing a function whose parameter is a value[][] in the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  list: ((rows: V[][]) => void)[] = [() => {}];
+  more: { onRows: (rows: V[][]) => void } = { onRows: () => {} };
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+    this.more.onRows(this.matrix);
+  }
+}
+function addRow(rows: any[][]): void {
+  rows.push([9]);
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) Object.assign(c.more, { onRows: addRow });
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+m.fire();
+console.log(m.matrix.length);
