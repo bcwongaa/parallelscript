@@ -235,3 +235,47 @@ Probe archive: `/tmp/h11b/h11b-review1-probes.tar.gz`. Probe files: `/tmp/h11b/r
 - **emit-c sweeps** (1,062 run tests plus 329 other programs, snapshot 3 against snapshot 5): no new diagnostics. The 18 + 14 changed C files are all explained by the `maybePassed` revert, the callee-side undefined test for `unknown`/`any` defaults, `ValueAdd` for two possibly-missing sides, the checked `+=` read (R3-F1), and the R3-F3 nondeterminism.
 - **Costs unchanged:** D-221's strings probe 1020.0M, round 2's `typeof`-narrowed union `for…of` 1125.0M.
 - **New tests:** `default_arguments_evaluation_order.pts` matches Node; the skipped test's expect block is Node's output; the no-diff updates to `concatenation_missing_values.pts` are justified.
+
+## Round 4 (snapshot 6 = `da004a459`; [archive](h11b-review4-probes.tar.gz))
+
+**Verdict: READY.** Both round-3 fixes hold. The one remaining finding is Low: the new fast path brings back, for element pairs, a valueOf bug the base already had. The parent's suite on snapshot 6 finished with 0 failures and 5,918 passes. Probes are archived at `/tmp/h11b/h11b-review4-probes.tar.gz` and the marker `/tmp/h11b/review4.done` is written. I made no changes to the snapshot.
+
+## Findings
+
+**R4-F1 · Low · when both sides may be missing, the fast path calls `toString` on an object whose class has `valueOf`. Snapshot 5 got this right; snapshot 3 and the base got it wrong the same way.**
+- **Where:** `missingConcatenation` (`lower.go`) concatenates `pts_value_to_string(left)` and `pts_value_to_string(right)` whenever neither side is undefined. JS's `+` calls ToPrimitive, which tries `valueOf` first, and snapshot 5's `ValueAdd` did that.
+- **Repro h02:**
+  ```ts
+  class Val { valueOf(): number { return 3; } toString(): string { return "V"; } }
+  const vals = [new Val()];
+  const strs = ["a"];
+  console.log(vals[0] + strs[0], strs[0] + vals[0]);
+  ```
+  - Node and snapshot 5: `3a a3`
+  - snapshot 6, snapshot 3 and the base: `Va aV`
+  - The same holds when one side is a loose local: `const [v] = vals; v + strs[0]`.
+- **The wider bug that already existed:** a `valueOf` class read where any value goes uses `toString` on all three CLIs. `vals[0] + "s"` gives `Vs` where Node gives `3s`, and `s += vals[0]` with `s` present gives `pV` where Node gives `p3`.
+- **Fix:** keep the fast path for primitives and take `ValueAdd` when either side's type may be an object. Alternatively, record it with the existing `valueOf` gap.
+
+## Fixes verified
+- **R3-F1 (`+=` of a loose local whose right side may be missing):** g02 now matches Node. That covers the element-read local, the pattern name and the `for…of` variable (`undefineda`).
+  - h01 also matches Node for `s += rec["k"]; s += rec["missing"]` (`undefinedKundefined`), for `s += t[1]; s += t[7]` on a string (`undefinedzundefined`), and for a present `s` (`paundefined`).
+  - The left side is read first, before the right side runs: a right side that assigns `s` still gives `undefineda`, as in Node.
+  - `s += f64[0]` (a number) throws TypeError where Node gives NaN, which is D-221's intended behaviour.
+- **R3-F2 (cost):** the fast path is cheap again (callgrind, loop only, 1M ×10):
+
+  | Probe | base | snapshot 3 | snapshot 5 | snapshot 6 |
+  |---|---|---|---|---|
+  | `strs[i] + strs[i + 1]` | 4732.9M | 4676.2M | 5162.9M | 4783.5M (1.01× base) |
+  | `text[i] + text[i + 1]` | 4136.7M | 4140.9M | 4624.9M | 4255.0M (1.03× base) |
+
+- **Evaluation order and single evaluation (h01, matches Node):**
+  - `w[i++] + w[i++]` gives `ab 2`, and `cundefined 4` when the second is missing.
+  - Calls in both indices run left then right (`LR`). The getter receivers `box.items[0] + box.items[9]` run once each (`get,get`). Record keys from calls run `LR`.
+  - A chain of three string indexes with `i++` gives `xyundefined 3`.
+  - In the C, `left` and `right` are each bound once, in order.
+- **Replay of all 92 earlier probes:** nothing that matched Node on snapshot 5 or the base differs, apart from R4-F1 (g03's `valueOf` line). Two other outputs changed from snapshot 5 and both now match Node: g01's loose `+=` of an element and g02.
+  - y02's `s += s` still throws TypeError (Node gives NaN); only the message changed.
+  - m07 and m15 still crash (C321, as recorded).
+- **emit-c sweep** of the 1,062 run tests, snapshot 5 against snapshot 6: only 4 C files changed (`array_pattern_loose_concat`, `builtin_property_patterns`, `evaluation_order`, `string_indexing`), all at concatenations, with no new diagnostics.
+- **Tests:** the extended `loose_locals_concatenation.pts` matches Node, and `concatenation_missing_values.pts`'s rewrapped header and no-diff marker are fine.

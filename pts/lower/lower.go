@@ -3216,7 +3216,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		switch op, ok := binaryOps[operator]; {
 		case operator == ast.KindPlusToken && (t == ir.String || current.Type() == ir.String) && l.isLooseIdentifier(expr.Left) && l.mayBeMissing(expr.Right):
 			if y := l.valueExpression(expr.Right); y != nil { // `s += w[0]` for an undefined s is "undefineda", as `+` makes it
-				value = l.missingConcatenation(unnarrowed(current), y, node)
+				value = l.missingConcatenation(unnarrowed(current), y, l.isStringLike(expr.Right), node)
 			}
 		case operator == ast.KindPlusToken && (t == ir.String || current.Type() == ir.String): // a loose local's narrowed read too
 			if l.isLooseIdentifier(expr.Left) && l.concatenatesWithUndefined(expr.Right) {
@@ -3951,7 +3951,7 @@ func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 		if x == nil || y == nil {
 			return nil
 		}
-		return l.missingConcatenation(x, y, node)
+		return l.missingConcatenation(x, y, l.isStringLike(expr.Left) && l.isStringLike(expr.Right), node)
 	}
 	x := l.concatenationOperand(expr.Left, expr.Right)
 	y := l.concatenationOperand(expr.Right, expr.Left)
@@ -3968,11 +3968,11 @@ func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 	return &ir.Binary{Op: ir.Concat, X: x, Y: y}
 }
 
-// missingConcatenation is x + y for two values that may be undefined (mayBeMissing): their
-// strings concatenated where both are there; else JS's `+` of what they hold, checked to
-// be a string: "aundefined" where one is there, and NaN, a TypeError, where neither is
-// (H11b).
-func (l *lowerer) missingConcatenation(x, y ir.Expr, node *ast.Node) ir.Expr {
+// missingConcatenation is x + y for two values that may be undefined (mayBeMissing): JS's
+// `+` of what they hold, checked to be a string: "aundefined" where one is there, and NaN,
+// a TypeError, where neither is (H11b); where both are strings to tsc (strings), their
+// strings concatenated where both are there, without ToPrimitive (an object's valueOf).
+func (l *lowerer) missingConcatenation(x, y ir.Expr, strings bool, node *ast.Node) ir.Expr {
 	left, right := l.newLocal("left", x.Type()), l.newLocal("right", y.Type())
 	a, b := &ir.LocalRef{Local: left}, &ir.LocalRef{Local: right}
 	present := func(v ir.Expr) ir.Expr { return &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: v, Only: ir.Undefined}} }
@@ -3981,8 +3981,23 @@ func (l *lowerer) missingConcatenation(x, y ir.Expr, node *ast.Node) ir.Expr {
 	if sa == nil || sb == nil || added == nil {
 		return nil
 	}
-	both := &ir.Logical{Op: ir.And, X: present(a), Y: present(b)}
-	return &ir.Bind{Local: left, Value: x, In: &ir.Bind{Local: right, Value: y, In: &ir.Conditional{Cond: both, Then: &ir.Binary{Op: ir.Concat, X: sa, Y: sb}, Else: added}}}
+	var sum ir.Expr = added
+	if strings {
+		sum = &ir.Conditional{Cond: &ir.Logical{Op: ir.And, X: present(a), Y: present(b)}, Then: &ir.Binary{Op: ir.Concat, X: sa, Y: sb}, Else: added}
+	}
+	return &ir.Bind{Local: left, Value: x, In: &ir.Bind{Local: right, Value: y, In: sum}}
+}
+
+// isStringLike reports whether tsc types node as a string, or a union of string literals.
+func (l *lowerer) isStringLike(node *ast.Node) bool {
+	return isStringLikeType(l.typeAt(node))
+}
+
+func isStringLikeType(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !isStringLikeType(member) })
+	}
+	return t.Flags()&checker.TypeFlagsStringLike != 0
 }
 
 // concatenationOperand lowers operand, a side of a `+` that tsc types as a string: as any
