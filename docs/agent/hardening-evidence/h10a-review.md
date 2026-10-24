@@ -586,3 +586,25 @@ R9-F1 (all `mix/m_*`, `r9f1`, round 7's `n_concat_assign` honest PTS1001s), R9-F
 
 ### What READY would take
 1. R10-F1 (one of the two fixes), `r10f1` as an error test. 2. R10-F2: keep `??`/`||` of own function values dynamic, or record. "With those, every divergence I know of is a recorded gap or belongs to H10b/H29, and I'd expect READY."
+
+## Round 11: `623bb50d6`
+
+NOT READY
+
+# H10a review, round 11: commit `623bb50d6` (fix11) against `29444bf3c` (fix10)
+
+(The same reviewer, resumed. Probes: [h10a-review11-probes.tar.gz](h10a-review11-probes.tar.gz).)
+
+R10-F1 and R10-F2 are fixed for the forms reported; no regression outside instanceof code. Two narrow issues, neither recorded; "fixing or recording both is all I'd need for READY."
+
+### R11-F1 (Low, silent identity; base threw; same on fix10): `??` between two optional function members still gives an adapter
+`const z = c.maybe ?? c.also; console.log(z === c.also, c.list.indexOf(z!), (c.maybe || c.also) === c.also)`: Node `true 1 true`, fix10 `false -1 false`, fix11 `false -1 true`. `nullishCoalescing`'s new branch requires `isFunction(result)`, but tsc types the result `fn | undefined`. Fix: test the non-undefined part, as `isInstanceOwnFunction` does.
+
+### R11-F2 (Low, regression against fix10): an array literal of the instance's own functions given to `concat` is PTS1001
+`c.list = c.list.concat([c.list[0]])`: Node and fix10 `4 2`, fix11 PTS1001. Working: `concat(c.list.slice(0, 1))`, `with(0, c.list[1])`, `toSpliced(0, 0, c.list[1])`, `concat(c.list[0])`. `copiesCallbackArgument` consults `isInstanceOwnValue` only for arguments lowered to a Value. Fix: skip arguments `isInstanceOwnValue` holds for (also clears `c.boxes.push({ cb: c.list[0] })`, PTS1001 on fix10 too).
+
+### What holds (verified)
+R10-F1 (`r10f1` and all ten `own/a_*` honest PTS1001s; the error tests print 2 on fix10 and one PTS1001 each on fix11); R10-F2 (`r10f2`, `b01`, `b02`; `l01_logical_functions.pts` matches Node except R11-F1's line: `||`, `&&`, chained `|| ||`, `c.maybe ?? c.maybe`, calls and optional calls of the logical expressions, `typeof`, `!!`, `indexOf`, an array literal, a typed local); logical operators on other values unchanged (`l02_logical_others.pts`). Rerun of 215 round 6–10 probes: 13 change, all improvements. Matrix `new10` identical to `new9`; `rerun10` changes only `s03b`, `t04`; emit-c identical on fix10 and fix11 for 50 random programs using `??`, `||` or `&&`.
+
+### What READY would take
+1. R11-F1: the non-nullable result type in `nullishCoalescing`'s own-function branch, or record. 2. R11-F2: skip `isInstanceOwnValue` arguments in the keeping-method path, or record. "With either fix or record for both, I know of no unrecorded divergence in H10a's scope, and I'd call it READY."

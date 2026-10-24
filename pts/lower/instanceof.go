@@ -960,8 +960,8 @@ func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.N
 		l.reportCallbackCopy(copyingParameterIn(l.irType(l.typeAt(argument), argument), map[ir.Type]bool{}), argument)
 		return true
 	}
-	if !holdsFunctions(value.Type(), map[ir.Type]bool{}) || !l.madeDynamicByInstanceof(callee) {
-		return false
+	if !holdsFunctions(value.Type(), map[ir.Type]bool{}) || !l.madeDynamicByInstanceof(callee) || l.isInstanceOwnValue(argument) {
+		return false // `c.list.concat([c.list[0]])`: the instance's own functions (R11-F2)
 	}
 	var parameters []int // those the method hands its objects; nil for every one
 	method, isArrayMethod := l.arrayMethodName(callee)

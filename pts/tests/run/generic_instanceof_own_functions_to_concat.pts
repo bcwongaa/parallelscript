@@ -1,0 +1,27 @@
+// H10a review round 11 (R11-F2, the reviewer's r11f2_literal_of_own_to_concat.pts): an array literal of the instance's own functions given to `concat`, which keeps its arguments, needs no adapter. As in Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  list: ((rows: V[][]) => void)[] = [];
+  constructor(public key: K, public val: V) {
+    this.list.push((rows) => rows.push([]));
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+  }
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  c.list = c.list.concat([c.list[0]]);
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+m.fire();
+console.log(m.matrix.length, m.list.length);
+// expect:
+// 4 2

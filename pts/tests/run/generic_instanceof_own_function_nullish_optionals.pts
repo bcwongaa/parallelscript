@@ -1,0 +1,24 @@
+// H10a review round 11 (R11-F1, the reviewer's r11f1_nullish_two_optionals.pts): `??` between two optional members holding the instance's own functions gives the function itself, so `===` and `indexOf` find it. As in Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  list: ((x: V) => string)[] = [];
+  maybe?: (x: V) => string;
+  also?: (x: V) => string;
+  constructor(public key: K, public val: V) {
+    this.list.push((x) => "a" + x, (x) => "b" + x);
+    this.also = this.list[1];
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function run(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const z = c.maybe ?? c.also;
+  console.log(z === c.also, c.list.indexOf(z!), (c.maybe || c.also) === c.also);
+}
+run(new MapLRU<string, number>("k", 0));
+// expect:
+// true 1 true
