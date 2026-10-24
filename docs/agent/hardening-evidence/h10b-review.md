@@ -638,3 +638,82 @@ Files are in `/tmp/h10b/review6/`:
 - tooling: `bin/`
 
 The archive is `/tmp/h10b/h10b-review6-probes.tar.gz` (no binaries), and `/tmp/h10b/review6.done` is touched.
+
+## Round 7 (snapshot 9: `4f1b34621` plus the round-6 fixes, committed as `74d1cc4b1`; the same reviewer, resumed)
+
+# H10b review, round 7 (snapshot 9: `4f1b34621` plus `/tmp/h10b/snap9.patch`)
+
+**VERDICT: NOT READY, for one performance regression only.**
+
+The behaviour is clean. R6-F1 and R6-F2 are fixed, and both matrices, every earlier probe and the emit-c sweep show no wrong answer. But the R6-F2 runtime change makes `in` up to about 24× slower on arrays, for every program and not only H10b's (R7-F1). The fix is small and local. If you decide to defer it to H27, as R1-F5 was, everything else is READY.
+
+## What I checked
+- **777-case matrix on snap9:** 751 OK, 24 PTS1001, 2 TYPEERR. Identical to snap8: no class or detail changes.
+- **748-case matrix on snap9:** 732 OK, 12 PTS1001, 4 WRONG. Identical to snap8; the 4 WRONG are the recorded R1-F13 cases.
+- **Suite 9 (the parent's run):** 5,822 pass / 383 skip / 0 fail, 10 packages PASS, empty stderr.
+- **emit-c sweep, snap8 against snap9, 1,582 programs:** 1,579 produce identical C.
+  - 2 of the 3 that differ are the new tests.
+  - The third is `corpus/functional/transducers.pts`. Its C is nondeterministic on every build, base included: over 40 runs, base gives 30/10 between two outputs, snap6 36/4, snap9 37/3. So it's pre-existing.
+  - Correction to round 5: I attributed this program's C change to snapshot 6; it was this nondeterminism. Both outputs print the same.
+  - The runtime change produces no C difference, so the sweep can't see it; the suite and probes cover it.
+- **Re-runs on snap9, against snap8:**
+
+  | Files | Identical | Changed |
+  |---|---|---|
+  | 170 from rounds 1–3 | 166 | 4, timing only |
+  | 29 from round 4 and the parent's round-5 probes | 29 | 0 |
+  | 44 from round 5 and the parent's round-6 probes | 42 | 2, both now Node's `in` answers |
+  | 47 from round 6 | 41 | 6, all R6-F1/R6-F2 fixes |
+
+- **New probes:** `p/w01`–`w05`, run on Node, snap9, snap8 and base. Round 6's repros are also in `r/`.
+
+## Round 6's findings re-checked
+- **R6-F1 fixed.**
+  - `r6_assignment_default_copies`: every form with a default (shorthand, renamed, nested, `unknown`) gives the as-is TypeError for a `Box<number>`. A `Box<any>` shares its arrays (the new test).
+  - `r6_assignment_default_narrowing` and a narrowing's nested default (`w04b`) are PTS1001. Base and snap8 lost the write silently there.
+  - Defaults that are actually used, member targets (`{ opt: holder.list = [] }`), scalar parts and a narrowing's scalar defaults all match Node (`w04`, `w04c`).
+  - Evaluation order of target references, getters and defaults matches Node for typed sources and `Box<any>` places, including nested defaults (used or not) and a default that reads an earlier target (`w03`).
+- **R6-F2 fixed.**
+  - `v06` now matches Node on every line.
+  - `in` through `any` across 16 library kinds and 100 keys (`w01`): 37 answers that base got wrong now match Node, and none newly disagrees.
+  - The 23 still wrong are false negatives that base shares: `Object.prototype` members (`toString`, `constructor`, `hasOwnProperty`, `valueOf`), a function's `prototype` and `toString`, typed arrays' `length`, `map`, `set` and `byteLength`, `Set.prototype.union`, `copyWithin`, `toLocaleDateString`, and a tuple's `push` (arrays now answer `true` for it).
+  - Computed keys on typed values (`k in arr`, `k in map`, a capabilities filter, `w02`) match Node; base and snap8 didn't.
+  - The method tables hold only names JS has on each kind, and WeakMap/WeakSet aren't implemented, so there are no false `true`s.
+
+## New findings
+
+**R7-F1 · Medium · not silent (performance) · new in snap9.** `in` on arrays, maps and sets is much slower.
+
+Repros: `p/w05/w05_in_index_hot_loop.pts` (`i in arr` over 5,000,000 keys, typed and through `any`) and `w05c_in_object_hot_loop.pts`.
+
+| Case | base | snap8 | snap9 |
+|---|---|---|---|
+| `i in arr`, 5M keys, typed | 79–92 ms | 61–72 ms | 1,486–1,853 ms |
+| `k in map` through `any`, 3M keys | ~30 ms | ~30 ms | 234–264 ms |
+| `k in obj` through `any` | ~117 ms | ~110 ms | ~135 ms |
+| `k in rec` (record) | unchanged | unchanged | unchanged |
+
+- The answers are the same on every build.
+- Root cause: `pts_dynamic_has` (`runtime/src/dynamic.c:692`) computes `pts_builtin_method_has(object, key_text(key, buffer))` before the `switch`, for every key.
+  - `key_text` calls `pts_value_to_string`, which formats a numeric index into a new GC string on each call.
+  - The lookup itself is a linear `strcmp` over up to 40 names.
+  - Plain objects now call `key_text` twice per `in`.
+- Fix direction: test `size`, `length`, indices and own keys first; look up builtin names only after those fail, and only for string keys.
+
+## Out of scope, pre-existing on base (for the record)
+- **Array-pattern defaults in assignments are ignored when the element is present but `undefined`** (`w03b`). Silent.
+  - `[a = 1] = [undefined]` leaves `a` undefined; Node gives 1.
+  - `[c = 3, d = 4] = [undefined, 5]` from `any[]`: same.
+  - Past the end of the array the default works, and object-pattern defaults work.
+- **`new Array<number>(n)` has no holes:** `0 in a` is `true` (`w05b`).
+- **emit-c of `transducers.pts` is nondeterministic** (see the sweep above).
+
+Files are in `/tmp/h10b/review7/`:
+- round 6's repros: `r/`
+- the probes: `p/w01`–`w05`
+- re-run outputs: `*_outputs_snap9.txt`, plus `r6_outputs_snap8.txt` for comparison
+- matrices: `m777_snap9.*`, `m748_snap9.*`
+- the sweep: `sweep/results.txt`
+- tooling: `bin/`
+
+The archive is `/tmp/h10b/h10b-review7-probes.tar.gz` (no binaries), and `/tmp/h10b/review7.done` is touched.

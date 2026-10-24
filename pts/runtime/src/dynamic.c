@@ -679,6 +679,12 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
   }
 }
 
+/* Whether key names a builtin method of object's kind, on its prototype, which `in` finds too (H10b's R6-F2): looked
+ * up only for a string key, after the cheaper tests (R7-F1). */
+static bool builtin_method_key(pts_value object, pts_value key) {
+  return is_string(key) && pts_builtin_method_named(object, (const pts_string *)pts_value_as_object(key));
+}
+
 bool pts_dynamic_has(pts_value object, pts_value key) {
   char buffer[MAX_KEY];
   if (!pts_value_is_object(object) || is_string(object)) {
@@ -688,20 +694,24 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
   }
   pts_object *target = pts_value_as_object(object);
   double index;
-  /* A library object's methods are on its prototype, which `in` finds too (H10b's R6-F2). */
-  bool builtin = pts_builtin_method_has(object, key_text(key, buffer));
   switch (target->type->kind) {
   case PTS_KIND_ARRAY:
     if (pts_is_match_array(target) && (key_is(key, "index") || key_is(key, "input") || key_is(key, "groups"))) {
       return true;
     }
-    return key_is(key, "length") || builtin || (array_index(key, &index) && pts_array_has((const pts_array *)target, index)); /* a hole isn't a property */
+    if (array_index(key, &index)) {
+      return pts_array_has((const pts_array *)target, index); /* a hole isn't a property */
+    }
+    return key_is(key, "length") || builtin_method_key(object, key);
   case PTS_KIND_TUPLE:
     return key_is(key, "length") || (array_index(key, &index) && index < pts_tuple_length(target));
   case PTS_KIND_REGEXP:
-    return builtin || regexp_get((const pts_regexp *)target, key) != PTS_VALUE_UNDEFINED;
+    return regexp_get((const pts_regexp *)target, key) != PTS_VALUE_UNDEFINED || builtin_method_key(object, key);
   case PTS_KIND_TYPED_ARRAY:
-    return builtin || (array_index(key, &index) && pts_typed_array_has_index((const pts_typed_array *)target, index));
+    if (array_index(key, &index)) {
+      return pts_typed_array_has_index((const pts_typed_array *)target, index);
+    }
+    return builtin_method_key(object, key);
   case PTS_KIND_RECORD: {
     pts_string *name = pts_value_to_string(key);
     return pts_map_has((const pts_map *)target, &name);
@@ -710,13 +720,13 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
     return pts_object_has(target, key_text(key, buffer));
   case PTS_KIND_MAP:
   case PTS_KIND_SET:
-    return key_is(key, "size") || builtin;
+    return key_is(key, "size") || builtin_method_key(object, key);
   case PTS_KIND_FUNCTION:
-    return key_is(key, "length") || key_is(key, "name") || builtin;
+    return key_is(key, "length") || key_is(key, "name") || builtin_method_key(object, key);
   case PTS_KIND_PROMISE:
     return key_is(key, "then") || key_is(key, "catch") || key_is(key, "finally");
   default:
-    return builtin; /* a Date's, a generator's */
+    return builtin_method_key(object, key); /* a Date's, a generator's */
   }
 }
 

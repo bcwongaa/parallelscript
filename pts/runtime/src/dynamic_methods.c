@@ -1523,4 +1523,26 @@ bool pts_builtin_method_has(pts_value value, const char *name) {
   return methods != NULL && find(methods, name) != NULL;
 }
 
+bool pts_builtin_method_named(pts_value value, const pts_string *name) {
+  if (name->byte_len == 0) {
+    return false;
+  }
+  if (is_generator(value)) {
+    char buffer[16]; /* longer than any generator method's name */
+    if (name->byte_len >= sizeof buffer) {
+      return false;
+    }
+    memcpy(buffer, name->bytes, name->byte_len);
+    buffer[name->byte_len] = '\0';
+    return pts_iterator_has_method(value, buffer);
+  }
+  const named_method *methods = builtin_methods(value);
+  for (; methods != NULL && methods->name != NULL; methods++) {
+    if (methods->name[0] == name->bytes[0] && strlen(methods->name) == name->byte_len && memcmp(methods->name, name->bytes, name->byte_len) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool pts_value_is_array(pts_value value) { return is_array_like(value); }

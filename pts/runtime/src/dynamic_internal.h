@@ -15,5 +15,7 @@ pts_value pts_spread_element(pts_value value, size_t i);
 bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, const pts_value *argv, pts_value *result);
 /* Whether value has the builtin method name that pts_builtin_method_call would call. */
 bool pts_builtin_method_has(pts_value value, const char *name);
+/* pts_builtin_method_has for a name held in a string (`in`'s key), compared where it is. */
+bool pts_builtin_method_named(pts_value value, const pts_string *name);
 
 #endif
