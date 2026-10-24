@@ -258,6 +258,10 @@ func (l *lowerer) iteratorMethodCall(call *ast.CallExpression) (x ir.Expr, handl
 	if iterator == nil || resultType == nil {
 		return nil, true
 	}
+	container := l.isInstanceofContainer(call.AsNode())
+	if container {
+		resultType = l.iteratorResultShape(ir.Value) // `c.store.values().next()`, whose value stays the instance's (C285)
+	}
 	var sent ir.Expr = &ir.UndefinedConst{}
 	if args := call.Arguments.Nodes; len(args) > 0 {
 		if sent = l.valueExpression(args[0]); sent == nil {
@@ -274,7 +278,11 @@ func (l *lowerer) iteratorMethodCall(call *ast.CallExpression) (x ir.Expr, handl
 		Then: &ir.FromUnion{X: &ir.LocalRef{Local: step}, To: resultType}, Else: made} // the object as it is (D-178)
 	called := &ir.CallBuiltin{Builtin: ir.IteratorCall, Args: []ir.Expr{&ir.LocalRef{Local: it}, modeConst(mode), box(sent), &ir.StringConst{Value: scanner.GetTextOfNode(callee)}}}
 	opened := &ir.CallBuiltin{Builtin: ir.IteratorOf, Args: []ir.Expr{box(iterator)}} // an object with its own next() is wrapped (D-111)
-	return &ir.Bind{Local: it, Value: opened, In: &ir.Bind{Local: step, Value: called, In: result}}, true
+	x = &ir.Bind{Local: it, Value: opened, In: &ir.Bind{Local: step, Value: called, In: result}}
+	if container {
+		x = box(x)
+	}
+	return x, true
 }
 
 // iteratorResult makes the result object of an iterator's method: done, whether the
@@ -336,6 +344,9 @@ func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *as
 	elemType := l.irType(yieldType, s.Expression)
 	if elemType == nil {
 		return nil
+	}
+	if copiesInstanceObjects(elemType) && l.holdsInstanceofDynamicValue(s.Expression) {
+		elemType = ir.Value // `c.matrix.entries()`'s `[i, row]`, whose row stays the instance's (C285)
 	}
 	return l.iteratorLoop(node, label, declaration, iterable, elemType)
 }

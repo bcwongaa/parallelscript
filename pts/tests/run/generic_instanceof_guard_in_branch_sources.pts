@@ -1,0 +1,104 @@
+// Guard (H10b): uses of a reference narrowed by `instanceof` to a generic class inside the
+// narrowing, from each kind of source (an interface, a generic base class, a plain base class,
+// a union, `object`, `unknown`, `any`, a type parameter): field reads and writes, a getter, a
+// method, a push to an array member and a private read. H10a made these run as Node does; a
+// change to tsc's C<any, …> places for values that flow out must keep them so.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+abstract class Base<T> {
+  abstract size(): number;
+}
+class Shape {
+  area(): number {
+    return 1;
+  }
+}
+class Store<K, V> extends Base<V> implements Cache<K, V> {
+  #secret: V;
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    super();
+    this.#secret = val;
+  }
+  get current(): V {
+    return this.val;
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  size(): number {
+    return this.items.length;
+  }
+  static peek(o: object): unknown {
+    return o instanceof Store ? o.#secret : "none";
+  }
+}
+class Sized<T> extends Shape {
+  items: T[] = [];
+  constructor(public val: T) {
+    super();
+  }
+}
+function fromInterface(c: Cache<string, number>): string {
+  if (!(c instanceof Store)) return "no";
+  c.val += 1;
+  c.items.push(c.val);
+  return `${c.get("k")} ${c.current} ${c.size()} ${Store.peek(c)}`;
+}
+function fromBase(b: Base<number>): string {
+  if (!(b instanceof Store)) return "no";
+  b.val *= 2;
+  b.items.push(b.val);
+  return `${b.current} ${b.size()}`;
+}
+function fromShape(s: Shape): string {
+  if (!(s instanceof Sized)) return "no";
+  s.items.push(s.val);
+  return `${s.val} ${s.items.length} ${s.area()}`;
+}
+function fromUnion(c: Cache<string, number> | string): string {
+  if (!(c instanceof Store)) return "no";
+  c.items.push(0);
+  return `${c.current} ${c.size()}`;
+}
+function fromObject(o: object): string {
+  if (!(o instanceof Store)) return "no";
+  o.items.push(o.val);
+  return `${o.get("k")} ${o.size()}`;
+}
+function fromUnknown(u: unknown): string {
+  if (!(u instanceof Store)) return "no";
+  u.val = u.val + 1;
+  return `${u.current} ${u.size()}`;
+}
+function fromAny(a: any): string {
+  if (!(a instanceof Store)) return "no";
+  a.items.push(a.val);
+  return `${a.current} ${a.size()}`;
+}
+function fromTypeParameter<S extends Cache<string, number>>(s: S): string {
+  if (!(s instanceof Store)) return "no";
+  s.items.push(-1);
+  return `${s.get("k")} ${s.size()}`;
+}
+const st = new Store("k", 10);
+console.log("interface", fromInterface(st));
+console.log("base", fromBase(st));
+console.log("shape", fromShape(new Sized("v")), fromShape(new Shape()));
+console.log("union", fromUnion(st), fromUnion("s"));
+console.log("object", fromObject(st), fromObject({}));
+console.log("unknown", fromUnknown(st), fromUnknown(3));
+console.log("any", fromAny(st), fromAny(null));
+console.log("type parameter", fromTypeParameter<Cache<string, number>>(st));
+console.log("after", st.val, st.items);
+// expect:
+// interface 11 11 1 10
+// base 22 2
+// shape v 1 1 no
+// union 22 3 no
+// object 22 4 no
+// unknown 23 4 no
+// any 23 5 no
+// type parameter 23 6
+// after 23 [ 11, 22, 0, 22, 23, -1 ]

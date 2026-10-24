@@ -26,6 +26,9 @@ func (e *emitter) collectDynamicEntries(program *ir.Program) {
 		e.checkParams(paramTypes(f.Params))
 		e.check(e.canonicalFuncType(paramTypes(f.Params), f.Result))
 	}
+	for _, method := range e.familyMethods {
+		e.checkParams(paramTypes(method.Func.Params[1:]))
+	}
 	for _, class := range program.Classes {
 		for _, method := range e.interfaceMembers[class] {
 			if method.Kind == ir.Plain {

@@ -1,0 +1,48 @@
+// H10b (C279): `.par` views over values narrowed by `instanceof` to a generic class that flowed
+// into arrays tsc types C<any>[]: an array literal of a narrowed `object`, a plain base class
+// (Shape) and an `unknown`, a `Tagged<any>[]` and the result of `filter` with an inferred
+// predicate over `unknown[]`. Their callbacks read the objects on other threads. HEAD threw
+// `TypeError: Expected Tagged<any>, got Tagged<number>` (or `Expected Tagged[], got Array`) or
+// was PTS1001. The expected lines are Node's for the sequential twin (`.par.` made `.`).
+// threads: 1 2 4
+class Shape {
+  area(): number {
+    return 0;
+  }
+}
+class Tagged<T> extends Shape {
+  constructor(public val: T) {
+    super();
+  }
+  twice(): number {
+    return Number(this.val) * 2;
+  }
+}
+function fromObject(o: object): string {
+  if (!(o instanceof Tagged)) return "no";
+  const all = [o, o, o];
+  return all.par.map((t) => t.twice()).join(",");
+}
+function fromShape(s: Shape): string {
+  if (!(s instanceof Tagged)) return "no";
+  const typed: Tagged<any>[] = [s, s];
+  return typed.par.map((t) => t.val + 1).join(",");
+}
+function fromUnknown(u: unknown): string {
+  if (!(u instanceof Tagged)) return "no";
+  return [u, u].par.map((t) => t.twice() + t.area()).join(",");
+}
+const values: unknown[] = [];
+for (let i = 0; i < 24; i++) values.push(i % 3 === 0 ? `s${i}` : new Tagged(i));
+const tagged = values.filter((v) => v instanceof Tagged);
+console.log("count", tagged.length);
+console.log("sum", tagged.par.map((t) => t.twice()).reduce((a, b) => a + b, 0));
+console.log("object", fromObject(new Tagged(4)), fromObject({}));
+console.log("shape", fromShape(new Tagged(5)), fromShape(new Shape()));
+console.log("unknown", fromUnknown(new Tagged(6)), fromUnknown(7));
+// expect:
+// count 16
+// sum 384
+// object 8,8,8 no
+// shape 6,6 no
+// unknown 12,12 no

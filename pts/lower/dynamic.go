@@ -14,10 +14,11 @@ import (
 // elements are found at run time (DynamicGet, DynamicSet), operators apply JS's
 // conversions to them, and converting one to a typed location checks it.
 
-// isAny reports whether tsc types node as any.
+// isAny reports whether tsc types node as any, or as a generic class's C<any, …>, which
+// holds any of C's instances as a dynamic value (holdsAnyInstance).
 func (l *lowerer) isAny(node *ast.Node) bool {
 	t := l.typeAt(node)
-	return t.Flags()&checker.TypeFlagsAny != 0 || l.isRuntimeObject(t)
+	return t.Flags()&checker.TypeFlagsAny != 0 || l.isRuntimeObject(t) || l.holdsAnyInstance(node)
 }
 
 // isDynamicSource reports whether tsc types node as any or unknown: a value nothing but
@@ -33,6 +34,9 @@ func (l *lowerer) isDynamicSource(node *ast.Node) bool {
 // or the value of `=` on one of these (`(o.m = new Map()).size`, D-179).
 func (l *lowerer) storedDynamic(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
+	if l.isInstanceofContainer(node) {
+		return true // `[...c.matrix]`, `new Set(c.matrix)` (C285)
+	}
 	switch node.Kind {
 	case ast.KindIdentifier:
 		symbol := l.checker.GetSymbolAtLocation(node)
@@ -216,6 +220,9 @@ func (l *lowerer) valuePlace(node *ast.Node, object ir.Expr) (place, bool) {
 func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Expr {
 	if l.firstDynamicCall == nil {
 		l.firstDynamicCall = call.AsNode()
+	}
+	if x, ok := l.familyPrivateCall(call, callee); ok {
+		return x
 	}
 	// A method of an array that erased code makes (`[x].slice(1)`, `new Array<T>(n).fill(x)`),
 	// whose signature mentions an erased type parameter, is found at run time too.

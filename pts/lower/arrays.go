@@ -69,6 +69,9 @@ func isRestTuple(t *checker.Type) bool {
 // arrayLiteral lowers `[a, b, c]`: an array of the literal's contextual type if that is
 // an array type, so that `const s: Shape[] = [circle]` holds Shapes, and otherwise of its own.
 func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
+	if l.isInstanceofContainer(node) {
+		return l.instanceofContainerLiteral(node) // `[...c.matrix]`, whose rows stay the instance's (C285)
+	}
 	t := l.typeAt(node)
 	if contextual := l.contextualType(node); contextual != nil && checker.IsTupleType(contextual) {
 		t = contextual // [1, "a"] where a [number, string] goes
@@ -1345,6 +1348,9 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 	x := l.iterable(args[0])
 	if x != nil && (x.Type() == ir.Value || l.hasIteratorMethod(l.typeAt(args[0]))) { // a generator object's values, a dynamic value's items, an object's by its [Symbol.iterator]: an any[] (D-078, D-109, D-111)
 		x = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(x), &ir.StringConst{Value: scanner.GetTextOfNode(args[0])}}}
+	}
+	if x != nil && l.isInstanceofContainer(call.AsNode()) { // `Array.from(c.store.values())`, whose arrays stay the instance's (C285)
+		return box(l.dynamicConversion(box(x), ir.ValueArray, args[0]))
 	}
 	switch {
 	case x == nil:

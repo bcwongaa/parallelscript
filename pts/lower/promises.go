@@ -98,9 +98,10 @@ func (l *lowerer) awaitPoint(node *ast.Node) ([]ir.Stmt, ir.Expr) {
 		return nil, nil
 	}
 	var value ir.Expr = &ir.Resumed{}
-	if t != ir.Void && t != ir.Undefined && t != ir.Value && !(holdsDynamicValues(t, map[ir.Type]bool{}) && l.madeDynamicByInstanceof(node)) {
+	if t != ir.Void && t != ir.Undefined && t != ir.Value && !(holdsDynamicValues(t, map[ir.Type]bool{}) && l.holdsInstanceofDynamicValue(node)) {
 		// (an awaited array of an instance an instanceof narrowing holds stays the array, a
-		// dynamic value that a typed place converts with D-218's check, H10a)
+		// dynamic value that a typed place converts with D-218's check, H10a; also from an
+		// `unknown` source, whose typed places copy as D-179 says, C285)
 		if value = l.checkedConversion(value, t, node); value == nil {
 			return nil, nil
 		}
@@ -177,10 +178,13 @@ func (l *lowerer) promiseCall(call *ast.CallExpression) (x ir.Expr, handled bool
 	if name == "Promise.catch" {
 		values = append(values, box(&ir.UndefinedConst{}))
 	}
-	for _, arg := range args {
+	for i, arg := range args {
 		value := l.valueExpression(arg)
 		if value == nil {
 			return nil, true
+		}
+		if len(values) > 0 && l.copiesCallbackArgument(call, callee, i, arg, value) {
+			return nil, true // `Promise.resolve(c.matrix[0]).then(pushRow)`: pushRow would get a copy of the instance's row (C285)
 		}
 		if instantiated, ok := l.instantiatingAdapter(value, nil, arg); ok {
 			if value = instantiated; value == nil { // a generic callback's instance for the value it gets (D-194)

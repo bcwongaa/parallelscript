@@ -1,0 +1,33 @@
+// H10b (C285): a row inside a member of a value narrowed by `instanceof` to a generic class,
+// handed on by a promise: `Promise.resolve(c.matrix[0])` with a callback written at `.then`,
+// the same promise held by a const, and an awaited Promise member (`c.pending`, which
+// resolves to a row). In Node the callback gets the instance's own row, so its write reaches
+// it; the reproducer's draft lost the first one silently on the base. (A function given to
+// `.then` by reference whose parameter would get a copy is PTS1001:
+// errors/generic_instanceof_nested_object_then_reference.pts. `c.pending.then(…)` on the
+// member itself is C147, H29.)
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], [], []];
+  pending: Promise<V[]>;
+  constructor(public key: K, public val: V) {
+    this.pending = Promise.resolve(this.matrix[2]);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+async function run(c: Cache<string, number>): Promise<void> {
+  if (!(c instanceof MapLRU)) return;
+  await Promise.resolve(c.matrix[0]).then((row) => row.push(1));
+  const p = Promise.resolve(c.matrix[1]);
+  await p.then((row: any[]) => row.push(2));
+  (await c.pending).push(3);
+}
+const m = new MapLRU<string, number>("k", 0);
+await run(m);
+console.log(m.matrix);
+// expect:
+// [ [ 1 ], [ 2 ], [ 3 ] ]

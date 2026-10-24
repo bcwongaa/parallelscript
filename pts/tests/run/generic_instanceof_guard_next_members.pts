@@ -1,0 +1,51 @@
+// Guard (H10b): members of a value narrowed by `instanceof` to a generic class from an interface
+// source that tsc types MapLRU<any, any>, read into locals: `let n = c.next` walked in a loop,
+// `const k = c.next!`, and `c.byKey.get(k)` with `?.`. H10a holds such locals as dynamic values,
+// so reads, writes and pushes reach the objects, as in Node (D-218 still lists `let n = c.next`
+// among H10b's gaps; the reproducer found it working from every source but a type parameter,
+// which generic_instanceof_flows_out_type_parameter.pts covers). Must keep working.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  items: V[] = [];
+  next: MapLRU<K, V> | undefined = undefined;
+  byKey = new Map<K, MapLRU<K, V>>();
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  link(other: MapLRU<K, V>): void {
+    this.next = other;
+    this.byKey.set(other.key, other);
+  }
+}
+function walk(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  let n = c.next;
+  while (n) {
+    n.hits++;
+    console.log("next", n.key, n.val, n.get(n.key));
+    n = n.next;
+  }
+  const k = c.next!;
+  k.items.push(5);
+  console.log("byKey", c.byKey.get("b")?.val, c.byKey.get("zz")?.val);
+  const viaKey = c.byKey.get("b");
+  if (viaKey) viaKey.val = 20;
+}
+const a = new MapLRU("a", 1);
+const b = new MapLRU("b", 2);
+const c = new MapLRU("c", 3);
+a.link(b);
+b.link(c);
+walk(a);
+console.log("after", b.val, b.hits, b.items, c.hits);
+// expect:
+// next b 2 2
+// next c 3 3
+// byKey 2 undefined
+// after 20 1 [ 2, 5 ] 1

@@ -35,6 +35,7 @@ func Emit(program *ir.Program) string {
 	e.collectChecks(program)
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
+	e.collectFamilyMethods()
 	e.collectDeclaredTypes(program)
 	e.collectDynamicEntries(program)
 	e.collectMethodAdapters(program)
@@ -124,6 +125,11 @@ type emitter struct {
 	// with methods of other function types (D-078).
 	methodAdapters     map[string]*methodAdapter
 	methodAdapterOrder []*methodAdapter
+	// familyCalls are the program's private method calls on dynamic values (FamilyCall), and
+	// familyMethods the methods they may call, which get dynamic entries but stay out of
+	// method tables, where `o["#m"]` would find them.
+	familyCalls   []*ir.FamilyCall
+	familyMethods []*ir.Method
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -945,6 +951,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return "pts_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 	case *ir.FamilyField:
 		return e.familyField(x)
+	case *ir.FamilySetField:
+		return e.familySetField(x)
+	case *ir.FamilyCall:
+		return e.familyCall(x)
 	case *ir.Binary:
 		if x.Op == ir.Eq || x.Op == ir.Ne { // an unset field is NULL, which is no object, as undefined is none
 			e.unsetAllowed[x.X], e.unsetAllowed[x.Y] = true, true
@@ -1096,6 +1106,72 @@ func (e *emitter) familyField(x *ir.FamilyField) string {
 		}
 	}
 	return fmt.Sprintf("({ pts_value %s = %s; %s; })", name, value, read)
+}
+
+// familySetField writes `o.#f = v` for o, a dynamic value held where tsc says a generic
+// class C: v, converted with a check to the type of the private field of whichever of C's
+// instances o is, stored there, or the TypeError JS throws for an object of another class
+// (H10b).
+func (e *emitter) familySetField(x *ir.FamilySetField) string {
+	object, value := &ir.Local{Name: "object", Type: ir.Value}, &ir.Local{Name: "value", Type: ir.Value}
+	objectName, valueName := e.declareLocal(object), e.declareLocal(value)
+	objectCode, valueCode := e.expr(x.X), e.expr(x.Value)
+	message := "Cannot write private member " + x.Name + " to an object whose class did not declare it"
+	store := "pts_throw_new(&pts_type_builtin_TypeError, \"%s\", " + cString(message) + ")"
+	for i := len(*x.Family) - 1; i >= 0; i-- {
+		class := (*x.Family)[i]
+		if field := ownField(class, x.Name); field != nil {
+			test := e.expr(&ir.InstanceOf{X: &ir.LocalRef{Local: object}, Class: class})
+			set := e.expr(&ir.SetField{X: &ir.FromUnion{X: &ir.LocalRef{Local: object}, To: class}, Field: field, Value: &ir.FromUnion{X: &ir.LocalRef{Local: value}, To: field.Type}})
+			store = "(" + test + " ? (void)(" + set + ") : (void)(" + store + "))"
+		}
+	}
+	return fmt.Sprintf("({ pts_value %s = %s; pts_value %s = %s; %s; %s; })", objectName, objectCode, valueName, valueCode, store, valueName)
+}
+
+// familyCall writes `o.#m(…)` for o, a dynamic value held where tsc says a generic class C:
+// the private method of whichever of C's instances o is, called through its dynamic entry
+// with the arguments, evaluated in order, or the TypeError JS throws for an object of
+// another class (H10b).
+func (e *emitter) familyCall(x *ir.FamilyCall) string {
+	object := &ir.Local{Name: "object", Type: ir.Value}
+	objectName := e.declareLocal(object)
+	var c strings.Builder
+	fmt.Fprintf(&c, "({ pts_value %s = %s; ", objectName, e.expr(x.X))
+	args := make([]string, len(x.Args))
+	for i, arg := range x.Args {
+		args[i] = e.declareLocal(&ir.Local{Name: "arg", Type: ir.Value})
+		fmt.Fprintf(&c, "pts_value %s = %s; ", args[i], e.expr(arg))
+	}
+	argv := "NULL"
+	if len(args) > 0 {
+		argv = e.declareLocal(&ir.Local{Name: "argv", Type: ir.Value})
+		fmt.Fprintf(&c, "pts_value %s[] = {%s}; ", argv, strings.Join(args, ", "))
+	}
+	message := "Receiver must be an instance of class " + x.Class
+	call := "(pts_throw_new(&pts_type_builtin_TypeError, \"%s\", " + cString(message) + "), PTS_VALUE_UNDEFINED)"
+	for i := len(*x.Family) - 1; i >= 0; i-- {
+		class := (*x.Family)[i]
+		method := class.Method(x.Name, ir.Plain)
+		if method == nil || method.Abstract {
+			continue
+		}
+		test := e.expr(&ir.InstanceOf{X: &ir.LocalRef{Local: object}, Class: class})
+		entry := fmt.Sprintf("%s(pts_value_as_object(%s), %d, %s)", dynamicEntryName(e.entryNames[method.Func]), objectName, len(args), argv)
+		call = "(" + test + " ? " + entry + " : " + call + ")"
+	}
+	fmt.Fprintf(&c, "%s; })", call)
+	return c.String()
+}
+
+// ownField is class's own field named name, or nil.
+func ownField(class *ir.Class, name string) *ir.Field {
+	for _, field := range class.Fields {
+		if field.Name == name {
+			return field
+		}
+	}
+	return nil
 }
 
 // fromUnion writes a union's value as the type the checker narrowed it to (D-062).

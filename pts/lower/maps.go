@@ -118,6 +118,18 @@ func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 	if len(args) == 0 {
 		return &ir.NewMap{Map: mt}
 	}
+	if l.isInstanceofContainer(node) { // `new Set(c.matrix)`, whose rows stay the instance's (C285)
+		made := l.newMapFrom(node, l.dynamicCollectionOf(mt), args)
+		if made == nil {
+			return nil
+		}
+		return box(made)
+	}
+	return l.newMapFrom(node, mt, args)
+}
+
+// newMapFrom is newMap's map or set of type mt made from args, which aren't none.
+func (l *lowerer) newMapFrom(node *ast.Node, mt *ir.MapType, args []*ast.Node) ir.Expr {
 	if list := ast.SkipParentheses(args[0]); isUndefined(args[0]) || list.Kind == ast.KindArrayLiteralExpression && len(list.AsArrayLiteralExpression().Elements.Nodes) == 0 {
 		return &ir.NewMap{Map: mt} // no entries
 	}

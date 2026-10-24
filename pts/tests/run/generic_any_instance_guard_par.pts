@@ -1,0 +1,22 @@
+// Guard (H10b): `.par` views over `any[]` and over a `Box<any>[]` of objects made for `any`,
+// whose callbacks read them on other threads. They work on HEAD and must keep working when
+// tsc's C<any, …> places change (ParallelArray<any> is the library's, not the program's).
+// The expected lines are Node's for the sequential twin (`.par.` made `.`).
+// threads: 1 2 4
+class Box<T> {
+  constructor(public v: T) {}
+  twice(): number {
+    return Number(this.v) * 2;
+  }
+}
+const xs: any[] = [];
+for (let i = 0; i < 40; i++) xs.push(i % 2 === 0 ? i : `${i}`);
+console.log("any", xs.par.map((x) => (typeof x === "number" ? x * 2 : x.length)).reduce((a, b) => a + b, 0));
+const boxes: Box<any>[] = [];
+for (let i = 0; i < 30; i++) boxes.push(new Box<any>(i));
+console.log("boxes", boxes.par.map((b) => b.twice() + 1).reduce((a, b) => a + b, 0));
+console.log("filter", boxes.par.filter((b) => b.v % 3 === 0).length);
+// expect:
+// any 795
+// boxes 900
+// filter 10

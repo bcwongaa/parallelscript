@@ -109,6 +109,10 @@ func children(x Expr) []Expr {
 		return []Expr{x.X}
 	case *FamilyField:
 		return []Expr{x.X}
+	case *FamilySetField:
+		return []Expr{x.X, x.Value}
+	case *FamilyCall:
+		return append([]Expr{x.X}, x.Args...)
 	case *Binary:
 		return []Expr{x.X, x.Y}
 	case *Unary:

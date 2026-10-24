@@ -116,6 +116,24 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 	}
 }
 
+// collectFamilyMethods gives the private methods that FamilyCalls may call entry points,
+// and so dynamic entries, which the calls use directly.
+func (e *emitter) collectFamilyMethods() {
+	for _, call := range e.familyCalls {
+		for _, class := range *call.Family {
+			method := class.Method(call.Name, ir.Plain)
+			if method == nil || method.Abstract {
+				continue
+			}
+			if _, named := e.entryNames[method.Func]; !named {
+				e.entryNames[method.Func] = "pts_entry_" + strings.TrimPrefix(e.funcNames[method.Func], "pts_fn_")
+				e.entryOrder = append(e.entryOrder, method)
+				e.familyMethods = append(e.familyMethods, method)
+			}
+		}
+	}
+}
+
 // isToString reports whether a method is a toString() returning a string, which the
 // runtime calls where JS converts an object to a string (join).
 func isToString(method *ir.Method) bool {

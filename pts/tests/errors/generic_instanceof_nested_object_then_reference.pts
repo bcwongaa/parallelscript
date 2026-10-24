@@ -1,0 +1,23 @@
+// H10b (C285): a function given by reference to `.then` of a promise that holds a row of a
+// member of a value narrowed by `instanceof` (`Promise.resolve(c.matrix[0])`), whose parameter
+// (`row: any[]`) would get a copy of the instance's `number[]`, which its write would miss:
+// PTS1001, as for other methods of such values (D-218), where the base lost the write silently.
+// error: giving a function whose parameter is a value[] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function pushRow(row: any[]): void {
+  row.push(1);
+}
+async function run(c: Cache<string, number>): Promise<void> {
+  if (!(c instanceof MapLRU)) return;
+  await Promise.resolve(c.matrix[0]).then(pushRow);
+}
+await run(new MapLRU<string, number>("k", 0));

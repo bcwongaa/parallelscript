@@ -1,0 +1,58 @@
+// H10b (C279 with C274's rest): private reads, writes and method calls on a value narrowed by
+// `instanceof` to a generic class after it flows out of the narrowing (a const, an array
+// literal, `ident`) and on a parameter declared MapLRU<any, any> given a MapLRU<string, number>.
+// In Node each reaches the object's private members. HEAD threw `TypeError: Expected
+// MapLRU<any, any>, got MapLRU<string, number>` or was PTS1001 (`using a MapLRU as a MapLRU`).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+function ident<T>(t: T): T {
+  return t;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  #secret: V;
+  #reads = 0;
+  constructor(public key: K, val: V) {
+    this.#secret = val;
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.#secret : undefined;
+  }
+  #tick(): number {
+    return ++this.#reads;
+  }
+  static peekCopy(c: Cache<string, number>): string {
+    if (!(c instanceof MapLRU)) return "no";
+    const m2 = c;
+    m2.#secret = m2.#secret + 1;
+    return `${m2.#secret} ${m2.#tick()}`;
+  }
+  static peekArray(c: Cache<string, number>): string {
+    if (!(c instanceof MapLRU)) return "no";
+    const all = [c];
+    all[0].#secret *= 2;
+    return `${all[0].#secret} ${all[0].#tick()}`;
+  }
+  static peekIdent(c: Cache<string, number>): string {
+    if (!(c instanceof MapLRU)) return "no";
+    const g = ident(c);
+    return `${g.#secret} ${g.#tick()}`;
+  }
+  static peekAny(m: MapLRU<any, any>): string {
+    m.#secret = `${m.#secret}`;
+    return `${m.#secret} ${m.#tick()}`;
+  }
+}
+const m = new MapLRU("k", 7);
+console.log("copy", MapLRU.peekCopy(m));
+console.log("array", MapLRU.peekArray(m));
+console.log("ident", MapLRU.peekIdent(m));
+const s = new MapLRU("s", "str");
+console.log("param", MapLRU.peekAny(s), s.get("s"));
+console.log("after", m.get("k"));
+// expect:
+// copy 8 1
+// array 16 2
+// ident 16 3
+// param str 1 str
+// after 16

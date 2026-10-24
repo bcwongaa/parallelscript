@@ -113,6 +113,12 @@ func (l *lowerer) arrayConstructor(node *ast.Node, arguments []*ast.Node) ir.Exp
 
 // arrayOfCall lowers Array.of(…): an array of the arguments, spread arrays' elements in place.
 func (l *lowerer) arrayOfCall(call *ast.CallExpression) ir.Expr {
+	if l.isInstanceofContainer(call.AsNode()) { // `Array.of(...c.matrix)`, whose rows stay the instance's (C285)
+		if array := l.spreadArray(call.Arguments.Nodes, ir.ValueArray); array != nil {
+			return box(array)
+		}
+		return nil
+	}
 	array, ok := l.irType(l.typeAt(call.AsNode()), call.AsNode()).(*ir.Array)
 	if !ok {
 		l.notSupportedYet(call.AsNode(), "this `Array.of` is")

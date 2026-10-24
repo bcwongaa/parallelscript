@@ -1,0 +1,56 @@
+// H10b (C279): a value of a type parameter `S extends Cache<string, number>` (S given as Cache
+// itself) narrowed by `instanceof` to a generic class, which tsc types `S & MapLRU<any, any>`,
+// bound to a const, put into an array literal, returned with an inferred type, and its `next`
+// member (tsc: MapLRU<any, any> | undefined) walked through a `let`. Reads, writes, method calls
+// and pushes through them reach the objects, MapLRU<string, number>s, as in Node. HEAD was
+// PTS1001 (`t.get` is not supported yet) or threw `TypeError: Expected MapLRU<any, any>, got
+// MapLRU<string, number>` (the walk: `The value narrowed to MapLRU is not an instance of it`).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  next: MapLRU<K, V> | undefined = undefined;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function copied<S extends Cache<string, number>>(s: S): string {
+  if (!(s instanceof MapLRU)) return "no";
+  const t = s;
+  t.val += 1;
+  [s][0].items.push(t.val);
+  return `${t.get("k")} ${t.items}`;
+}
+function returned<S extends Cache<string, number>>(s: S) {
+  return s instanceof MapLRU ? s : undefined;
+}
+function walk<S extends Cache<string, number>>(s: S): number {
+  if (!(s instanceof MapLRU)) return -1;
+  let count = 0;
+  let n = s.next;
+  while (n) {
+    n.items.push(count++);
+    n = n.next;
+  }
+  return count;
+}
+const lru = new MapLRU("k", 10);
+lru.next = new MapLRU("n", 20);
+console.log("copied", copied<Cache<string, number>>(lru), copied<Cache<string, number>>(new Other<string, number>()));
+const r = returned<Cache<string, number>>(lru);
+if (r) r.items.push(r.val * 2);
+console.log("returned", r?.get("k"), returned<Cache<string, number>>(new Other<string, number>()));
+console.log("walk", walk<Cache<string, number>>(lru), lru.next.items);
+console.log("after", lru.val, lru.items);
+// expect:
+// copied 11 11 no
+// returned 11 undefined
+// walk 1 [ 0 ]
+// after 11 [ 11, 22 ]

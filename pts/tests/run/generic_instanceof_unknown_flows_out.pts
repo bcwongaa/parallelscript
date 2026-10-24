@@ -1,9 +1,9 @@
-// skip: H10b: a dynamic value narrowed by instanceof to Box<any> that flows out of the branch goes into Box<any> places, a checked conversion that throws for a Box<number>
 // H10 (C10): `x instanceof Box` for an `x: unknown` (or any) narrows to Box<any>. Its member
 // reads and calls are found at run time (D-179) and work, but the value narrowed doesn't
 // flow out of the branch: `const y = x`, `[x]`, `ident(x)`, an inferred return and the
 // element `find` gives make Box<any> places, and the checked conversion of the object, a
 // Box<number>, threw `TypeError: Expected Box<any>, got Box<number>` where Node goes on.
+// H10b: tsc's Box<any> places hold any Box, as dynamic values (D-219).
 class Box<T> {
   constructor(public v: T) {}
   get(): T {

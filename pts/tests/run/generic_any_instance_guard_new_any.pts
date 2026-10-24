@@ -1,0 +1,60 @@
+// Guard (H10b): objects that really are a generic class's instance for `any` (`new
+// Box<any>(…)`, `new Box(raw)` of an any value, a subclass of Box<any>) and the methods of
+// that instance that return Box<R>, Box<T> and `this`, a Box<any> value read and written in a
+// hot loop, and a Box<any> place holding them. These work on HEAD and must keep working when
+// tsc's C<any, …> places change.
+class Box<T> {
+  items: T[] = [];
+  constructor(public v: T) {
+    this.items.push(v);
+  }
+  map<R>(f: (v: T) => R): Box<R> {
+    return new Box(f(this.v));
+  }
+  self(): this {
+    return this;
+  }
+  with(v: T): Box<T> {
+    this.v = v;
+    return this;
+  }
+  get(): T {
+    return this.v;
+  }
+}
+class Labelled extends Box<any> {
+  label = "l";
+  describe(): string {
+    return `${this.label}:${this.v}`;
+  }
+}
+const raw: any = JSON.parse("[1, 2]");
+const a = new Box<any>(raw);
+a.items.push("x");
+a.v = "now a string";
+console.log("new any", a.get(), a.items.length, a.self().v, a.map((v) => String(v).length).get());
+console.log("with", a.with(3).get(), a.v);
+const l = new Labelled(5);
+l.v = l.v + 1;
+l.items.push("six");
+console.log("subclass", l.describe(), l.get(), l.self().label, l instanceof Box, l.items);
+const inferred = new Box(raw);
+inferred.items.push(9);
+console.log("inferred", inferred.items.length, inferred.v);
+const held: Box<any> = a;
+held.v = [held.v];
+console.log("held", a.v, held === a);
+let total = 0;
+const hot = new Box<any>(0);
+for (let i = 0; i < 200000; i++) {
+  hot.v = i;
+  total += hot.v;
+}
+console.log("hot", total, hot.get());
+// expect:
+// new any now a string 2 now a string 12
+// with 3 3
+// subclass l:6 6 l true [ 5, 'six' ]
+// inferred 2 [ 1, 2 ]
+// held [ 3 ] true
+// hot 19999900000 199999

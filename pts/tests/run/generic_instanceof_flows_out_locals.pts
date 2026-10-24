@@ -1,0 +1,52 @@
+// H10b (C279): a value narrowed by `instanceof` to a generic class from an interface source,
+// bound to locals that tsc types MapLRU<any, any>: `const m2 = c`, a `let`, a const a closure
+// captures, an array pattern's binding and an object literal's property. The object is a
+// MapLRU<string, number>; field reads and writes, a getter, a method and a push to its array
+// member through each local reach it, as in Node. HEAD threw `TypeError: Expected
+// MapLRU<any, any>, got MapLRU<string, number>` at the first local.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get current(): V {
+    return this.val;
+  }
+  get(key: K): V | undefined {
+    this.hits++;
+    return key === this.key ? this.val : undefined;
+  }
+}
+function locals(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const m2 = c;
+  m2.hits++;
+  console.log("const", m2.val, m2.get("k"), m2.current, m2.hits);
+  let m3 = c;
+  m3.val += 0.5;
+  m3.items.push(2);
+  console.log("let", m3.val, m3.items);
+  const captured = c;
+  const later = () => captured.val * 10;
+  console.log("closure", later());
+  const [first] = [c];
+  first.items.push(3);
+  console.log("pattern", first.items.length);
+  const holder = { m: c };
+  holder.m.val = 9;
+  console.log("object", holder.m.val, holder.m.current);
+}
+const m = new MapLRU("k", 7);
+locals(m);
+console.log("after", m.val, m.hits, m.items);
+// expect:
+// const 7 7 7 2
+// let 7.5 [ 7, 2 ]
+// closure 75
+// pattern 3
+// object 9 9
+// after 9 2 [ 7, 2, 3 ]

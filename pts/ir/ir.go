@@ -1074,6 +1074,30 @@ type FamilyField struct {
 	Name   string
 }
 
+// FamilySetField stores Value, a dynamic value, in the private field Name (`#f`) of X, a
+// dynamic value held where tsc says a generic class whose instances are Family: the field of
+// whichever of them X is, converted to its type with a check, or for another object the
+// TypeError JS throws. Its value is Value (H10b).
+type FamilySetField struct {
+	X      Expr
+	Family *[]*Class
+	Name   string
+	Value  Expr
+}
+
+// FamilyCall calls the private method Name (`#m`) of X, a dynamic value held where tsc says a
+// generic class whose instances are Family, with Args, dynamic values: the method of
+// whichever of them X is, through its dynamic entry, which converts the arguments with
+// checks, or for another object the TypeError JS throws. Its result is a dynamic value
+// (H10b).
+type FamilyCall struct {
+	X      Expr
+	Family *[]*Class
+	Class  string // the generic class's name, for the TypeError
+	Name   string
+	Args   []Expr
+}
+
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
 
@@ -1616,16 +1640,18 @@ func (e *ArrayCall) Type() Type {
 	}
 	return e.Args[0].Type().(*Array).Elem
 }
-func (e *ClassCast) Type() Type { return e.To }
-func (*InstanceOf) Type() Type  { return Bool }
-func (*FamilyField) Type() Type { return Value }
-func (e *Unary) Type() Type     { return e.X.Type() }
-func (e *IntConst) Type() Type  { return e.Ty }
-func (e *Convert) Type() Type   { return e.To }
-func (e *ToUnion) Type() Type   { return e.To }
-func (e *FromUnion) Type() Type { return e.To }
-func (e *IsNullish) Type() Type { return Bool }
-func (*ToString) Type() Type    { return String }
+func (e *ClassCast) Type() Type    { return e.To }
+func (*InstanceOf) Type() Type     { return Bool }
+func (*FamilyField) Type() Type    { return Value }
+func (*FamilySetField) Type() Type { return Value }
+func (*FamilyCall) Type() Type     { return Value }
+func (e *Unary) Type() Type        { return e.X.Type() }
+func (e *IntConst) Type() Type     { return e.Ty }
+func (e *Convert) Type() Type      { return e.To }
+func (e *ToUnion) Type() Type      { return e.To }
+func (e *FromUnion) Type() Type    { return e.To }
+func (e *IsNullish) Type() Type    { return Bool }
+func (*ToString) Type() Type       { return String }
 
 func (e *Binary) Type() Type {
 	if e.Op.IsComparison() {

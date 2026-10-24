@@ -1,0 +1,42 @@
+// H10b (C279): after a value narrowed by `instanceof` to a generic class flows out (a const, an
+// array literal, `ident`, a parameter declared MapLRU<any, any>), it is passed to a parameter of
+// its own instance's type (MapLRU<string, number>), compared with `===` to the original and
+// tested with `instanceof` again. tsc allows each; in Node the value is the object. HEAD was
+// PTS1001 (`using a MapLRU as a MapLRU`, `the === operator on MapLRU and MapLRU`).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function ident<T>(t: T): T {
+  return t;
+}
+function takeActual(m: MapLRU<string, number>): number {
+  m.hits++;
+  return m.val + m.hits;
+}
+function viaAny(m: MapLRU<any, any>, orig: MapLRU<string, number>): string {
+  return `${takeActual(m)} ${m === orig}`;
+}
+function typedUses(c: Cache<string, number>, orig: MapLRU<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const m2 = c;
+  console.log("typed", takeActual(m2), takeActual([c][0]), takeActual(ident(c)));
+  console.log("same", m2 === orig, [c][0] === orig, ident(c) === orig, c === orig);
+  console.log("again", m2 instanceof MapLRU, [m2][0] instanceof MapLRU);
+  console.log("param", viaAny(c, orig));
+}
+const m = new MapLRU("k", 7);
+typedUses(m, m);
+console.log("after", m.hits);
+// expect:
+// typed 8 9 10
+// same true true true true
+// again true true
+// param 11 true
+// after 4

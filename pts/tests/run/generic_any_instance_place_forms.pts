@@ -1,0 +1,41 @@
+// H10b (C279): places tsc types Box<any> written by the program hold any of Box's instances,
+// as dynamic values whose members are found at run time: a non-Box value cast through `any`
+// (no check, as in JS), a union with string, a Map's values, an array of mixed instances with
+// callbacks over it, a typed parameter given a Box<number> held there (checked, as from
+// `any`), private reads through such a place, `===`, a Record of them and an optional one.
+// The base was PTS1001 (`using a Box as a Box`) for most and threw `Expected Box<any>, got
+// number` for the cast.
+class Box<T> {
+  #tag = "t";
+  constructor(public v: T) {}
+  get(): T { return this.v; }
+  same(o: Box<T>): boolean { return this.#tag === o.#tag && this.v === o.v; }
+}
+const odd: Box<any> = 5 as any;
+console.log("odd", odd.v, typeof odd);
+const u: Box<any> | string = Math.random() < 2 ? new Box(3) : "s";
+console.log("union", typeof u === "string" ? u : u.get() + 1);
+const m = new Map<string, Box<any>>([["a", new Box(1)], ["b", new Box("x")]]);
+for (const [k, b] of m) console.log("map", k, b.v, b.get());
+const xs: Box<any>[] = [new Box(1), new Box("s"), new Box([2])];
+console.log("arr", xs.map((b) => b.v), xs.filter((b) => typeof b.v === "number").length);
+function take(b: Box<number>): number { return b.v * 10; }
+console.log("typed", take(xs[0]));
+const nb = new Box<number>(4);
+const held: Box<any> = nb;
+console.log("same", held.same(nb), nb.same(held), held === nb);
+const rec: Record<string, Box<any>> = { a: nb };
+rec.a.v = 9;
+console.log("rec", nb.v, JSON.stringify(rec), String(Object.keys(held)));
+const opt: Box<any> | undefined = Math.random() > 2 ? nb : undefined;
+console.log("opt", opt?.v, opt?.get());
+// expect:
+// odd undefined number
+// union 4
+// map a 1 1
+// map b x x
+// arr [ 1, 's', [ 2 ] ] 1
+// typed 10
+// same true true true
+// rec 9 {"a":{"v":9}} v
+// opt undefined undefined

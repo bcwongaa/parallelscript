@@ -1,5 +1,7 @@
-// H10a review round 3 (R3-F2), one sink of the reviewer's probe r15_sinks_each.pts: local in array literal. The member array (or a variable holding it) would be copied into an any[] place, which the write after it would miss, so PTS1001, not a silent copy.
-// error: using the object an `instanceof` narrowing holds as a dynamic value as a
+// H10a review round 3 (R3-F2), one sink of the reviewer's probe r15_sinks_each.pts: local in
+// array literal. H10a made it PTS1001, since the member array would have been copied into the
+// literal's any[][] elements and the write after it missed; since H10b (C285) such a literal
+// holds the instance's own array as a dynamic value, so the write reaches it, as in Node.
 // Each sink alone: after the write, does the member see it? (Node: every line ends "true".)
 interface Cache<K, V> {
   get(key: K): V | undefined;
@@ -30,3 +32,5 @@ function make(name: string, f: (c: Cache<string, number>) => void, seen: (c: Map
 const len = (c: MapLRU<string, number>) => c.items.length;
 
 make("local in array literal", (c) => { if (c instanceof MapLRU) { const it = c.items; const arr = [it]; arr[0].push(1); } }, len);
+// expect:
+// local in array literal true

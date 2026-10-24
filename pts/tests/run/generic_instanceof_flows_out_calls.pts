@@ -1,0 +1,77 @@
+// H10b (C279): a value narrowed by `instanceof` to a generic class from an interface source
+// that flows through calls tsc types with MapLRU<any, any>: `ident(c)`, a parameter declared
+// `MapLRU<any, any>`, `await Promise.resolve(c)`, `.then`, a generator's `yield`, a function's
+// inferred return type and a return declared `MapLRU<any, any>`. The object is a MapLRU<string,
+// number> (and a MapLRU<number, string>); each use reaches it, as in Node. HEAD threw
+// `TypeError: Expected MapLRU<any, any>, got MapLRU<string, number>` or was PTS1001 (`using a
+// MapLRU as a MapLRU`).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get current(): V {
+    return this.val;
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function ident<T>(t: T): T {
+  return t;
+}
+function bump(m: MapLRU<any, any>): number {
+  m.hits++;
+  m.items.push(m.val);
+  return m.hits;
+}
+function asInferred(c: Cache<string, number>) {
+  if (c instanceof MapLRU) return c;
+  return undefined;
+}
+function asDeclaredAny(c: Cache<number, string>): MapLRU<any, any> | undefined {
+  return c instanceof MapLRU ? c : undefined;
+}
+function* yielded(c: Cache<string, number>) {
+  if (c instanceof MapLRU) yield c;
+}
+async function calls(c: Cache<string, number>): Promise<void> {
+  if (!(c instanceof MapLRU)) return;
+  const g = ident(c);
+  console.log("ident", g.key, g.val * 2, g.current);
+  console.log("param", bump(c), bump(ident(c)));
+  const p = await Promise.resolve(c);
+  p.val += 1;
+  console.log("await", p.val, p.get("k"));
+  await Promise.resolve(c).then((t) => t.items.push(10));
+}
+const m = new MapLRU("k", 7);
+await calls(m);
+await calls(new Other<string, number>());
+console.log("inferred", asInferred(m)?.get("k"), asInferred(m)?.items.length, asInferred(new Other<string, number>()));
+const n = new MapLRU(1, "one");
+const d = asDeclaredAny(n);
+if (d) d.val += "!";
+console.log("declared", d?.current, n.val);
+for (const y of yielded(m)) {
+  y.hits += 100;
+  console.log("yield", y.key, y.hits);
+}
+console.log("after", m.val, m.hits, m.items);
+// expect:
+// ident k 14 7
+// param 1 2
+// await 8 8
+// inferred 8 4 undefined
+// declared one! one!
+// yield k 102
+// after 8 102 [ 7, 7, 7, 10 ]

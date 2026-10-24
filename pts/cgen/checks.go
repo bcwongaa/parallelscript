@@ -39,6 +39,15 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				if isResultReceiver(x.X.Type()) { // a write through any's path (resultStore)
 					e.declaredTypes = true
 				}
+			case *ir.FamilySetField:
+				for _, class := range *x.Family {
+					if field := ownField(class, x.Name); field != nil && !hasValueTest(field.Type) {
+						targets = append(targets, field.Type)
+					}
+				}
+			case *ir.FamilyCall:
+				e.declaredTypes = true // the methods' dynamic entries convert the arguments
+				e.familyCalls = append(e.familyCalls, x)
 			case *ir.ArrayCall:
 				if result := flattenedInto(x); result != nil && describesElements(result) {
 					e.declaredTypes = true // flat checks the leaves it stores against the result's element type (D-180)

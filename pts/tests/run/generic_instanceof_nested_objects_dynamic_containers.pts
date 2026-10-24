@@ -1,0 +1,41 @@
+// H10b (C285) from sources that imply no instance (a plain base class, `object`, `unknown`):
+// objects inside a narrowed value's member that a spread, `entries()`, `new Set`, `new Map`,
+// `Array.from` of a Map's values or `Promise.all` put into a new container stay the instance's
+// own in Node, so writes through them reach it. HEAD copied them into the container's tsc type,
+// so the writes were lost silently.
+class Shape {
+  area(): number {
+    return 0;
+  }
+}
+class Grid<T> extends Shape {
+  matrix: T[][] = [[], []];
+  store = new Map<string, T[]>([["k", []]]);
+}
+async function fromShape(s: Shape): Promise<void> {
+  if (s instanceof Grid) {
+    [...s.matrix][0].push(1);
+    for (const row of new Set(s.matrix)) row.push(2);
+    new Map(s.store).get("k")!.push(3);
+  }
+}
+async function fromObject(o: object): Promise<void> {
+  if (o instanceof Grid) {
+    for (const [, row] of o.matrix.entries()) row.push(4);
+    Array.from(o.store.values())[0].push(5);
+    (await Promise.all(o.matrix))[1].push(6);
+  }
+}
+async function fromUnknown(u: unknown): Promise<void> {
+  if (u instanceof Grid) {
+    [...u.matrix, []][1].push(7);
+    u.store.values().next().value!.push(8);
+  }
+}
+const g = new Grid<number>();
+await fromShape(g);
+await fromObject(g);
+await fromUnknown(g);
+console.log(g.matrix, g.store.get("k"));
+// expect:
+// [ [ 1, 2, 4 ], [ 2, 4, 6, 7 ] ] [ 3, 5, 8 ]

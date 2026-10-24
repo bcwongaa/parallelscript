@@ -1,0 +1,48 @@
+// H10b (C279): a value narrowed by `instanceof` to a generic class from an interface source
+// that goes into containers tsc types with MapLRU<any, any>: an array literal `[c, c]`, `new
+// Map([["k", c]])`, `new Set([c])`, an array declared `MapLRU<any, any>[]` and a field declared
+// `MapLRU<any, any> | undefined`. Writes and pushes through the containers' elements reach the
+// object, a MapLRU<string, number>, as in Node. HEAD threw `TypeError: Expected MapLRU<any,
+// any>, got MapLRU<string, number>` or was PTS1001.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Holder {
+  m: MapLRU<any, any> | undefined = undefined;
+}
+function containers(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const arr = [c, c];
+  arr[0].val += 0.25;
+  console.log("array", arr.length, arr[1].val);
+  const byKey = new Map([["k", c]]);
+  byKey.get("k")!.items.push(2);
+  console.log("map", byKey.get("k")!.items);
+  for (const s of new Set([c])) s.hits++;
+  const typed: MapLRU<any, any>[] = [c];
+  typed[0].items.push(3);
+  console.log("typed array", typed[0].get("k"), typed.length);
+  const h = new Holder();
+  h.m = c;
+  h.m.hits += 10;
+  console.log("field", h.m.hits, h.m.items.length);
+}
+const m = new MapLRU("k", 7);
+containers(m);
+console.log("after", m.val, m.hits, m.items);
+// expect:
+// array 2 7.25
+// map [ 7, 2 ]
+// typed array 7.25 1
+// field 11 3
+// after 7.25 11 [ 7, 2, 3 ]

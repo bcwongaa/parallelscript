@@ -535,6 +535,9 @@ func (l *lowerer) dynamicObjectStatic(call *ast.CallExpression, name string) ir.
 	if builtin.Result == ir.Bool {
 		return result
 	}
+	if l.isInstanceofContainer(call.AsNode()) {
+		return box(result) // `Object.values(c.rec)`, whose arrays stay the instance's (C285)
+	}
 	target := l.irType(l.typeAt(call.AsNode()), call.AsNode())
 	if target == nil {
 		return nil

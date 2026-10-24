@@ -1,0 +1,61 @@
+// H10b (C274's rest): private writes `o.#v = x` and private method calls `o.#m()` on a value
+// narrowed by `instanceof` to a generic class from a source that implies no instance (a plain
+// base class, `object`, `{}`, `unknown`), held as a dynamic value. The object is a
+// Counter<number> or a Counter<string>, not the instance for any, as in Node. HEAD threw
+// `TypeError: Expected Counter<any>, got Counter<number>` at the write and the call (private
+// reads worked since H10a).
+class Shape {
+  area(): number {
+    return 0;
+  }
+}
+class Counter<T> extends Shape {
+  #count = 0;
+  #last: T;
+  constructor(v: T) {
+    super();
+    this.#last = v;
+  }
+  #bump(): number {
+    return ++this.#count;
+  }
+  state(): string {
+    return `${this.#count} ${this.#last}`;
+  }
+  static fromShape(s: Shape): string {
+    if (!(s instanceof Counter)) return "no";
+    s.#count = s.#count + 10;
+    s.#last = s.#last;
+    return `${s.#bump()} ${s.#last}`;
+  }
+  static fromObject(o: object): string {
+    if (!(o instanceof Counter)) return "no";
+    o.#count += 100;
+    return `${o.#bump()}`;
+  }
+  static fromEmpty(o: {}): string {
+    if (!(o instanceof Counter)) return "no";
+    o.#count++;
+    return `${o.#bump()}`;
+  }
+  static fromUnknown(u: unknown): string {
+    if (!(u instanceof Counter)) return "no";
+    u.#count = 0;
+    return `${u.#bump()} ${u.#last}`;
+  }
+}
+const n = new Counter(5);
+const s = new Counter("five");
+console.log("shape", Counter.fromShape(n), Counter.fromShape(s), Counter.fromShape(new Shape()));
+console.log("object", Counter.fromObject(n), Counter.fromObject({}));
+console.log("empty", Counter.fromEmpty(s), Counter.fromEmpty(1));
+console.log("state", n.state(), s.state());
+console.log("unknown", Counter.fromUnknown(s), Counter.fromUnknown("x"));
+console.log("after", n.state(), s.state());
+// expect:
+// shape 11 5 11 five no
+// object 112 no
+// empty 13 no
+// state 112 5 13 five
+// unknown 1 five no
+// after 112 5 1 five

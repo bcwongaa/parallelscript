@@ -376,6 +376,14 @@ func FormatExpr(expr Expr) string {
 		return "(" + FormatExpr(e.X) + " instanceof " + e.Class.Name + ")"
 	case *FamilyField:
 		return FormatExpr(e.X) + "." + e.Name + " (of <generic>)"
+	case *FamilySetField:
+		return FormatExpr(e.X) + "." + e.Name + " (of <generic>) = " + FormatExpr(e.Value)
+	case *FamilyCall:
+		args := make([]string, len(e.Args))
+		for i, arg := range e.Args {
+			args[i] = FormatExpr(arg)
+		}
+		return FormatExpr(e.X) + "." + e.Name + " (of <generic>)(" + strings.Join(args, ", ") + ")"
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", expr))
 	}

@@ -1,0 +1,32 @@
+// H10b (C285): objects inside a member of a value narrowed by `instanceof` to a generic class
+// that flow into new containers or through library calls: `Array.of(...)`, `Array.from` of an
+// array, `Object.values`/`Object.entries` of a record, a Set's iterator result and `map`
+// returning the rows (`.then` by reference: generic_instanceof_nested_objects_then_reference.pts).
+// In Node the rows stay the instance's own, so writes through them reach it. HEAD copied them
+// into the container's tsc type (`any[]` elements), so the writes were lost silently, or was
+// PTS1001 (`object types with an index signature … (ArrayLike<any[]>)`).
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  rec: Record<string, V[]> = { a: [] };
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+async function run(c: Cache<string, number>): Promise<void> {
+  if (!(c instanceof MapLRU)) return;
+  Array.of(...c.matrix)[0].push(1);
+  Array.from(c.matrix)[1].push(2);
+  Object.values(c.rec)[0].push(3);
+  Object.entries(c.rec)[0][1].push(4);
+  new Set(c.matrix).values().next().value!.push(5);
+  c.matrix.map((r) => r)[1].push(6);
+}
+const m = new MapLRU<string, number>("k", 0);
+await run(m);
+console.log(m.matrix, m.rec);
+// expect:
+// [ [ 1, 5 ], [ 2, 6 ] ] { a: [ 3, 4 ] }

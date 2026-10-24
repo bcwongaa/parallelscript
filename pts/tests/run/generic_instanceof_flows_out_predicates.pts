@@ -1,0 +1,55 @@
+// H10b (C279): values narrowed by `instanceof` to a generic class that flow out through TS
+// 5.5's inferred type predicates (`find` and `filter` with `(c) => c instanceof MapLRU`), a
+// conditional `c instanceof MapLRU ? c : undefined` and `??` mixing the narrowed value: tsc
+// types each MapLRU<any, any> (or `| undefined`), and the objects are MapLRU<string, number>s.
+// Reads, writes and pushes reach them, as in Node. HEAD threw `TypeError: Expected MapLRU<any,
+// any>, got MapLRU<string, number>` or `Expected MapLRU[], got Array`, or was PTS1001.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  hits = 0;
+  items: V[] = [];
+  constructor(public key: K, public val: V) {
+    this.items.push(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+class Other<K, V> implements Cache<K, V> {
+  get(_key: K): V | undefined {
+    return undefined;
+  }
+}
+function pick(c: Cache<string, number>): number | undefined {
+  const t = c instanceof MapLRU ? c : undefined;
+  if (t) t.hits++;
+  return t?.val;
+}
+function either(c: Cache<string, number>): number {
+  if (!(c instanceof MapLRU)) return -1;
+  const n = (c.hits > 100 ? undefined : c) ?? c;
+  n.items.push(n.hits);
+  return n.items.length;
+}
+const a = new MapLRU("a", 1);
+const b = new MapLRU("b", 2);
+const caches: Cache<string, number>[] = [new Other<string, number>(), a, new Other<string, number>(), b];
+const found = caches.find((c) => c instanceof MapLRU);
+if (found) {
+  found.hits++;
+  console.log("find", found.key, found.val, found.get("a"));
+}
+const lrus = caches.filter((c) => c instanceof MapLRU);
+for (const l of lrus) l.items.push(l.val * 10);
+console.log("filter", lrus.length, lrus[1].key, lrus.map((l) => l.items.length));
+console.log("conditional", pick(a), pick(new Other<string, number>()));
+console.log("nullish", either(b), either(new Other<string, number>()));
+console.log("after", a.hits, a.items, b.hits, b.items);
+// expect:
+// find a 1 1
+// filter 2 b [ 2, 2 ]
+// conditional 1 undefined
+// nullish 3 -1
+// after 2 [ 1, 10 ] 0 [ 2, 20, 0 ]

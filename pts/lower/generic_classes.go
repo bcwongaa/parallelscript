@@ -109,7 +109,9 @@ func (l *lowerer) receiverClass(receiver *ast.Node) *ir.Class {
 	case l.chainDepth > 0 && ast.IsOptionalChain(receiver) && !l.chainRests[receiver]:
 		t = l.checker.GetNonOptionalType(t) // a link inside the chain being lowered (`o?.box(5).value`, as typeAt)
 	}
+	wantClass := receiver.Kind == ast.KindSuperKeyword // the class a subclass extends, also C<any, …> (H10b)
 	if t.Flags()&checker.TypeFlagsTypeParameter != 0 {
+		wantClass = wantClass || t.AsTypeParameter().IsThisType()
 		if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {
 			t = constraint
 		}
@@ -117,7 +119,7 @@ func (l *lowerer) receiverClass(receiver *ast.Node) *ir.Class {
 	if instance := l.instanceofInstance(receiver, l.instantiate(t)); instance != nil {
 		t = instance
 	}
-	class, _ := l.irType(t, receiver).(*ir.Class)
+	class, _ := l.irTypeOf(t, receiver, wantClass).(*ir.Class)
 	return class
 }
 
@@ -536,7 +538,7 @@ func (l *lowerer) declareInstanceSuperclass(inst *classInstance) bool {
 	l.subst = inst.subst
 	var parent *ir.Class
 	if len(bases) == 1 {
-		parent, _ = l.irType(bases[0], heritage).(*ir.Class)
+		parent = l.classOf(bases[0], heritage)
 	}
 	l.subst = outer
 	if parent == nil {
@@ -607,8 +609,7 @@ func (l *lowerer) classInstanceBody(inst *classInstance) {
 // genericClassReference is the class a reference to a generic class's declaration (in
 // `new`, `instanceof` or `extends`) instantiates, as the type of node says.
 func (l *lowerer) genericClassReference(node *ast.Node) *ir.Class {
-	class, _ := l.irType(l.typeAt(node), node).(*ir.Class)
-	return class
+	return l.classOf(l.typeAt(node), node)
 }
 
 // orderedByParent orders classes so that each comes after its superclass.

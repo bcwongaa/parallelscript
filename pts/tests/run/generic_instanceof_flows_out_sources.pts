@@ -1,0 +1,122 @@
+// H10b (C279): a value narrowed by `instanceof` to a generic class, from every kind of source,
+// bound to a const (`const t = x`) and put into an array literal, both typed C<any> by tsc: a
+// generic base class (Some<number> as an Option<number>), a plain base class (Tagged<string> as
+// a Shape), `Error` (HttpError<number>), a union with undefined, `object`, `{}`, `unknown` and
+// `any` (a type parameter: generic_instanceof_flows_out_type_parameter.pts). Reads, writes and
+// pushes through them reach the object, as in Node. HEAD threw `TypeError: Expected Tagged<any>, got Tagged<string>` (and the like) or was
+// PTS1001 (`using a Some as a Some`).
+abstract class Option<T> {
+  abstract isSome(): boolean;
+}
+class Some<T> extends Option<T> {
+  items: T[] = [];
+  constructor(public val: T) {
+    super();
+  }
+  isSome(): boolean {
+    return true;
+  }
+}
+class Shape {
+  area(): number {
+    return 0;
+  }
+}
+class Tagged<T> extends Shape {
+  items: T[] = [];
+  constructor(public val: T) {
+    super();
+  }
+}
+class HttpError<T> extends Error {
+  items: T[] = [];
+  constructor(public val: T) {
+    super("http");
+  }
+}
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+}
+function fromGenericBase(o: Option<number>): string {
+  if (!(o instanceof Some)) return "no";
+  const t = o;
+  t.val += 1;
+  [o][0].items.push(t.val);
+  return `${t.val} ${t.items}`;
+}
+function fromPlainBase(s: Shape): string {
+  if (!(s instanceof Tagged)) return "no";
+  const t = s;
+  t.val += "!";
+  [s][0].items.push(t.val);
+  return `${t.val} ${t.items} ${t.area()}`;
+}
+function fromError(e: Error): string {
+  if (!(e instanceof HttpError)) return "no";
+  const t = e;
+  t.val *= 2;
+  [e][0].items.push(t.val);
+  return `${t.message} ${t.val} ${t.items}`;
+}
+function fromUnion(c: Cache<string, number> | undefined): string {
+  if (!(c instanceof MapLRU)) return "no";
+  const t = c;
+  t.val += 0.5;
+  [c][0].items.push(t.val);
+  return `${t.get("k")} ${t.items}`;
+}
+function fromObject(o: object): string {
+  if (!(o instanceof MapLRU)) return "no";
+  const t = o;
+  t.val += 1;
+  [o][0].items.push(t.val);
+  return `${t.get("k")} ${t.items}`;
+}
+function fromEmpty(o: {}): string {
+  if (!(o instanceof MapLRU)) return "no";
+  const t = o;
+  t.val += 1;
+  [o][0].items.push(t.val);
+  return `${t.get("k")} ${t.items}`;
+}
+function fromUnknown(u: unknown): string {
+  if (!(u instanceof MapLRU)) return "no";
+  const t = u;
+  t.val += 1;
+  [u][0].items.push(t.val);
+  return `${t.get("k")} ${t.items}`;
+}
+function fromAny(a: any): string {
+  if (!(a instanceof MapLRU)) return "no";
+  const t = a;
+  t.val += 1;
+  [a][0].items.push(t.val);
+  return `${t.get("k")} ${t.items}`;
+}
+console.log("generic base", fromGenericBase(new Some(1)));
+console.log("plain base", fromPlainBase(new Tagged("t")), fromPlainBase(new Shape()));
+console.log("error", fromError(new HttpError(21)), fromError(new Error("plain")));
+const lru = new MapLRU("k", 10);
+console.log("union", fromUnion(lru), fromUnion(undefined));
+console.log("object", fromObject(lru), fromObject({}));
+console.log("empty", fromEmpty(lru), fromEmpty(42));
+console.log("unknown", fromUnknown(lru), fromUnknown("s"));
+console.log("any", fromAny(lru), fromAny(null));
+console.log("after", lru.val, lru.items);
+// expect:
+// generic base 2 2
+// plain base t! t! 0 no
+// error http 42 42 no
+// union 10.5 10.5 no
+// object 11.5 10.5,11.5 no
+// empty 12.5 10.5,11.5,12.5 no
+// unknown 13.5 10.5,11.5,12.5,13.5 no
+// any 14.5 10.5,11.5,12.5,13.5,14.5 no
+// after 14.5 [ 10.5, 11.5, 12.5, 13.5, 14.5 ]

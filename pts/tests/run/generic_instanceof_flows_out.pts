@@ -1,9 +1,9 @@
-// skip: H10b: values narrowed by instanceof that flow out of the branch keep tsc's MapLRU<any, any> places (PTS1001 `using a MapLRU as a MapLRU`)
 // H10 (C10): a value narrowed by `instanceof` to a generic class from an interface source
 // flows out of the branch: tsc types `const m2 = c`, an inferred return, `[c]`, `ident(c)`
 // and the element `find` and `filter` give (TS 5.5's inferred predicate) as MapLRU<any, any>,
 // while the object is a MapLRU<string, number>. Each threw TypeError (or, passed to a
 // MapLRU<string, number> parameter or returned as one, was PTS1001) where Node goes on.
+// H10b: tsc's MapLRU<any, any> places hold any MapLRU, as dynamic values (D-219).
 interface Cache<K, V> {
   get(key: K): V | undefined;
 }

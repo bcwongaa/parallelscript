@@ -41,6 +41,12 @@ func (l *lowerer) instanceofInstance(node *ast.Node, t *checker.Type) *checker.T
 // are found at run time, as an `unknown`'s narrowings are (isNarrowedDynamic, D-179).
 func (l *lowerer) isUninferredInstanceof(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
+	if l.holdsAnyInstance(node) && !l.storedDynamic(node) {
+		// Any value tsc types C<any, …>, narrowed here or flowing on from a narrowing (H10b);
+		// not a variable declared `unknown` or `any` or a member of one, a dynamic value
+		// before, whose narrowings D-179 converts (R4-F1).
+		return true
+	}
 	if !isReference(node) {
 		return false
 	}
@@ -91,7 +97,9 @@ func (l *lowerer) copiesDynamicValue(node *ast.Node) bool {
 		if t == nil {
 			return true // a return of a function without a declared type: its type's place
 		}
-		target = l.irType(t, node)
+		// quietly: a library function's parameter (`Array.from`'s ArrayLike<T>) may be a type
+		// no value is converted to, its argument lowered by the function's own rules
+		l.quietly(func() bool { target = l.irType(t, node); return target != nil })
 	case ast.KindBinaryExpression:
 		expr := parent.AsBinaryExpression()
 		if expr.OperatorToken.Kind != ast.KindEqualsToken || expr.Right != node {
@@ -141,7 +149,8 @@ func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
 		// (`const h = s.listeners[0]; s.listeners.indexOf(h)`, R8-F1)
 		t := l.irType(declared, symbol.ValueDeclaration.Name())
 		dynamic = t != nil && t != ir.Value && !isCheckable(t) &&
-			(!isFunction(t) || symbol.ValueDeclaration.Kind == ast.KindParameter || l.isInstanceOwnValue(source)) // `flag ? c.list[0] : addRow` is an adapter, judged where it goes (R9-F1)
+			(!isFunction(t) || symbol.ValueDeclaration.Kind == ast.KindParameter || l.isInstanceOwnValue(source)) || // `flag ? c.list[0] : addRow` is an adapter, judged where it goes (R9-F1)
+			t == ir.Value && declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) == 0 // an iterator or promise of such values (`const it = c.matrix.values()`, C285)
 	}
 	l.instanceofLocals[key] = dynamic
 	return dynamic
@@ -251,6 +260,9 @@ func (a *narrowingAnswers) answer(q narrowingQuestion, compute func() bool) bool
 
 func (l *lowerer) dynamicSource(node *ast.Node, made bool) bool {
 	node = ast.SkipParentheses(node)
+	if l.instanceofContainer(node, made) {
+		return true // `[...c.matrix]`, `new Set(c.matrix)`, `Array.from(c.store.values())` (C285)
+	}
 	switch node.Kind {
 	case ast.KindIdentifier:
 		return l.dynamicLocalSource(l.readSymbol(node), made) || l.isUninferredInstanceof(node) // readSymbol: also a shorthand property's variable
@@ -270,8 +282,9 @@ func (l *lowerer) dynamicSource(node *ast.Node, made bool) bool {
 		if !ast.IsAccessExpression(callee) && l.instanceofDynamicSource(callee, made) {
 			return true // `mk()` for a `const mk = c.mkList` (R9-F3)
 		}
-		// `Promise.resolve(c.items)`, whose awaited value is the array (R4-F2)
-		return callee.Kind == ast.KindPropertyAccessExpression && l.isPromiseConstructor(callee.Expression()) && callee.AsPropertyAccessExpression().Name().Text() == "resolve" &&
+		// `Promise.resolve(c.items)`, whose awaited value is the array (R4-F2), and
+		// `Promise.all(c.matrix)`, whose awaited array's elements are its rows (C285)
+		return callee.Kind == ast.KindPropertyAccessExpression && l.isPromiseConstructor(callee.Expression()) && promiseOfArguments[callee.AsPropertyAccessExpression().Name().Text()] &&
 			len(node.Arguments()) == 1 && l.instanceofDynamicSource(node.Arguments()[0], made)
 	case ast.KindNonNullExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindTypeAssertionExpression, ast.KindAwaitExpression:
 		return l.instanceofDynamicSource(node.Expression(), made)
@@ -293,6 +306,10 @@ func (l *lowerer) dynamicSource(node *ast.Node, made bool) bool {
 	}
 	return false
 }
+
+// promiseOfArguments are the Promise statics whose promise is fulfilled with what their
+// argument holds: the value itself, or its items.
+var promiseOfArguments = map[string]bool{"resolve": true, "all": true, "allSettled": true, "any": true, "race": true}
 
 // dynamicLocalSource reports whether symbol is a variable isInstanceofDynamicLocal holds,
 // whose value an instanceof narrowing made dynamic if made says so.
@@ -636,23 +653,15 @@ func (l *lowerer) isMemberOfNarrowedInstance(node *ast.Node) bool {
 // (FamilyField), converted with a check to tsc's type, since a dynamic value's properties
 // don't hold private names. ok is false for other accesses.
 func (l *lowerer) familyPrivateField(node *ast.Node) (x ir.Expr, ok bool) {
-	name := node.AsPropertyAccessExpression().Name()
-	receiver := ast.SkipParentheses(node.Expression())
-	if name.Kind != ast.KindPrivateIdentifier || !l.storedDynamic(receiver) && !l.isUninferredInstanceof(receiver) {
-		return nil, false
+	family, _, kind := l.familyPrivateMember(node)
+	if kind != ast.KindPropertyDeclaration {
+		return nil, false // a private accessor, which method tables hold by name, or a method
 	}
-	if symbol := l.checker.GetSymbolAtLocation(name); symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindPropertyDeclaration {
-		return nil, false // a private accessor or method, which method tables hold by name
-	}
-	generic := l.prototypeGeneric(l.typeAt(receiver))
-	if generic == nil {
-		return nil, false
-	}
-	object := l.expression(receiver)
+	object := l.expression(node.Expression())
 	if object == nil {
 		return nil, true
 	}
-	x = &ir.FamilyField{X: box(object), Family: &generic.classes, Name: name.Text()}
+	x = &ir.FamilyField{X: box(object), Family: family, Name: node.AsPropertyAccessExpression().Name().Text()}
 	if l.mentionsPrototypeInstance(l.typeAt(node)) {
 		return x, true // tsc's C<any, …> (`o.#next`), which another instance converts to only as a dynamic value
 	}
@@ -660,6 +669,99 @@ func (l *lowerer) familyPrivateField(node *ast.Node) (x ir.Expr, ok bool) {
 		return l.checkedConversion(x, t, node), true
 	}
 	return x, true
+}
+
+// familyPrivatePlace is the place `o.#f` (node) names for an o familyPrivateField reads from:
+// the private field of whichever of C's instances o is, written with a check (FamilySetField,
+// C274). handled is false for other targets.
+func (l *lowerer) familyPrivatePlace(node *ast.Node) (target place, ok bool, handled bool) {
+	family, _, kind := l.familyPrivateMember(node)
+	if kind != ast.KindPropertyDeclaration {
+		return place{}, false, false
+	}
+	object := l.expression(node.Expression())
+	return place{object: box(object), family: family, private: node.AsPropertyAccessExpression().Name().Text(), dynamic: true}, object != nil, true
+}
+
+// familyPrivateCall lowers `o.#m(…)` (call, of callee `o.#m`) for an o familyPrivateField reads
+// from: the private method of whichever of C's instances o is (FamilyCall), or, for a private
+// field holding a function (`o.#cb(1)`), the function it holds called through any (C274).
+// ok is false for other calls.
+func (l *lowerer) familyPrivateCall(call *ast.CallExpression, callee *ast.Node) (x ir.Expr, ok bool) {
+	family, class, kind := l.familyPrivateMember(callee)
+	switch kind {
+	case ast.KindPropertyDeclaration:
+		function, _ := l.familyPrivateField(callee)
+		if function == nil {
+			return nil, true
+		}
+		return l.dynamicCallWith(call, callee, ir.DynamicCall, []ir.Expr{box(function)}), true
+	case ast.KindMethodDeclaration:
+	default:
+		return nil, false
+	}
+	object := l.expression(callee.Expression())
+	if object == nil {
+		return nil, true
+	}
+	privateCall := &ir.FamilyCall{X: box(object), Family: family, Class: class, Name: callee.AsPropertyAccessExpression().Name().Text()}
+	for _, argument := range call.Arguments.Nodes {
+		if argument.Kind == ast.KindSpreadElement {
+			l.notSupportedYet(argument, "a spread argument of a private method called on a value held as a dynamic value is")
+			return nil, true
+		}
+		value := l.valueExpression(argument)
+		if value == nil {
+			return nil, true
+		}
+		privateCall.Args = append(privateCall.Args, box(value))
+	}
+	return privateCall, true
+}
+
+// familyPrivateMember is, for node, `o.#name` of an o held as a dynamic value (a variable
+// declared any or unknown or a member of one, a value tsc types C<any, …>: storedDynamic,
+// isUninferredInstanceof, isAny), the classes whose objects have the private member (the
+// instances of a generic class, or the one class), the class's name and the kind of the
+// member's declaration; otherwise nil, "" and KindUnknown. A static member, which only the
+// class itself has, is the class's.
+func (l *lowerer) familyPrivateMember(node *ast.Node) (family *[]*ir.Class, class string, kind ast.Kind) {
+	if node.Kind != ast.KindPropertyAccessExpression {
+		return nil, "", ast.KindUnknown
+	}
+	name := node.AsPropertyAccessExpression().Name()
+	receiver := ast.SkipParentheses(node.Expression())
+	if name.Kind != ast.KindPrivateIdentifier || !l.isAny(receiver) && !l.storedDynamic(receiver) && !l.isUninferredInstanceof(receiver) {
+		return nil, "", ast.KindUnknown
+	}
+	member := privateDeclaration(name)
+	if member == nil || ast.HasSyntacticModifier(member, ast.ModifierFlagsStatic) {
+		return nil, "", ast.KindUnknown
+	}
+	if generic := l.genericClasses[l.declaredSymbol(member.Parent)]; generic != nil {
+		return &generic.classes, generic.node.Name().Text(), member.Kind
+	}
+	if one := l.classes[l.declaredSymbol(member.Parent)]; one != nil {
+		return &[]*ir.Class{one}, one.Name, member.Kind
+	}
+	return nil, "", ast.KindUnknown
+}
+
+// privateDeclaration is the declaration of the private member that name (`#v`) names: the
+// innermost enclosing class's member of that name, since private names are lexical (tsc
+// gives no symbol for one on an `any`).
+func privateDeclaration(name *ast.Node) *ast.Node {
+	for node := name.Parent; node != nil; node = node.Parent {
+		if !ast.IsClassLike(node) {
+			continue
+		}
+		for _, member := range node.Members() {
+			if member.Name() != nil && member.Name().Kind == ast.KindPrivateIdentifier && member.Name().Text() == name.Text() {
+				return member
+			}
+		}
+	}
+	return nil
 }
 
 // prototypeGeneric is the generic class whose prototype's type, C<any, …>, t is or is an
@@ -749,32 +851,6 @@ func (l *lowerer) declaredTypeOfReference(node *ast.Node) *checker.Type {
 		}
 	}
 	return nil
-}
-
-// isPrivateMemberChange reports whether node is the object of a private member that is
-// written or called there (`o.#v = x`, `o.#v++`, `o.#tick()`), which an instance held as a
-// dynamic value has no way to reach yet (H10b): such an object keeps the downcast to tsc's
-// C<any, …> it had before H10 (D-149), which an instance for any passes.
-func (l *lowerer) isPrivateMemberChange(node *ast.Node) bool {
-	for node.Parent.Kind == ast.KindParenthesizedExpression {
-		node = node.Parent
-	}
-	access := node.Parent
-	if access.Kind != ast.KindPropertyAccessExpression || access.Expression() != node || access.AsPropertyAccessExpression().Name().Kind != ast.KindPrivateIdentifier {
-		return false
-	}
-	for access.Parent.Kind == ast.KindParenthesizedExpression {
-		access = access.Parent
-	}
-	switch parent := access.Parent; parent.Kind {
-	case ast.KindCallExpression:
-		return ast.SkipParentheses(parent.Expression()) == ast.SkipParentheses(access)
-	case ast.KindBinaryExpression:
-		return ast.IsAssignmentOperator(parent.AsBinaryExpression().OperatorToken.Kind) && parent.AsBinaryExpression().Left == access
-	case ast.KindPrefixUnaryExpression, ast.KindPostfixUnaryExpression:
-		return true
-	}
-	return false
 }
 
 // callsInstanceofMethodDynamically reports whether call calls a member of a reference whose

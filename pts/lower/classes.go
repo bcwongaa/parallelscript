@@ -67,7 +67,7 @@ func (l *lowerer) declareSuperclass(node *ast.Node) {
 	if _, ok := l.genericClasses[parentSymbol]; ok { // C extends Box<int>: an instance of the generic class
 		bases := l.checker.GetBaseTypes(l.checker.GetDeclaredTypeOfSymbol(symbol))
 		if len(bases) == 1 {
-			class.Parent, _ = l.irType(bases[0], heritage).(*ir.Class)
+			class.Parent = l.classOf(bases[0], heritage)
 		}
 		if class.Parent == nil {
 			l.classes[symbol] = nil // reported with the generic class or its instance

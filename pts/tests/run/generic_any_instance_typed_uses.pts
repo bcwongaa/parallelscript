@@ -1,0 +1,20 @@
+// H10b: a value in a place declared with a generic class for `any` (`Box<any>`), holding a
+// Box<number>, passed back to a parameter of its own instance's type (Box<number>), compared
+// with `===` to the original and tested with `instanceof`. tsc allows each; in Node the value is
+// the object. HEAD was PTS1001 (`using a Box as a Box`, `the === operator on Box and Box`).
+class Box<T> {
+  constructor(public v: T) {}
+}
+function plusOne(b: Box<number>): number {
+  return b.v + 1;
+}
+function check(b: Box<any>, orig: Box<number>): string {
+  return `${plusOne(b)} ${b === orig} ${b instanceof Box}`;
+}
+const n = new Box(4);
+console.log("param", check(n, n));
+const xs: Box<any>[] = [n, new Box("s")];
+console.log("element", plusOne(xs[0]), xs[0] === n, xs[1] === n);
+// expect:
+// param 5 true true
+// element 5 true false

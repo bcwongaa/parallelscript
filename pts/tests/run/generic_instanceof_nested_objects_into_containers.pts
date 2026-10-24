@@ -1,6 +1,6 @@
-// skip: H10b (D-218, R6-F3, C285): objects inside an instanceof narrowing's member that a spread, an iterator, `Array.from`, `new Set`/`new Map` or `Promise.all` puts into a new container are copied into the container's tsc type (`any[]` elements), so writes through them are lost silently (the base threw a checked TypeError)
 // H10a review round 6 (R6-F3) and session 6's reproducer (N13): the objects stay the
-// instance's own in Node.
+// instance's own in Node. The base copied them into the containers' any[] elements, so the
+// writes were lost silently. H10b: such containers hold them as dynamic values (C285, D-219).
 interface Cache<K, V> {
   get(key: K): V | undefined;
 }

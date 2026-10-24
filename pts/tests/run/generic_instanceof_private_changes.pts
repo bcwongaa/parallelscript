@@ -1,0 +1,64 @@
+// H10b (C274's rest): private members of objects held as dynamic values, from inside their
+// class: writes, compound updates (`+=`, `++`, a postfix's old value) and method calls with a
+// default parameter on a value narrowed by `instanceof` from a plain base class and from
+// `unknown`, a private field holding a function, and on a receiver declared `any` (not
+// narrowed) an object of another class, which throws V8's TypeErrors. The base threw
+// `Expected Box<any>, got Box<number>` at the narrowing's writes and calls; on an `any`
+// receiver it wrote a property named `#v`, failed to find `#describe` and read undefined.
+class Shape {}
+class Box<T> extends Shape {
+  #v: T;
+  #n = 0;
+  #cb: (x: T) => string;
+  constructor(v: T) {
+    super();
+    this.#v = v;
+    this.#cb = (x) => `cb(${x})`;
+  }
+  #describe(prefix: string, suffix = "!"): string {
+    return `${prefix}${String(this.#v)}${suffix}#${this.#n}`;
+  }
+  static poke(s: Shape, v: unknown): string {
+    if (!(s instanceof Box)) return "not a box";
+    s.#v = v;
+    s.#n += 2;
+    s.#n++;
+    const old = s.#n--;
+    return s.#describe("v=") + " " + s.#describe("w=", "?") + " " + old + " " + s.#cb(s.#v);
+  }
+  static viaUnknown(u: unknown): string {
+    if (u instanceof Box) {
+      u.#n = 10;
+      return u.#describe("u=");
+    }
+    return "no";
+  }
+  static wrong(o: any, which: number): string {
+    try {
+      if (which === 0) o.#v = 1;
+      else if (which === 1) return o.#describe("x");
+      else return String(o.#n);
+      return "wrote";
+    } catch (e) {
+      return (e as Error).constructor.name + ": " + (e as Error).message;
+    }
+  }
+  get value(): T {
+    return this.#v;
+  }
+}
+const b = new Box<number>(5);
+console.log(Box.poke(b, 7), b.value);
+const s = new Box<string>("a");
+console.log(Box.poke(s, "z"), s.value);
+console.log(Box.viaUnknown(b), Box.viaUnknown(s), Box.viaUnknown(3));
+for (let i = 0; i < 3; i++) console.log(Box.wrong({}, i));
+console.log(Box.poke(new Shape(), 1));
+// expect:
+// v=7!#2 w=7?#2 3 cb(7) 7
+// v=z!#2 w=z?#2 3 cb(z) z
+// u=7!#10 u=z!#10 no
+// TypeError: Cannot write private member #v to an object whose class did not declare it
+// TypeError: Receiver must be an instance of class Box
+// TypeError: Cannot read private member #n from an object whose class did not declare it
+// not a box

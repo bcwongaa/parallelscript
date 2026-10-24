@@ -294,133 +294,134 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 }
 
 type lowerer struct {
-	program             *compiler.Program
-	checker             *checker.Checker
-	argumentTemps       []*ir.Bind // the call being lowered's arguments evaluated before it (withArgumentTemps)
-	staticAccessors     map[*ast.Symbol]staticProperty
-	unionsInProgress    map[*checker.Type]int  // the unions irType is mapping, with how often each is
-	recursiveUnions     map[*checker.Type]bool // the unions found to recur through arrays or hash-map objects (D-089)
-	genericClassList    []*genericClass
-	info                *check.Info
-	locals              map[*ast.Symbol]*ir.Local          // nil for a declaration that failed to lower
-	owners              map[*ir.Local]*ir.Func             // the function each local belongs to
-	moduleScope         map[*ir.Local]bool                 // the locals declared at module scope, which functions and other modules may use
-	funcs               map[*ast.Symbol]*ir.Func           // every function declaration, made before any body is lowered; nil if it failed
-	generics            map[*ast.Symbol]*genericFunc       // every generic function declaration, whose instances calls make
-	genericStatics      map[*ast.Node]*genericFunc         // every generic static method, by declaration
-	instances           []*instance                        // the instances whose bodies are still to be lowered
-	genericMethodList   []*genericFunc                     // the generic instance methods of every class, in the order they were declared
-	tableMethodNames    map[string]bool                    // the names whose generic methods have erased copies in method tables (D-078)
-	allMethodsInTables  bool                               // every generic method has its erased copy in its class's method table
-	subst               *substitution                      // the instance being lowered or declared, or nil
-	genericClasses      map[*ast.Symbol]*genericClass      // every generic class declaration, whose instances types make; nil if it failed
-	classIdentities     map[string]classIdentity           // classMembersIdentity's, by generic class and type arguments
-	classComputed       map[*genericClass]*classComputed   // classComputedTypes's
-	computingDecls      map[*ast.Node]*declarationTypes    // computedTypes's, by generic function declaration
-	classInstances      map[*ir.Class]*classInstance       // the generic class instance each instance's class is
-	instanceClasses     []*ir.Class                        // the classes of generic class instances, in the order they were made
-	classInstanceBodies []*classInstance                   // the class instances whose constructors and methods are still to be lowered
-	membersDeclared     bool                               // the classes' members are declared, so a new class instance declares its own at once
-	membersStarted      map[*ir.Class]bool                 // the classes whose members are declared, or being declared
-	tuples              map[string]*ir.Class               // the shape of each tuple type met, by its element types
-	rests               map[*ir.Array]*ir.Rest             // the rest parameter type of each array type
-	tuplesInProgress    map[*checker.Type]bool             // the tuple types whose element types are being mapped
-	bindings            map[*ir.Func][]*parameterBinding   // the parameters each function's body starts by binding: those with defaults or patterns
-	paramLocals         map[*ir.Func][]*ir.Local           // the local each function's body sees for each parameter it declares; nil for a pattern
-	classes             map[*ast.Symbol]*ir.Class          // every class declaration, made before any code is lowered; nil if it failed
-	classNodes          map[*ir.Class]*ast.Node            // the declaration of each class
-	classList           []*ir.Class                        // the classes that didn't fail, superclasses first
-	members             *classMembers                      // the members of those classes that aren't generic, by declaration
-	declaring           *classMembers                      // where the members being declared go: members, or a generic class instance's own
-	methodDeclarations  map[*ir.Method]*ast.Node           // the declaration of each method (for an accessor that implements an abstract field, the field's)
-	statics             map[*ast.Node]*ir.Local            // the variable of each static field, by declaration; nil if it failed
-	staticMethods       map[*ast.Node]*ir.Func             // the function of each static method, by declaration; nil if it failed
-	staticClasses       map[*ir.Func]*ir.Class             // the class of each static method, which `this` stands for in it
-	staticContext       *ir.Class                          // the class whose static initialisers are being lowered, or nil
-	shapesByType        map[*checker.Type]*ir.Class        // the shape of each object type met; nil if it has none
-	shapesByKey         map[string]*ir.Class               // the shapes, by their fields (membersKey)
-	typesInProgress     map[ir.Type]bool                   // the shapes and interfaces being made
-	recursiveTypes      map[ir.Type]bool                   // shapes and interfaces their own members' types refer to
-	shapeList           []*ir.Class                        // the shapes, in the order they were made
-	interfacesByType    map[*checker.Type]*ir.Interface    // the interface of each object type met; nil if it has none
-	interfacesByKey     map[string]*ir.Interface           // the interfaces, by their members (membersKey)
-	interfaceList       []*ir.Interface                    // the interfaces, in the order they were made
-	relaxedCasts        []relaxedCast                      // conversions to interfaces whose objects may hold optional properties otherwise (D-066)
-	inKeys              map[string]bool                    // the keys `in` looks up at run time (D-067)
-	firstDynamicWrite   *ast.Node                          // the first write through `any`, if any (D-072)
-	firstDynamicCall    *ast.Node                          // the first call through `any`, if any (D-074)
-	firstResult         *ast.Node                          // the first use of an iterator result type, whose values may be any object (D-178)
-	reports             int                                // how many diagnostics were reported, repeats included
-	genericConsts       map[*ast.Symbol]*genericFunc       // module-scope consts of generic arrow functions, whose calls are monomorphized (D-102)
-	genericConstNodes   map[*ast.Node]*genericFunc         // the same, by their functions
-	demands             []*demand                          // the typed calls of erased copies that look up instances (D-148)
-	erasedValues        []*erasedValue                     // the functions whose closures are erased copies that list instances (D-148)
-	instanceCounts      map[recursionBudget]int            // how many instances of each declaration polymorphic recursion made from each root, and from all (maxRecursiveInstances, maxRecursiveTotal)
-	specialized         map[[3]int]bool                    // the pairs of a demand and an erased value (0) or generic method (1) met so far
-	valueFlow           valueFlow                          // immutable source proofs for ordinary function-value demands (D-201)
-	containing          containingCode                     // completed containing-code availability of pairings and sites (C251)
-	specialization      Specialization                     // which generic function values list instances (D-190)
-	splitClasses        bool                               // ProgramSplittingClasses's
-	trial               *trial                             // the instances specialize is trying, while it lowers them (D-190)
-	narrowing           *Narrowing                         // what this lowering leaves out (C176)
-	errorUses           [][]use                            // the code each of errors was reported in (here)
-	site                *pairing                           // the call site whose demand is being lowered (blamingSite)
-	statementSites      []pairing                          // the call sites whose demands made what the statement being lowered uses (usedSite)
-	unexplainedUse      use                                // the code unexplained failed in
-	funcUses            map[*ir.Func]use                   // the code each function is, where it is lowered (relaxedCastBlame)
-	droppedFuncs        map[*ir.Func]bool                  // the functions failed trials dropped
-	deadTests           map[*substitution]*substitution    // each instance's substitution for isDeadRead (deadTest)
-	instanceKeys        map[string]string                  // the keys of dynamic results' entries, by what tells them apart (instanceKey)
-	receives            map[receiving]bool                 // whether a class may be a receiver of a type (mayReceive)
-	unexplained         *ast.Node                          // the first expression that failed without a diagnostic
-	current             *ast.Node                          // the statement or expression being lowered, the innermost after a panic (D-179)
-	injectedFailure     func(node *ast.Node) bool          // diagnostic.WithInjectedFailure's, for tests: on entering a node
-	injectedFailureLeft func(node *ast.Node) bool          // and on leaving it, after its children
-	arrays              map[ir.Type]*ir.Array              // the array type of each element type met
-	arraysInProgress    map[*checker.Type]bool             // the array types whose element type is being mapped
-	funcTypes           []*ir.FuncType                     // the function types met
-	funcTypesInProgress map[*checker.Type]bool             // the function types whose parameter and result types are being mapped
-	arrows              map[*ir.Func]bool                  // the closures' functions that are arrow functions, whose `this` is their outer function's
-	funcNodes           map[*ir.Func]*ast.Node             // the declaration, function expression or source file of each function
-	helpers             map[helperKey]*ir.Func             // the helpers of the array methods that take callbacks; nil if one failed
-	copyShapesOptional  bool                               // prepareDynamicTarget leaves an object type it can't make a copy shape for without one (prepareCheckedUnion)
-	mapTypes            []*ir.MapType                      // the map and set types met
-	unions              []*ir.Union                        // the union types met
-	chainObjects        map[*ast.Node]chainObject          // the objects of the `?.` links whose chains are being lowered
-	chainRests          map[*ast.Node]bool                 // the optional chains being lowered past their `?.` test
-	instanceofInstances map[instanceofKey]instanceofResult // what references narrowed by instanceof hold (instanceofNarrowing)
-	instanceofLocals    map[instanceofLocal]bool           // variables that hold dynamic values of instanceof narrowings (isInstanceofDynamicLocal)
-	anyMentions         map[*checker.Type]bool             // mentionsAny's answers
-	narrowingAnswers    narrowingAnswers                   // isNarrowedDynamic's and instanceofDynamicSource's answers within one question
-	chainDepth          int                                // how many optional chains are being lowered past their tests
-	mapsInProgress      map[*checker.Type]bool             // the map and set types whose key and value types are being mapped
-	this                map[*ir.Func]*ir.Local             // the `this` parameter of each constructor and method
-	lowered             []*ir.Func                         // the functions whose bodies are lowered
-	bodies              []*ast.Node                        // function declarations whose bodies are still to be lowered
-	function            *ir.Func                           // the function being lowered
-	targets             []jumpTarget                       // the statements around the current one that break or continue can leave
-	finallies           []*finallyContext                  // the try statements with finally blocks whose protected code is being lowered, innermost last (D-068)
-	yielded             map[*ast.Node]ir.Expr              // the value of each yield expression whose statement yielded already (D-109)
-	kept                map[*ast.Node]ir.Expr              // the value of each operand evaluated before a yield in its statement (D-111)
-	keptCurrent         map[*ast.Node]ir.Expr              // a compound assignment's target's value, read before a yield in its right side (D-145)
-	keptSpreads         map[*ast.Node]keptSpread           // what an object literal's spread (`...o`) read before a yield after it (keepObjectSpread)
-	hoisting            map[*ast.Node]bool                 // the statements being lowered after their yields were hoisted
-	hoistedNodes        []*ast.Node                        // the nodes in yielded and kept by hoisting, to forget after their statements
-	builtinClasses      []*ir.Class                        // Error and its native subclasses (D-068), Date (D-087), typed arrays and ArrayBuffer (D-125), the runtime's
-	dateClass           *ir.Class                          // Date (D-087)
-	dates               *dateFunctions                     // the runtime functions behind Date
-	typed               *typedArrays                       // typed arrays and ArrayBuffer (D-125)
-	regexpClass         *ir.Class                          // RegExp (D-133)
-	externs             map[string]*ir.Func                // the runtime functions calls reach directly, by C name and types (extern)
-	libObjectTypes      map[*ast.Symbol]bool               // the library's interfaces that are object types: ErrorOptions
-	errors              []diagnostic.Diagnostic
-	undefinedTested     map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
-	looseSymbols        map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
-	intrinsics          map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
-	globalBindings      map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
-	assignedOutside     map[*ast.Symbol]bool        // variables a function other than their own assigns, whose narrowed reads are checked (D-140)
-	assignedAnywhere    map[*ast.Symbol]bool        // variables assigned after their declarations, anywhere (D-145)
-	classReady          map[*ir.Class]*ir.Local     // the binding each class's declaration sets, which `new` checks (D-141)
+	program              *compiler.Program
+	checker              *checker.Checker
+	argumentTemps        []*ir.Bind // the call being lowered's arguments evaluated before it (withArgumentTemps)
+	staticAccessors      map[*ast.Symbol]staticProperty
+	unionsInProgress     map[*checker.Type]int  // the unions irType is mapping, with how often each is
+	recursiveUnions      map[*checker.Type]bool // the unions found to recur through arrays or hash-map objects (D-089)
+	genericClassList     []*genericClass
+	info                 *check.Info
+	locals               map[*ast.Symbol]*ir.Local          // nil for a declaration that failed to lower
+	owners               map[*ir.Local]*ir.Func             // the function each local belongs to
+	moduleScope          map[*ir.Local]bool                 // the locals declared at module scope, which functions and other modules may use
+	funcs                map[*ast.Symbol]*ir.Func           // every function declaration, made before any body is lowered; nil if it failed
+	generics             map[*ast.Symbol]*genericFunc       // every generic function declaration, whose instances calls make
+	genericStatics       map[*ast.Node]*genericFunc         // every generic static method, by declaration
+	instances            []*instance                        // the instances whose bodies are still to be lowered
+	genericMethodList    []*genericFunc                     // the generic instance methods of every class, in the order they were declared
+	tableMethodNames     map[string]bool                    // the names whose generic methods have erased copies in method tables (D-078)
+	allMethodsInTables   bool                               // every generic method has its erased copy in its class's method table
+	subst                *substitution                      // the instance being lowered or declared, or nil
+	genericClasses       map[*ast.Symbol]*genericClass      // every generic class declaration, whose instances types make; nil if it failed
+	classIdentities      map[string]classIdentity           // classMembersIdentity's, by generic class and type arguments
+	classComputed        map[*genericClass]*classComputed   // classComputedTypes's
+	computingDecls       map[*ast.Node]*declarationTypes    // computedTypes's, by generic function declaration
+	classInstances       map[*ir.Class]*classInstance       // the generic class instance each instance's class is
+	instanceClasses      []*ir.Class                        // the classes of generic class instances, in the order they were made
+	classInstanceBodies  []*classInstance                   // the class instances whose constructors and methods are still to be lowered
+	membersDeclared      bool                               // the classes' members are declared, so a new class instance declares its own at once
+	membersStarted       map[*ir.Class]bool                 // the classes whose members are declared, or being declared
+	tuples               map[string]*ir.Class               // the shape of each tuple type met, by its element types
+	rests                map[*ir.Array]*ir.Rest             // the rest parameter type of each array type
+	tuplesInProgress     map[*checker.Type]bool             // the tuple types whose element types are being mapped
+	bindings             map[*ir.Func][]*parameterBinding   // the parameters each function's body starts by binding: those with defaults or patterns
+	paramLocals          map[*ir.Func][]*ir.Local           // the local each function's body sees for each parameter it declares; nil for a pattern
+	classes              map[*ast.Symbol]*ir.Class          // every class declaration, made before any code is lowered; nil if it failed
+	classNodes           map[*ir.Class]*ast.Node            // the declaration of each class
+	classList            []*ir.Class                        // the classes that didn't fail, superclasses first
+	members              *classMembers                      // the members of those classes that aren't generic, by declaration
+	declaring            *classMembers                      // where the members being declared go: members, or a generic class instance's own
+	methodDeclarations   map[*ir.Method]*ast.Node           // the declaration of each method (for an accessor that implements an abstract field, the field's)
+	statics              map[*ast.Node]*ir.Local            // the variable of each static field, by declaration; nil if it failed
+	staticMethods        map[*ast.Node]*ir.Func             // the function of each static method, by declaration; nil if it failed
+	staticClasses        map[*ir.Func]*ir.Class             // the class of each static method, which `this` stands for in it
+	staticContext        *ir.Class                          // the class whose static initialisers are being lowered, or nil
+	shapesByType         map[*checker.Type]*ir.Class        // the shape of each object type met; nil if it has none
+	shapesByKey          map[string]*ir.Class               // the shapes, by their fields (membersKey)
+	typesInProgress      map[ir.Type]bool                   // the shapes and interfaces being made
+	recursiveTypes       map[ir.Type]bool                   // shapes and interfaces their own members' types refer to
+	shapeList            []*ir.Class                        // the shapes, in the order they were made
+	interfacesByType     map[*checker.Type]*ir.Interface    // the interface of each object type met; nil if it has none
+	interfacesByKey      map[string]*ir.Interface           // the interfaces, by their members (membersKey)
+	interfaceList        []*ir.Interface                    // the interfaces, in the order they were made
+	relaxedCasts         []relaxedCast                      // conversions to interfaces whose objects may hold optional properties otherwise (D-066)
+	inKeys               map[string]bool                    // the keys `in` looks up at run time (D-067)
+	firstDynamicWrite    *ast.Node                          // the first write through `any`, if any (D-072)
+	firstDynamicCall     *ast.Node                          // the first call through `any`, if any (D-074)
+	firstResult          *ast.Node                          // the first use of an iterator result type, whose values may be any object (D-178)
+	reports              int                                // how many diagnostics were reported, repeats included
+	genericConsts        map[*ast.Symbol]*genericFunc       // module-scope consts of generic arrow functions, whose calls are monomorphized (D-102)
+	genericConstNodes    map[*ast.Node]*genericFunc         // the same, by their functions
+	demands              []*demand                          // the typed calls of erased copies that look up instances (D-148)
+	erasedValues         []*erasedValue                     // the functions whose closures are erased copies that list instances (D-148)
+	instanceCounts       map[recursionBudget]int            // how many instances of each declaration polymorphic recursion made from each root, and from all (maxRecursiveInstances, maxRecursiveTotal)
+	specialized          map[[3]int]bool                    // the pairs of a demand and an erased value (0) or generic method (1) met so far
+	valueFlow            valueFlow                          // immutable source proofs for ordinary function-value demands (D-201)
+	containing           containingCode                     // completed containing-code availability of pairings and sites (C251)
+	specialization       Specialization                     // which generic function values list instances (D-190)
+	splitClasses         bool                               // ProgramSplittingClasses's
+	trial                *trial                             // the instances specialize is trying, while it lowers them (D-190)
+	narrowing            *Narrowing                         // what this lowering leaves out (C176)
+	errorUses            [][]use                            // the code each of errors was reported in (here)
+	site                 *pairing                           // the call site whose demand is being lowered (blamingSite)
+	statementSites       []pairing                          // the call sites whose demands made what the statement being lowered uses (usedSite)
+	unexplainedUse       use                                // the code unexplained failed in
+	funcUses             map[*ir.Func]use                   // the code each function is, where it is lowered (relaxedCastBlame)
+	droppedFuncs         map[*ir.Func]bool                  // the functions failed trials dropped
+	deadTests            map[*substitution]*substitution    // each instance's substitution for isDeadRead (deadTest)
+	instanceKeys         map[string]string                  // the keys of dynamic results' entries, by what tells them apart (instanceKey)
+	receives             map[receiving]bool                 // whether a class may be a receiver of a type (mayReceive)
+	unexplained          *ast.Node                          // the first expression that failed without a diagnostic
+	current              *ast.Node                          // the statement or expression being lowered, the innermost after a panic (D-179)
+	injectedFailure      func(node *ast.Node) bool          // diagnostic.WithInjectedFailure's, for tests: on entering a node
+	injectedFailureLeft  func(node *ast.Node) bool          // and on leaving it, after its children
+	arrays               map[ir.Type]*ir.Array              // the array type of each element type met
+	arraysInProgress     map[*checker.Type]bool             // the array types whose element type is being mapped
+	funcTypes            []*ir.FuncType                     // the function types met
+	funcTypesInProgress  map[*checker.Type]bool             // the function types whose parameter and result types are being mapped
+	arrows               map[*ir.Func]bool                  // the closures' functions that are arrow functions, whose `this` is their outer function's
+	funcNodes            map[*ir.Func]*ast.Node             // the declaration, function expression or source file of each function
+	helpers              map[helperKey]*ir.Func             // the helpers of the array methods that take callbacks; nil if one failed
+	copyShapesOptional   bool                               // prepareDynamicTarget leaves an object type it can't make a copy shape for without one (prepareCheckedUnion)
+	mapTypes             []*ir.MapType                      // the map and set types met
+	unions               []*ir.Union                        // the union types met
+	chainObjects         map[*ast.Node]chainObject          // the objects of the `?.` links whose chains are being lowered
+	chainRests           map[*ast.Node]bool                 // the optional chains being lowered past their `?.` test
+	instanceofInstances  map[instanceofKey]instanceofResult // what references narrowed by instanceof hold (instanceofNarrowing)
+	instanceofLocals     map[instanceofLocal]bool           // variables that hold dynamic values of instanceof narrowings (isInstanceofDynamicLocal)
+	instanceofContainers map[instanceofContainerKey]bool    // the answers of instanceofContainer, per instance being lowered
+	anyMentions          map[*checker.Type]bool             // mentionsAny's answers
+	narrowingAnswers     narrowingAnswers                   // isNarrowedDynamic's and instanceofDynamicSource's answers within one question
+	chainDepth           int                                // how many optional chains are being lowered past their tests
+	mapsInProgress       map[*checker.Type]bool             // the map and set types whose key and value types are being mapped
+	this                 map[*ir.Func]*ir.Local             // the `this` parameter of each constructor and method
+	lowered              []*ir.Func                         // the functions whose bodies are lowered
+	bodies               []*ast.Node                        // function declarations whose bodies are still to be lowered
+	function             *ir.Func                           // the function being lowered
+	targets              []jumpTarget                       // the statements around the current one that break or continue can leave
+	finallies            []*finallyContext                  // the try statements with finally blocks whose protected code is being lowered, innermost last (D-068)
+	yielded              map[*ast.Node]ir.Expr              // the value of each yield expression whose statement yielded already (D-109)
+	kept                 map[*ast.Node]ir.Expr              // the value of each operand evaluated before a yield in its statement (D-111)
+	keptCurrent          map[*ast.Node]ir.Expr              // a compound assignment's target's value, read before a yield in its right side (D-145)
+	keptSpreads          map[*ast.Node]keptSpread           // what an object literal's spread (`...o`) read before a yield after it (keepObjectSpread)
+	hoisting             map[*ast.Node]bool                 // the statements being lowered after their yields were hoisted
+	hoistedNodes         []*ast.Node                        // the nodes in yielded and kept by hoisting, to forget after their statements
+	builtinClasses       []*ir.Class                        // Error and its native subclasses (D-068), Date (D-087), typed arrays and ArrayBuffer (D-125), the runtime's
+	dateClass            *ir.Class                          // Date (D-087)
+	dates                *dateFunctions                     // the runtime functions behind Date
+	typed                *typedArrays                       // typed arrays and ArrayBuffer (D-125)
+	regexpClass          *ir.Class                          // RegExp (D-133)
+	externs              map[string]*ir.Func                // the runtime functions calls reach directly, by C name and types (extern)
+	libObjectTypes       map[*ast.Symbol]bool               // the library's interfaces that are object types: ErrorOptions
+	errors               []diagnostic.Diagnostic
+	undefinedTested      map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
+	looseSymbols         map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
+	intrinsics           map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
+	globalBindings       map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
+	assignedOutside      map[*ast.Symbol]bool        // variables a function other than their own assigns, whose narrowed reads are checked (D-140)
+	assignedAnywhere     map[*ast.Symbol]bool        // variables assigned after their declarations, anywhere (D-145)
+	classReady           map[*ir.Class]*ir.Local     // the binding each class's declaration sets, which `new` checks (D-141)
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -3195,10 +3196,12 @@ type place struct {
 	arrayLength bool    // the length of an array
 	field       *ir.Field
 	accessors   property
-	current     *ir.Local // an accessor property's value, or a property's through an interface, read once by readAndStore
-	stored      *ir.Local // the value stored in an accessor property, which is the assignment's value
-	at          *ast.Node // the assignment's target, for an accessor property or an entry of a hash-map object
-	dynamic     bool      // a property of a dynamic value (any), whose key is key (D-070)
+	current     *ir.Local    // an accessor property's value, or a property's through an interface, read once by readAndStore
+	stored      *ir.Local    // the value stored in an accessor property, which is the assignment's value
+	at          *ast.Node    // the assignment's target, for an accessor property or an entry of a hash-map object
+	dynamic     bool         // a property of a dynamic value (any), whose key is key (D-070)
+	family      *[]*ir.Class // the instances of a generic class, for a private field of a dynamic value (familyPrivatePlace)
+	private     string       // that field's name (`#f`)
 	l           *lowerer
 }
 
@@ -3234,6 +3237,8 @@ func (p place) read() ir.Expr {
 		return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{p.object, p.index}}
 	case p.arrayLength:
 		return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{p.object}}
+	case p.family != nil:
+		return &ir.FamilyField{X: p.object, Family: p.family, Name: p.private}
 	case p.dynamic:
 		return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{p.object, p.key}}
 	case p.key != nil:
@@ -3257,6 +3262,8 @@ func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 		stored = &ir.ArrayCall{Op: ir.ArraySetElement, Args: []ir.Expr{p.object, p.index, value}}
 	case p.arrayLength:
 		stored = &ir.ArrayCall{Op: ir.ArraySetLength, Args: []ir.Expr{p.object, value}}
+	case p.family != nil:
+		stored = &ir.FamilySetField{X: p.object, Family: p.family, Name: p.private, Value: value}
 	case p.dynamic:
 		stored = &ir.CallBuiltin{Builtin: ir.DynamicSet, Args: []ir.Expr{p.object, p.key, value}}
 	case p.key != nil:
@@ -3302,7 +3309,7 @@ func (l *lowerer) readKeptAndStore(target place, kept ir.Expr, build func(place)
 		switch {
 		case target.field != nil && !viaInterface:
 			return build(target)
-		case target.field != nil || target.index != nil || target.arrayLength || target.key != nil:
+		case target.field != nil || target.index != nil || target.arrayLength || target.key != nil || target.family != nil:
 			read = target.read()
 			if kept != nil {
 				read = l.convert(kept, target.valueType(), target.at)
@@ -3354,6 +3361,9 @@ func (l *lowerer) withObject(target place, build func(place) ir.Expr) ir.Expr {
 // and returns false.
 func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 	node = ast.SkipParentheses(node)
+	if target, ok, handled := l.familyPrivatePlace(node); handled {
+		return target, ok
+	}
 	if (node.Kind == ast.KindPropertyAccessExpression || node.Kind == ast.KindElementAccessExpression) && (l.isAny(node.Expression()) || l.isNarrowedDynamic(node.Expression())) {
 		return l.dynamicPlace(node)
 	}
@@ -4060,9 +4070,22 @@ func (l *lowerer) readonlyInstance(t *checker.Type) *checker.Type {
 
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
+	return l.irTypeOf(t, node, false)
+}
+
+// classOf is the class of t, a class's instance type, for code that needs the class
+// itself (`new C<any>()`, a superclass, the members a `this` names), where irType gives
+// tsc's C<any, …> as a dynamic value (isAnyInstance); nil for other types.
+func (l *lowerer) classOf(t *checker.Type, node *ast.Node) *ir.Class {
+	class, _ := l.irTypeOf(t, node, true).(*ir.Class)
+	return class
+}
+
+func (l *lowerer) irTypeOf(t *checker.Type, node *ast.Node, wantClass bool) ir.Type {
 	t = l.instantiate(t)
 	if t.Flags()&checker.TypeFlagsTypeParameter != 0 && t.AsTypeParameter().IsThisType() {
 		t = l.checker.GetConstraintOfTypeParameter(t) // a fluent method's `this`: its class (D-089)
+		wantClass = true
 	}
 	t = l.withoutParallelBrand(t)
 	if t.Flags()&checker.TypeFlagsIntersection != 0 {
@@ -4078,6 +4101,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if generic, ok := l.genericClasses[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 && t.ObjectFlags()&checker.ObjectFlagsAnonymous == 0 { // not `typeof Box`
 		if generic == nil {
 			return nil // the class failed, which was reported
+		}
+		if !wantClass && l.isAnyInstance(t) {
+			return ir.Value // any instance of the class (H10b)
 		}
 		if class := l.classInstanceOf(generic, t, node); class != nil {
 			return class

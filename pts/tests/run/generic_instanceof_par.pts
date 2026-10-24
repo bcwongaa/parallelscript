@@ -1,8 +1,7 @@
-// skip: H10b: `filter` with an inferred instanceof predicate and `[c, c, c]` make MapLRU<any, any> places (values that flow out of the narrowing)
 // H10 (C10): elements narrowed by `instanceof` to a generic class from an interface, read in
 // `.par` callbacks on other threads: tsc's element type is MapLRU<any, any>, and the checked
 // conversion threw TypeError. The expected lines are Node's for the sequential twin (`.par.`
-// made `.`).
+// made `.`). H10b: tsc's MapLRU<any, any> elements hold any MapLRU, as dynamic values (D-219).
 // threads: 1 2 4
 interface Cache<K, V> {
   get(key: K): V | undefined;
