@@ -194,7 +194,7 @@ func programWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, instanceofInstances: map[instanceofKey]instanceofResult{}, instanceofLocals: map[instanceofLocal]bool{}, anyMentions: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{}, classReceivers: map[*ast.Node]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, classIdentities: map[string]classIdentity{}, classComputed: map[*genericClass]*classComputed{}, computingDecls: map[*ast.Node]*declarationTypes{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
-		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
+		looseSymbols: map[*ast.Symbol]bool{}, madeLiterals: map[*ast.Node]ir.Type{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
 		genericConstNodes: map[*ast.Node]*genericFunc{}, instanceCounts: map[recursionBudget]int{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}, funcUses: map[*ir.Func]use{}}
 	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
 	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
@@ -418,6 +418,7 @@ type lowerer struct {
 	errors               []diagnostic.Diagnostic
 	undefinedTested      map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
 	looseSymbols         map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
+	madeLiterals         map[*ast.Node]ir.Type       // the shape or hash-map type an object literal being lowered makes (literalFieldType)
 	intrinsics           map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
 	globalBindings       map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
 	assignedOutside      map[*ast.Symbol]bool        // variables a function other than their own assigns, whose narrowed reads are checked (D-140)

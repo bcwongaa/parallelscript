@@ -1,0 +1,21 @@
+// A tuple with a rest or variadic element (`[string, ...string[]]`, `[...T]`) may end
+// before the pattern does, so its pattern's names are loose: undefined past the end, as
+// in JS. Judging `[...T]` by tsc's own type as a fixed tuple made an array instance's
+// name a RangeError (H11a review round 2, R2-F4; the rest tuple's was pre-existing).
+function second<T extends unknown[]>(xs: [...T]): string {
+  const [a, b] = xs;
+  return String(a) + "|" + String(b);
+}
+function pair<T extends unknown[]>([a, b]: [...T]): string {
+  return String(a) + "|" + String(b);
+}
+function f(t: [string, ...string[]]): string {
+  const [a, b] = t;
+  return a + "|" + b;
+}
+console.log(second(["x"] as string[]), second([1, 2] as [number, number]));
+console.log(pair(["y"] as string[]), f(["only"]), f(["a", "b"]));
+
+// expect:
+// x|undefined 1|2
+// y|undefined only|undefined a|b

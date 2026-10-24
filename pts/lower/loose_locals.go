@@ -24,6 +24,10 @@ func (l *lowerer) collectUndefinedTests(files []*ast.SourceFile) {
 	l.undefinedTested = map[*ast.Symbol]bool{}
 	var visit ast.Visitor
 	visit = func(node *ast.Node) bool {
+		if isInstanceofTest(node) {
+			node.ForEachChild(visit)
+			return false // reads a loose local as its union, but doesn't make one (a dispatch over `shapes[i]`)
+		}
 		for _, tested := range testedOperands(node) {
 			if tested = ast.SkipParentheses(tested); tested.Kind == ast.KindIdentifier && l.isUndefinedTest(node, tested) {
 				if symbol := l.checker.GetSymbolAtLocation(tested); symbol != nil {
@@ -118,6 +122,11 @@ func testedOperands(node *ast.Node) []*ast.Node {
 	return nil
 }
 
+// isInstanceofTest reports whether node is `x instanceof C`.
+func isInstanceofTest(node *ast.Node) bool {
+	return node.Kind == ast.KindBinaryExpression && node.AsBinaryExpression().OperatorToken.Kind == ast.KindInstanceOfKeyword
+}
+
 // isNullishLiteral reports whether node is `undefined`, `null` or `void x`.
 func isNullishLiteral(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
@@ -171,7 +180,7 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 				t = constraint // the same for every instance, which share this answer
 			}
 		}
-		return !checker.IsTupleType(t) // a tuple's length is known; anything else may end before the pattern does
+		return !checker.IsTupleType(t) || isRestTuple(t) // a tuple's length is known, but for its rest (`[...T]`); anything else may end before the pattern does
 	}
 	return false
 }
@@ -274,25 +283,24 @@ func (l *lowerer) placeType(node *ast.Node) ir.Type {
 }
 
 // literalFieldType is the type of the field that property, of an object literal, gives
-// a value of the type the literal makes (objectLiteral: a hash-map object of its
-// recordContext, or literalType's): `column?: string` of an Agg for `{ kind, column }`,
-// or the value type of a `Record<string, unknown>`; nil for a computed name.
+// a value of the shape or hash-map type objectLiteral makes it as (madeLiterals):
+// `column?: string` of an Agg for `{ kind, column }`, the value type of a
+// `Record<string, unknown>`; nil for a computed name, or a field that isn't a union
+// where tsc's type has one (a `Partial<Record<K, V>>`'s).
 func (l *lowerer) literalFieldType(property *ast.Node) ir.Type {
 	literal, name := property.Parent, property.Name()
 	if literal.Kind != ast.KindObjectLiteralExpression || name.Kind != ast.KindIdentifier && name.Kind != ast.KindStringLiteral && name.Kind != ast.KindNumericLiteral {
 		return nil
 	}
-	made := l.recordContext(literal) // a hash-map object's (objectLiteral)
-	if made == nil {
-		made = l.literalType(literal)
+	switch made := l.madeLiterals[literal].(type) {
+	case *ir.MapType:
+		return made.Value
+	case *ir.Class:
+		if field := made.Field(name.Text()); field != nil {
+			return field.Type
+		}
 	}
-	if field := l.checker.GetPropertyOfType(made, name.Text()); field != nil {
-		return l.irTypeOrNone(l.typeOfSymbol(field), property)
-	}
-	if index := l.checker.GetIndexInfoOfType(made, l.checker.GetStringType()); index != nil {
-		return l.irTypeOrNone(index.ValueType(), property)
-	}
-	return nil
+	return nil // not being made by objectLiteral (a value read before a yield)
 }
 
 // callsProgramFunction reports whether call calls a function of the program, not a
@@ -363,13 +371,17 @@ func isPlaceValue(node *ast.Node) bool {
 	return false
 }
 
-// looseValue is x, a loose local's union, as the value of a place undefined goes to: the
-// type tsc narrowed it to there, or undefined (`hit` after `hit !== null`, whose union
-// holds null too).
-func (l *lowerer) looseValue(x ir.Expr, narrow ir.Type) ir.Expr {
+// looseValue is x, a loose local's union read at node, as the value of a place undefined
+// goes to: the type tsc narrowed it to there, or undefined (`hit` after `hit !== null`,
+// whose union holds null too); checked where a call tsc doesn't follow may have changed
+// it since it was narrowed, as D-140's reads are.
+func (l *lowerer) looseValue(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
 	t := l.withUndefined(narrow)
-	if t == x.Type() {
+	switch {
+	case t == x.Type():
 		return x
+	case l.mayHaveChanged(node):
+		return &ir.FromUnion{X: box(x), To: t} // a dynamic value's checked conversion
 	}
 	return &ir.FromUnion{X: x, To: t}
 }

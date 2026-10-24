@@ -1,0 +1,62 @@
+// no-diff: D-140: a narrowing a call tsc doesn't follow may have invalidated is checked where it is read, so these throw TypeError where Node goes on with the other member
+// A loose local that tsc narrowed and that a call it doesn't follow then changed (a
+// closure assigns it) goes to a place that takes undefined with D-140's check: a
+// TypeError, not its new value read as the narrowed type. The change's first forms read
+// it unchecked there, and a number was read as a string (SIGSEGV; H11a review round 2,
+// R2-F1).
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+const items: (string | number)[] = ["a", 1];
+let v = items[0];
+function setNumber(): void {
+  v = 5;
+}
+interface Opt {
+  label?: string;
+}
+attempt("declaration", () => {
+  if (v !== undefined && typeof v === "string") {
+    setNumber();
+    const s: string | undefined = v;
+    console.log(typeof s);
+  }
+});
+v = items[0];
+function get(): string | undefined {
+  if (v === undefined || typeof v !== "string") return undefined;
+  setNumber();
+  return v;
+}
+attempt("result", () => console.log(get()));
+v = items[0];
+attempt("property", () => {
+  if (v !== undefined && typeof v === "string") {
+    setNumber();
+    const o: Opt = { label: v };
+    console.log(o.label);
+  }
+});
+attempt("pattern name", () => {
+  const rows: (string | number)[][] = [["a", "b"]];
+  for (let [, w] of rows) {
+    const change = (): void => {
+      w = 9;
+    };
+    if (typeof w === "string") {
+      change();
+      const s: string | undefined = w;
+      console.log(s);
+    }
+  }
+});
+
+// expect:
+// declaration threw TypeError Expected string | undefined, got number
+// result threw TypeError Expected string | undefined, got number
+// property threw TypeError Expected string | undefined, got number
+// pattern name threw TypeError Expected string | undefined, got number

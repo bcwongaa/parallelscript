@@ -1,0 +1,31 @@
+// A loose local narrowed by a test and passed to the program's own function whose
+// parameter takes undefined goes as its narrowed type or undefined: a `for…of` or a
+// parameter pattern's name after `typeof y === "number"` or `v === null`. The change's
+// first form passed the whole union (`number | string | undefined` to a `string |
+// undefined`, PTS1001; H11a review round 2, R2-F2); a declaration's loose local was
+// PTS1001 on the base too.
+function opt(s: string | undefined): string {
+  return "opt:" + s;
+}
+function label(s?: string): string {
+  return s === undefined ? "none" : s;
+}
+const rows: (string | number)[][] = [["k", "a"], ["k", 1], ["k"]];
+for (const [, y] of rows) {
+  if (typeof y === "number") console.log("num", y);
+  else console.log(opt(y));
+}
+function show([, v]: (string | null)[]): string {
+  return v === null ? "null" : label(v);
+}
+console.log(show(["k", "v"]), show(["k", null]), show(["k"]));
+const values: (string | null)[] = ["x", null];
+const first = values[3];
+if (first !== null) console.log(label(first));
+
+// expect:
+// opt:a
+// num 1
+// opt:undefined
+// v null none
+// none

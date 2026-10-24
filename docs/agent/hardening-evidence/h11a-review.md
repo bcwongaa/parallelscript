@@ -143,3 +143,154 @@ Child: `reviewer` (claude-opus-5-5, xhigh), read-only, 2026-10-24. Each round's 
 - **Generated C:** the per-kind reads in cgen match `pts_value_of_slot`'s representations, and the inline number read has the same race and trust model as `PTS_ARRAY_GET`.
 
 The probes are archived at `/tmp/h11/h11a-review1-probes.tar.gz`, without binaries; `/tmp/h11/review1.done` is written.
+
+## Round 2 (snapshot 4 = `898a0a52b`; [archive](h11a-review2-probes.tar.gz))
+
+# H11a review round 2 (snapshot 4 = `898a0a52b`)
+
+**Verdict: NOT READY.** 2 High, 2 Medium, 1 Low, plus doc corrections and notes. The worst is a new memory-safety hole: a loose local whose narrowing is stale now reaches a typed place unchecked and crashes with SIGSEGV, where the base throws a clean TypeError.
+
+## How I tested
+- **Snapshot check:** `/tmp/h11/snap2` matches `898a0a52b` byte for byte (`pts/lower`, `pts/cgen`, `ir.go`, `pts.h`).
+- **Commands:** `tools/run.sh F` builds and runs F with `PTS_HOME=<tree> <tree>/pts-bin/pts build F -o B && ./B` for the snapshot and the base, and runs `node --no-warnings --experimental-transform-types` on an `.mts` copy. Outputs are in `/tmp/h11/review2/out/`.
+- **Repros:** all in `/tmp/h11/review2/repro/`.
+
+## Round-1 findings: rerun on snapshot 4
+- **All 14 round-1 repros now print Node's output** (r1–r4, r6–r11), except `r5`. `r5` (splice/lastIndexOf with a missing `count`) is back to the base's `TypeError: Expected number, got undefined`, as you intended.
+- **The 8 new tests** pass on the snapshot. Seven fail on the base for the stated reasons; `element_reads_any_places` also passes on the base, which is right because it guards the round-1 snapshot's crash.
+- **Matrix** (families A, B, C, F, G; 1,420 cases on snapshot 4): 361 → 1,106 OK (F: 161 → 168). No case is worse than HEAD or than the round-1 snapshot, and there is no PTS1001, PTS9001 or crash.
+
+## The STILL class (spot-checked)
+Nearly all are by design or pre-existing:
+- D-090's TypeError where a T is required.
+- A builtin's own optional parameter (`slice`, `padStart` and the like, now D-220's known gap).
+- Literals made as their own type.
+- Checked casts: `f01e`/`f01f`, `undefined as unknown as number`.
+- `satisfies` literals, which are PTS1001 on the base too.
+
+Two are not:
+- **`j05` and `pa01`–`pa03` belong to the same class as R1-F1**, and D-220 claims that case: "an argument (of the program's functions)" is narrowed-or-undefined. See R2-F2.
+- **`m05` (`String(c ? xs[9] : 1)`):** the round-1 snapshot fixed it, and it is a `RangeError` again on snapshot 4. The base also throws, and D-220 no longer claims builtin `any` parameters, so it is not a regression.
+
+## High
+
+**R2-F1: `looseValue` drops D-140's check, so a loose local whose narrowing is stale (assigned in a closure) reaches typed places unchecked and crashes (SIGSEGV).**
+
+`repro/s01_stale_narrowing.pts`:
+```ts
+const items: (string | number)[] = ["a", 1];
+let v = items[0];
+function setNumber(): void { v = 5; }
+if (v !== undefined && typeof v === "string") {
+  setNumber();
+  const s: string | undefined = v;
+  console.log(typeof s, s === undefined ? "u" : s.length);
+}
+```
+- Node: `number undefined`.
+- Base: `Uncaught TypeError: Expected string, got number` (exit 1).
+- Snapshot 4: exit 139, segmentation fault.
+- The emitted C (`tmp/s01.c`) shows the unchecked copy, then the read of a number as a string:
+  ```c
+  pts_value s = pts_global_v;
+  ... ((pts_string *)pts_value_as_object(s))->utf16_len
+  ```
+
+The same crash in other shapes, each a clean TypeError on the base:
+
+| Repro | Shape |
+|---|---|
+| `n/s05_stale_null.pts` | narrowed past `null` |
+| `repro/s06_stale_return.pts` | returned into `string \| undefined` |
+| `repro/s07_stale_pattern_name.pts` | a newly loose `for…of` pattern name |
+| `repro/s08_stale_via_property.pts` | `{ label: v }`, then `const lab = o.label` |
+| `n/s09_stale_via_array.pts` | `out.push(v)` into a `(string \| undefined)[]` |
+
+- **Cause:** in `pts/lower/unions.go:184-185`, `narrowed` returns `l.looseValue(x, narrow)`, an unchecked `FromUnion`, before the `mayHaveChanged` branch that would check it. `looseValue` (`loose_locals.go`) and `shorthandValue` (`objects.go`) have the same hole.
+- The round-1 snapshot had it too (`return x`); I missed it in round 1.
+- **Fix:** when `l.mayHaveChanged(node)`, convert with a check to `withUndefined(narrow)`, i.e. `FromUnion{X: box(x), To: withUndefined(narrow)}`, which is checked. Add `s01`, `s06` and `s08` as tests.
+
+**R2-F2: a narrowed loose local passed to the program's own function still goes as its whole union, so newly loose pattern names fail to compile (PTS1001).**
+
+`repro/pa04_forof_program_arg.pts`:
+```ts
+const rows: (string | number)[][] = [["k", "a"], ["k", 1], ["k"]];
+function opt(s: string | undefined): string { return "opt:" + s; }
+for (const [x, y] of rows) {
+  if (typeof y === "number") console.log("num", y);
+  else console.log(opt(y));
+}
+```
+- Node: `opt:a num 1 opt:undefined`.
+- Base: compiles and prints `opt:a num 1`, then RangeError past the end.
+- Snapshot 4: `7:24 PTS1001: converting number | string | undefined to string | undefined`.
+
+`repro/pa05_param_pattern_program_arg.pts` (`label(v)` after `v === null ? … :`, with `label(s?: string)`):
+- Node: `v null none`.
+- Base: compiles, then RangeError at run time.
+- Snapshot 4: `PTS1001 converting null | string to string`.
+
+Declaration-loose locals (`pa01`, `pa02` line 10, round 1's `j05`) are PTS1001 on the base too; the change spreads the failure to every parameter and `for…of` pattern name.
+- **Cause:** in `narrowed`, `isTestedOperand(node)` returns `x`, the whole union, for a call argument to a program function before `looseValue` is reached.
+- **Fix:** for call arguments use `looseValue` (with R2-F1's check), and keep the whole union only for real test operands (`===`, `typeof`, truthiness).
+- h11a.md says R1-F1 is fixed, which is true only for non-call places.
+
+## Medium
+
+**R2-F3: an object literal for `Partial<Record<"a" | "b", V>>` with a loose value is PTS1001 even when the value is present.**
+- `repro/pr05_partial_record_present.pts`: `const [, column] = "sum:units".split(":"); const r: Partial<Record<"column" | "x", string>> = { column };`
+  - Node and base: `{ column: 'units' }`.
+  - Snapshot 4: `2:54 PTS1001: converting string | undefined to string is not supported yet`.
+- The `column: column` form fails the same way (`pr07`); with a missing value (`pr01`) the base throws a TypeError at run time.
+- **Cause:** `literalFieldType` reports the optional field's type `string | undefined`, but the literal is made with a `string` value slot. An element read into this literal is PTS1001 on the base too (`pr06`), so the underlying limit is pre-existing.
+- **Fix:** take the place type from the IR type the literal is actually made as, or don't treat the property as a place when that slot can't hold undefined.
+- `Partial<Record<string, V>>`, `Record<"a" | "b", V | undefined>` and `Partial<Interface>` all work (`pr02`–`pr04`).
+
+**R2-F4: `patternSourceType` without the instance's substitution treats a variadic tuple `[...T]` as fixed-length, so a declaration over an array instance regressed.**
+- `repro/g01_variadic_decl.pts`:
+  ```ts
+  function second<T extends unknown[]>(xs: [...T]): string {
+    const [a, b] = xs;
+    return String(a) + "|" + String(b);
+  }
+  second(["x"] as string[]);
+  ```
+  - Node and base: `x|undefined 1|2`.
+  - Snapshot 4: `RangeError: Array index 1 is out of range`.
+- **Cause:** `loose_locals.go` `patternSourceType` → `checker.IsTupleType([...T])` is true. The base used the instance's `typeAt`, which gives `string[]`.
+- Pre-existing relatives with the same root:
+  - the parameter form `([a, b]: [...T])` (`n/g02`);
+  - a tuple with a rest element, `const [a, b] = t` with `t: [string, ...string[]]` (`repro/g08_tuple_rest_names.pts`), which throws RangeError on both where Node gives `undefined`.
+- **Fix:** count a tuple as fixed-length only if it has no rest or variadic element.
+- Conditional types, indexed access, class type parameters, tuple constraints and generic `for…of` all behave (`g03`–`g07`).
+
+## Low
+**R2-F5 (performance, not in D-220's costs): making `x instanceof C` an undefined test makes every element-read local tested by `instanceof` loose.**
+- `repro/perf_instanceof_dispatch.pts`: 1,000 shapes × 3,000 passes of `const s = shapes[i]; if (s instanceof Circle) … else if (s instanceof Square) …`.
+- Callgrind: 235.2M → 422.7M instructions (1.80×), on code that was typed before.
+- Correctness holds in my probes `i01`–`i05`: class hierarchies, generic classes, `unknown[]`, generic instances.
+- Either list it in D-220's costs or limit the rule to locals already loose for another reason.
+
+## Docs
+- **h11a.md, R1-F1 "Fixed: looseValue":** add the program-function argument gap (R2-F2) and the stale-narrowing crash (R2-F1).
+- **D-220, "an argument (of the program's functions)… read as the type tsc narrowed it to or undefined":** not true for narrowed arguments (R2-F2).
+- **D-220 costs:** add R2-F5. I re-measured the defaults: `[x = 0, y = 0]` over a `number[]` is 214.3M on both; over a `string[]` it is 246.0M → 261.0M (1.06×).
+
+## Notes (pre-existing or by design)
+- An optional class field initialised from an element read (`private p?: number = [1][3]`, `n/dn04`) still throws RangeError; only the loose-local case uses the declared type.
+- `Record<number, string | undefined>` literals are not recognised as places (`rc01_04`).
+- Defaults of another type over a `number[]` or `boolean[]` (`[a, b = "none"] = nums`, `[f = null] = flags`) are PTS1001 on both.
+- Nested tuple defaults (`t01_05`) and a default before a rest in a tuple with a rest element (`t01_14`) are PTS1001 on both.
+- A `[...T]` instance shorter than the pattern gives a misleading "this rest element" PTS1001 on both (`g10`).
+- An unannotated async generator yielding a declared `string | undefined` throws TypeError, because the inferred yield type is `string` (by design).
+
+## Checked and fine
+- **Tuple defaults** (`t01`, 13 of 15): evaluation order, optional, `any` and `null` elements, earlier names in defaults, readonly tuples, returned tuples, Map and `Object.entries` with defaults, assignment, swap, parameters.
+- **Nested conditionals with element reads** (`nc01`, 8 of 9; the ninth is a required place and throws by design).
+- **Yields:** generator methods, `unknown` yields, generic generators, async generators (`AsyncGenerator`, `AsyncIterableIterator`, `AsyncIterable<unknown>`), `IterableIterator`/`Iterable`/`Iterator` annotations, conditionals in yields.
+- **Record contexts:** `Record<string, V | undefined>`, `Record<string, unknown>`, index signatures, nested records, arguments and returns.
+- **Type-parameter builtins** (`ta/`, all 24 that apply): push, unshift, Map.set/get/has, Set.add/delete, includes, indexOf, lastIndexOf, fill, with, splice, toSpliced, `Array.of`, `Promise.resolve<unknown>`, `reduce<T | undefined>`, `Object.freeze<…>`.
+- **Instance agreement for generic pattern names** (`r8`, `g06`, `g07`).
+- **Assignment targets** over `(T | undefined)[]`.
+
+The probes are archived at `/tmp/h11/h11a-review2-probes.tar.gz`, without binaries; `/tmp/h11/review2.done` is written.

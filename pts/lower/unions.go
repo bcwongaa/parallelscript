@@ -178,11 +178,11 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	}
 	if narrow != nil && isNarrowing(union, narrow) {
 		if node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) {
+			if l.goesWhereUndefinedGoes(node) {
+				return l.looseValue(x, narrow, node) // the value of a place undefined goes to (an optional property, `unknown`, an argument)
+			}
 			if l.isTestedOperand(node) {
 				return x // tested for undefined: the union it holds
-			}
-			if l.goesWhereUndefinedGoes(node) {
-				return l.looseValue(x, narrow) // the value of a place undefined goes to (an optional property, `unknown`)
 			}
 			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
 		}

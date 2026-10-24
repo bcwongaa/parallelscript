@@ -1,0 +1,13 @@
+// A loose local as a property of an object literal goes where the field the literal is
+// made with holds undefined; a `Partial<Record<"column" | "x", string>>` literal's fields
+// hold strings, so a present value goes in, checked as D-090's. The change's first form
+// took tsc's optional `string | undefined` for the place and failed to compile
+// (PTS1001; H11a review round 2, R2-F3).
+const [, column] = "sum:units".split(":");
+const r: Partial<Record<"column" | "x", string>> = { column };
+const s: Partial<Record<"column" | "x", string>> = { column: column };
+const t: Partial<Record<string, string>> = { column };
+console.log(r, s, t);
+
+// expect:
+// { column: 'units' } { column: 'units' } { column: 'units' }

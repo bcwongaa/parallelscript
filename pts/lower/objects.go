@@ -353,12 +353,14 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		if mt == nil {
 			return nil // reported
 		}
+		l.madeLiterals[node] = mt
 		return l.recordLiteral(node, mt)
 	}
 	shape := l.literalShape(l.literalType(node), node)
 	if shape == nil {
 		return nil
 	}
+	l.madeLiterals[node] = shape
 	properties := node.AsObjectLiteralExpression().Properties.Nodes
 	if slices.ContainsFunc(properties, isSpreadAssignment) {
 		return l.spreadObjectLiteral(properties, shape, node)
@@ -850,7 +852,7 @@ func (l *lowerer) shorthandValue(property *ast.Node) ir.Expr {
 				return nil
 			}
 			if l.goesWhereUndefinedGoes(name) {
-				return l.looseValue(x, t) // `{ kind, column }` for an optional column: undefined as it is
+				return l.looseValue(x, t, name) // `{ kind, column }` for an optional column: undefined as it is
 			}
 			return l.looseRead(x, t, name) // D-090
 		}
