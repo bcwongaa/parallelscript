@@ -1,0 +1,64 @@
+// H10a review round 9 (R9-F2, R9-F3; the reviewer's r9f2_literal_of_own_functions.pts,
+// r9f3_call_results.pts, f04_results_of_calls.pts): the instance's own functions stored back
+// through literals (a destructuring swap, `Object.assign` with an object literal) need no
+// adapter, and what calling a local bound to one of them returns is the instance's own object
+// (an array, an object, a class instance), so writes reach the instance and `===` holds. As
+// in Node.
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class Inner<T> {
+  constructor(public v: T) {}
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  matrix: V[][] = [[], []];
+  list: ((rows: V[][]) => void)[] = [];
+  cfg: { onRows: (rows: V[][]) => void } = { onRows: () => {} };
+  mkList: () => V[];
+  mkObj: () => { list: V[] };
+  mkInner: () => Inner<V>;
+  constructor(public key: K, public val: V) {
+    this.list.push(() => {});
+    this.mkList = () => this.items;
+    const o = { list: this.items };
+    this.mkObj = () => o;
+    this.mkInner = () => new Inner(val);
+  }
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+    this.cfg.onRows(this.matrix);
+  }
+}
+function swap(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  [c.list[0], c.list[1]] = [c.list[1], c.list[0]];
+  Object.assign(c.cfg, { onRows: c.list[0] });
+}
+function results(c: Cache<string, number>): void {
+  if (!(c instanceof MapLRU)) return;
+  const mkList = c.mkList;
+  const xs: number[] = mkList();
+  xs.push(1);
+  mkList().push(2);
+  const ys = mkList();
+  ys.push(3);
+  const mkObj = c.mkObj;
+  mkObj().list.push(4);
+  console.log(c.items, mkList() === c.items, mkObj().list === c.items, c.mkList() === c.items);
+  const mkInner = c.mkInner;
+  console.log(mkInner().v);
+}
+const m = new MapLRU<string, number>("k", 0);
+m.list.push((rows) => rows.push([], []));
+swap(m);
+m.fire();
+console.log(m.matrix.length, m.list.length);
+results(m);
+// expect:
+// 6 2
+// [ 1, 2, 3, 4 ] true true true
+// 0

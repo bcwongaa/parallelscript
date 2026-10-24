@@ -536,3 +536,28 @@ The 4 new error tests compile on fix7 and print 2 where Node prints 3; one PTS10
 
 ### What READY would take
 1. R8-F2: don't report values read through the narrowing; `r8f2` as a run guard. 2. R8-F1: keep function-typed reads as dynamic values, or record with C288. 3. R8-F3: extend the store check to `Object.assign` and destructuring targets, or record. "With those done, every remaining divergence I know of is a recorded gap or H10b's, and I'd expect READY."
+
+## Round 9: `3d72b7177`
+
+NOT READY
+
+# H10a review, round 9: commit `3d72b7177` (fix9) against `8099aadb5` (fix8)
+
+(The same reviewer, resumed. Probes: [h10a-review9-probes.tar.gz](h10a-review9-probes.tar.gz).)
+
+The round-8 fixes hold for the forms they target, but two new mechanisms turn fix8's honest PTS1001s into silent wrong output where the base threw (R9-F1, R9-F3), and there is one small false positive (R9-F2).
+
+### R9-F1 (High, regression: fix8 PTS1001, fix9 silent, base threw): values that only partly hold the instance's own functions
+`c.cfg.onRows = c.maybe ?? addRow`; `const h = flag ? c.list[0] : addRow; c.list.push(h)`; `const r = flag ? c.reader : pushRow; c.matrix.forEach(r)`: Node `4 1`, fix8 three PTS1001s, fix9 `2 0`. One form per file in `mix/m_*.pts` (`flag ? c.list[0] : addRow`, `c.maybe || addRow`, `c.list[0] = c.maybe ?? addRow`, such locals given to push or a callback); round 7's `n_concat_assign` (`c.list = c.list.concat([addRow])`) also went from PTS1001 to a silent 2 (Node 3); `c.list.push(flag ? c.list[0] : addRow)` was silent on fix8 too. Cause: R8-F2's skip takes any value that `holdsInstanceofDynamicValue`, true when any branch of a conditional, `??` or `||` holds one, or for a `concat` on a member; and function-typed values from such sources are now dynamic locals, which `copiesCallbackArgument` doesn't look into. Fix: skip only values whose every part is the instance's own; don't make mixed function initializers dynamic locals, or check them where given or stored.
+
+### R9-F3 (High, regression: fix8 PTS1001, fix9 silent, base threw): results of calling a function local are copies
+`const mk = c.mkList; mk().push(2); const ys = mk(); ys.push(3); console.log(c.items, mk() === c.items, c.mkList() === c.items)`: Node `[ 1, 2, 3 ] true true`, fix8 PTS1001, fix9 `[ 1 ] false true`; also `const xs: number[] = mk()` and `mkObj().list.push(3)` (`f04_results_of_calls.pts`). The new `call()` path's `narrowedValue` converts an `any[]` result to `value[]` (D-089's FromUnion, a copy), and such a call isn't an `instanceofDynamicSource`. Fix: make calls of such callees sources.
+
+### R9-F2 (Low-Medium, regression against fix8): the instance's own functions stored through literals are PTS1001
+`[c.list[0], c.list[1]] = [c.list[1], c.list[0]]; Object.assign(c.cfg, { onRows: c.list[0] })`: Node and fix8 `6 2`, fix9 two PTS1001s. The R8-F2 skip doesn't look inside the literal.
+
+### What holds (verified)
+R8-F1 (`r8f1`, listener identity for `object` and `unknown` sources; only `new Set([c.cb, c.cb]).size` differs, recorded with C285); function locals in general (calls, `typeof`, `length`, `map(f)`, templates, generators and async functions returned through them, optional calls, `??` callees, `bind`/`call`/`apply`, closures, `let` reassignment, recursion, IIFEs, `unknown`/`any`/`catch`/`object` sources, three instances of a generic function, `.par.map(f)` at 1/2/4 threads, returning and storing in a typed outer variable), several new fixes over fix8 for `unknown`, `any` and `catch` sources; R8-F2 (`o_filter_listeners` was silently wrong on fix7); R8-F3. Rerun of 180 round 6–8 probes: 18 change, 17 improve, one regresses (`n_concat_assign`, R9-F1). Matrix `new8` identical to `new6`; `rerun8` changes only `s03b`, `t04`; emit-c identical on fix8 and fix9 for 50 random programs without instanceof.
+
+### What READY would take
+1. R9-F1: an "every part is the instance's own" test for the skip, judging the rest by type; keep mixed-source function initializers out of dynamic locals or check them where given or stored. 2. R9-F3: calls of callees holding instance values as `instanceofDynamicSource`s. 3. R9-F2: the same test inside literals, `r9f2` as a run guard. 4. Re-run `mix/`, `kept/`, `own/` and `f04*`. "With those green, I know of nothing else blocking."

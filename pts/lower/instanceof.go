@@ -140,7 +140,8 @@ func (l *lowerer) isInstanceofDynamicLocal(symbol *ast.Symbol) bool {
 		// also a function type, whose adapter would be another function than the instance's
 		// (`const h = s.listeners[0]; s.listeners.indexOf(h)`, R8-F1)
 		t := l.irType(declared, symbol.ValueDeclaration.Name())
-		dynamic = t != nil && t != ir.Value && !isCheckable(t)
+		dynamic = t != nil && t != ir.Value && !isCheckable(t) &&
+			(!isFunction(t) || symbol.ValueDeclaration.Kind == ast.KindParameter || l.isInstanceOwnValue(source)) // `flag ? c.list[0] : addRow` is an adapter, judged where it goes (R9-F1)
 	}
 	l.instanceofLocals[key] = dynamic
 	return dynamic
@@ -265,6 +266,9 @@ func (l *lowerer) dynamicSource(node *ast.Node, made bool) bool {
 		callee := ast.SkipParentheses(node.Expression())
 		if l.isInstanceofDynamicMember(node) || ast.IsAccessExpression(callee) && l.instanceofDynamicSource(callee.Expression(), made) {
 			return true
+		}
+		if !ast.IsAccessExpression(callee) && l.instanceofDynamicSource(callee, made) {
+			return true // `mk()` for a `const mk = c.mkList` (R9-F3)
 		}
 		// `Promise.resolve(c.items)`, whose awaited value is the array (R4-F2)
 		return callee.Kind == ast.KindPropertyAccessExpression && l.isPromiseConstructor(callee.Expression()) && callee.AsPropertyAccessExpression().Name().Text() == "resolve" &&
@@ -948,6 +952,12 @@ func callbackArgument(fn *ast.Node) (call, argument *ast.Node) {
 // `rows[0].push(x)` reads rows only); a parameter written there that would copy is a dynamic
 // value (isInstanceofDynamicLocal).
 func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.Node, index int, argument *ast.Node, value ir.Expr) bool {
+	if value.Type() == ir.Value && l.madeDynamicByInstanceof(callee) && !l.isInstanceOwnValue(argument) && l.holdsCopyingFunction(argument) {
+		// `c.list.push(flag ? c.list[0] : addRow)`: a dynamic value that may be the program's
+		// function, judged by tsc's type (R9-F1)
+		l.reportCallbackCopy(copyingParameterIn(l.irType(l.typeAt(argument), argument), map[ir.Type]bool{}), argument)
+		return true
+	}
 	if !holdsFunctions(value.Type(), map[ir.Type]bool{}) || !l.madeDynamicByInstanceof(callee) {
 		return false
 	}
@@ -1007,6 +1017,83 @@ func (l *lowerer) reportCallbackCopy(t ir.Type, argument *ast.Node) {
 	l.notSupportedYet(argument, fmt.Sprintf("giving a function whose parameter is a %s to a method of the object an `instanceof` narrowing holds as a dynamic value, which may hand it that object's own values (the parameter would get a copy, which wouldn't show changes; a parameter of type `any` takes them as they are), is", t))
 }
 
+// isInstanceOwnValue reports whether node always gives a value an instanceof narrowing holds
+// (holdsInstanceofDynamicValue), never one of the program's: every branch of a conditional,
+// `??`, `||` and `&&`, and every element or property of a literal that holds a function with
+// a parameter a dynamic value converts to by a copy (`[c.list[1], c.list[0]]`). Storing it in
+// the instance needs no adapter, and the instance's code calling it hands it nothing it would
+// copy; `c.maybe ?? addRow` may be the program's `addRow` (R9-F1, R9-F2).
+func (l *lowerer) isInstanceOwnValue(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	switch node.Kind {
+	case ast.KindConditionalExpression:
+		conditional := node.AsConditionalExpression()
+		return l.isInstanceOwnValue(conditional.WhenTrue) && l.isInstanceOwnValue(conditional.WhenFalse)
+	case ast.KindBinaryExpression:
+		expr := node.AsBinaryExpression()
+		switch op := expr.OperatorToken.Kind; {
+		case op == ast.KindQuestionQuestionToken || op == ast.KindBarBarToken || op == ast.KindAmpersandAmpersandToken:
+			return l.isInstanceOwnValue(expr.Left) && l.isInstanceOwnValue(expr.Right)
+		case op == ast.KindCommaToken || ast.IsAssignmentOperator(op):
+			return l.isInstanceOwnValue(expr.Right)
+		}
+		return false
+	case ast.KindNonNullExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindTypeAssertionExpression, ast.KindAwaitExpression:
+		return l.isInstanceOwnValue(node.Expression())
+	case ast.KindArrayLiteralExpression:
+		return !slices.ContainsFunc(node.Elements(), func(element *ast.Node) bool {
+			if element.Kind == ast.KindSpreadElement {
+				return !l.isInstanceOwnValue(element.Expression())
+			}
+			return element.Kind != ast.KindOmittedExpression && !l.isInstanceOwnValue(element) && l.holdsCopyingFunction(element)
+		})
+	case ast.KindObjectLiteralExpression:
+		return !slices.ContainsFunc(node.Properties(), func(property *ast.Node) bool {
+			switch property.Kind {
+			case ast.KindPropertyAssignment:
+				return !l.isInstanceOwnValue(property.Initializer()) && l.holdsCopyingFunction(property.Initializer())
+			case ast.KindShorthandPropertyAssignment:
+				return !l.isInstanceOwnValue(property.Name()) && l.holdsCopyingFunction(property.Name())
+			case ast.KindSpreadAssignment:
+				return !l.isInstanceOwnValue(property.Expression())
+			}
+			return l.holdsCopyingFunction(property) // a method or accessor, the program's own
+		})
+	case ast.KindCallExpression:
+		// `c.list.concat([f])`, `c.list.with(0, f)`: an array of the instance's elements and the
+		// arguments' (R9-F1)
+		if callee := ast.SkipParentheses(node.Expression()); callee.Kind == ast.KindPropertyAccessExpression && addingArrayMethods[callee.AsPropertyAccessExpression().Name().Text()] &&
+			slices.ContainsFunc(node.Arguments(), func(argument *ast.Node) bool { return !l.isInstanceOwnValue(argument) && l.holdsCopyingFunction(argument) }) {
+			return false
+		}
+	case ast.KindIdentifier:
+		symbol := l.readSymbol(node)
+		if symbol == nil || !l.isInstanceofDynamicLocal(symbol) {
+			return l.isUninferredInstanceof(node)
+		}
+		source := l.bindingSource(symbol)
+		if symbol.ValueDeclaration.Kind == ast.KindParameter {
+			return source != nil // a callback's: what the method hands it
+		}
+		return source != nil && l.isInstanceOwnValue(source)
+	}
+	return l.holdsInstanceofDynamicValue(node) // a member, element or call result of one
+}
+
+// addingArrayMethods are the array methods whose results hold their arguments too.
+var addingArrayMethods = map[string]bool{"concat": true, "with": true, "toSpliced": true}
+
+// holdsCopyingFunction reports whether tsc types node as, or as holding, a function with a
+// parameter a dynamic value converts to by a copy (copyingParameterIn).
+func (l *lowerer) holdsCopyingFunction(node *ast.Node) bool {
+	t := l.typeAt(node)
+	if !l.mentionsAny(t, 0) {
+		return false
+	}
+	it := l.irType(t, node)
+	return it != nil && holdsFunctions(it, map[ir.Type]bool{}) && copyingParameterIn(it, map[ir.Type]bool{}) != nil
+}
+
 // isInstanceofDynamicPlace reports whether target, an assignment's target, is a place in a
 // dynamic value an instanceof narrowing made (`c.list[2]`, `c.cfg.onRows`, `c.list`), or a
 // pattern with one (`[c.list[0]] = …`, `({ f: c.cfg.onRows } = …)`).
@@ -1039,7 +1126,7 @@ func (l *lowerer) isInstanceofDynamicPlace(target *ast.Node) bool {
 // a parameter a dynamic value converts to by a copy: the instance's code may call it later
 // with its own objects, which it would get as copies (R7-F2, R8-F3).
 func (l *lowerer) storesCopyingFunction(target, value *ast.Node) bool {
-	if !l.isInstanceofDynamicPlace(target) || !l.mentionsAny(l.typeAt(value), 0) || l.holdsInstanceofDynamicValue(value) {
+	if !l.isInstanceofDynamicPlace(target) || !l.mentionsAny(l.typeAt(value), 0) || l.isInstanceOwnValue(value) {
 		return false // no parameter type a dynamic value converts to by a copy, or the instance's own functions (`c.cfg.onRows = c.list[0]`, R8-F2)
 	}
 	t := l.irType(l.typeAt(value), value)

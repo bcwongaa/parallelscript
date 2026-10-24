@@ -1,0 +1,33 @@
+// H10a review round 9 (R9-F1, the reviewer's mix/ probes and round 7's kept/n_concat_assign.pts): a local that may hold the instance's own function or the program's is an adapter, judged where the instance keeps it, whose copying parameter would get the instance's arrays as copies; PTS1001, not a silent copy.
+// error: giving a function whose parameter is a value[][] to a method of the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  list: ((rows: V[][]) => void)[] = [() => {}];
+  maybe?: (rows: V[][]) => void;
+  cfg: { onRows: (rows: V[][]) => void } = { onRows: () => {} };
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+    this.cfg.onRows(this.matrix);
+  }
+}
+function addRow(rows: any[][]): void {
+  rows.push([9]);
+}
+let flag = false;
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    const h = flag ? c.list[0] : addRow;
+    c.list.push(h);
+  }
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+m.fire();
+console.log(m.matrix.length);
