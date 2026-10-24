@@ -294,3 +294,68 @@ Declaration-loose locals (`pa01`, `pa02` line 10, round 1's `j05`) are PTS1001 o
 - **Assignment targets** over `(T | undefined)[]`.
 
 The probes are archived at `/tmp/h11/h11a-review2-probes.tar.gz`, without binaries; `/tmp/h11/review2.done` is written.
+
+## Round 3 (snapshot 5 = `441cc503e`; [archive](h11a-review3-probes.tar.gz))
+
+# H11a review round 3 (snapshot 5 = `441cc503e`)
+
+**Verdict: READY.** No High or Medium findings. All five round-2 fixes do what they claim, and I found no regression against the base. Two Low wording errors remain in SPEC §9.145, plus one correction to my own earlier reports.
+
+## How I tested
+- **Snapshot check:** `/tmp/h11/snap2` matches `441cc503e` byte for byte (`pts/lower`, `pts/cgen`, `ir.go`, `pts.h`).
+- **Commands:** `tools/run.sh F` builds and runs F with `PTS_HOME=<tree> <tree>/pts-bin/pts build F -o B && ./B` for the snapshot and the base, and runs `node --no-warnings --experimental-transform-types` on an `.mts` copy.
+- **Outputs:** in `/tmp/h11/review3/out/`.
+
+## Earlier repros rerun on snapshot 5 (41 programs, `probes/prev/`)
+- **Round 1 (r1–r11):** all print Node's output, except `r5`, which is back to the base's `TypeError` as intended.
+- **The six stale-narrowing forms (`s01`, `s05`–`s09`):** none crashes. The four that crashed in round 2 now throw `TypeError: Expected string | undefined, got number`, matching the base's TypeError; `s05` and `s06` match Node.
+  - `s01` is now `const s: string | undefined = v` after a closure set `v = 5`.
+  - The others cover a result, a property, an array push and a `for…of` pattern name.
+- **Narrowed arguments (`pa01`–`pa05`):** all match Node, including `pa01`–`pa03`, which were PTS1001 on the base too.
+- **`Partial<Record>` literals:** `pr05` (value present) matches Node. `pr01`/`pr07` (value missing) give the base's TypeError, and `pr06` stays PTS1001 as on the base.
+- **Variadic and rest tuples:** `g01`, `g02` and `g08` match Node.
+- **`instanceof`:** the dispatch probes `i01`/`i02`/`i04` give the base's RangeError past the end again, which is what R2-F5 intends; `i03` and `i05` match Node.
+- **The four new tests:**
+  - `loose_locals_narrowed_arguments` and `pattern_names_rest_tuples` fail on the base and pass on the snapshot.
+  - `loose_locals_partial_record_literals` passes on both. That's right: it guards a regression in snapshot 4, not a base bug.
+  - `loose_locals_stale_narrowings` (no-diff) prints the four TypeErrors; it would have caught round 2's SIGSEGV.
+
+## New-rule probes
+
+**R2-F2 (arguments are places before the tested-operand rule), `probes/a/`, 16 cases:**
+- These match Node: type guards and assertion functions on loose locals, overloads, a generic `T | undefined` parameter, a `string | null | undefined` parameter, `.apply`, callbacks to program higher-order functions, and program methods and constructors.
+- `opt.call(null, c)` and `opt.bind(null, c)()` throw D-090's TypeError on both trees. These are builtin signatures, so this is a gap in coverage, not a regression.
+- A stale local passed to a guard or an optional parameter (`c10`, `c13`) gets D-140's TypeError. The base was PTS1001 there.
+
+**R2-F3 (`madeLiterals`), `probes/b/` and `f/`:**
+- These match Node: nested literals, spreads before and after, union-of-object members, arrow results, conditionals, Map values, `push`, methods in literals, iterator-result literals, `Object.freeze`, parameter-default literals, `Record<string, Agg>`, class fields, generic arrows, generic object-literal methods, generic classes, and spreads in generic functions.
+- Literals with a yield after a loose shorthand, across two generic instances in both orders (`b03`, `b04`): no stale-entry miscompile. The only diff is the TypeError D-090 requires for the instance whose field is required.
+- These stay checked, as on the base: `as const`, and a literal with a getter, which makes its own shape (D-045).
+
+**R2-F1 (`mayHaveChanged`), `probes/c/` and `e/`:**
+- I made the narrowing stale in each of these ways: array and object destructuring assignment in a closure, `let`s captured in a loop, an async closure, a class method, a parameter-pattern name, a generator, a shorthand that later reaches a local, a program argument, a yield, and a conditional branch.
+- Every one gives a TypeError; none crashes.
+- Through the checked conversion, objects keep their identity (`c14`: interface objects, class instances, nested arrays).
+- Checked conversions into function, Generator, Map, class-union, i64, tuple, array and Promise unions behave as on the base (`e01`–`e08`).
+
+**R2-F4 (rest tuples), `probes/d/`, 11 cases:**
+- These match Node: optional-then-rest, leading rest, middle rest, parameter, `for…of`, default, optional property, readonly, and a variadic generic.
+- A name past the end used as a `string` throws D-090's TypeError (by design).
+- Fixed tuples stay typed.
+
+**R2-F5:** the `instanceof` dispatch loop is back to 235.2M instructions, the same as the base. The other costs are unchanged: `for…of` 244.3M, the parameter pattern 234.8M, a declaration in a loop 244.3M.
+
+**Matrix (families A, B, C, F, G; 1,420 cases):** 1,145 OK, identical to snapshot 4. No case is worse than HEAD or than round 2's snapshot, and there is no PTS1001, PTS9001 or crash.
+
+**Regression sweep:** no round-3 probe matches Node on the base and differs on snapshot 5. No snapshot-only build failure or crash.
+
+## Low (docs)
+- **R3-F1: SPEC §9.145's `placeType` says "an argument of a builtin only where its parameter's type is a union with undefined or `goesToTypeArgument`".** The code (`loose_locals.go`, `placeType`) accepts only `callsProgramFunction` or `goesToTypeArgument`. D-220 itself says it correctly: not a builtin's own optional parameters.
+- **R3-F2: SPEC §9.145 contradicts itself on parameter defaults.** `isPlaceValue` is described as covering "a declaration's, default's or property's initializer", and the same paragraph later says "not parameters' defaults" (C306). The code excludes parameter defaults.
+- **Correction to my round-1 and round-2 reports:** the matrix totals were 1,138 OK (round 1) and 1,145 OK (round 2), not 1,105 and 1,106. The per-family numbers I gave were right; the sums were wrong. h11a.md's round-2 line quotes "361 → 1,106".
+
+## Checked and fine
+- **Docs:** D-220's new text (`looseValue`'s check, the argument rule, `madeLiterals`, `isRestTuple`, the costs, known gaps C307–C309) matches the code and my measurements. The ledger rows C307–C309 match my round-2 notes.
+- **h11a.md's round-2 section** accurately describes each fix and its test; the only error is the matrix total above.
+
+The probes are archived at `/tmp/h11/h11a-review3-probes.tar.gz`, without binaries; `/tmp/h11/review3.done` is written.
