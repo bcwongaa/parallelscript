@@ -192,6 +192,40 @@ func (l *lowerer) missingProperty(object ir.Expr, name string) ir.Expr {
 	return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(object), box(&ir.StringConst{Value: name})}}
 }
 
+// copiedOwnProperty is what a spread or a rest element copies to field from source, pure,
+// whose type lacks the property name or which is a dynamic value, converted by conv: the
+// property's value where source has it as its own, and otherwise what field held before
+// (earlier, from an earlier part of the literal: `{ opt: 1, ...b.meta }`), or for an
+// optional field the absent value, as JS leaves it out (R4-F4), or else undefined
+// (missingOwnProperty's). A field that can't hold undefined keeps earlier for an undefined
+// value too, as spreadOver's does.
+func (l *lowerer) copiedOwnProperty(source ir.Expr, name string, field *ir.Field, earlier ir.Expr, conv func(ir.Expr) ir.Expr) ir.Expr {
+	if earlier == nil && !field.Optional {
+		return conv(l.missingOwnProperty(source, name))
+	}
+	if u, ok := field.Type.(*ir.Union); earlier != nil && field.Type != ir.Value && !(ok && u.Has(ir.Undefined)) {
+		value := l.newLocal(name, ir.Value)
+		ref := &ir.LocalRef{Local: value}
+		present := conv(ref)
+		if present == nil {
+			return nil
+		}
+		return &ir.Bind{Local: value, Value: l.missingOwnProperty(source, name), In: &ir.Conditional{Cond: &ir.IsNullish{X: ref, Only: ir.Undefined}, Then: earlier, Else: present}}
+	}
+	present := conv(l.missingProperty(source, name))
+	if present == nil {
+		return nil
+	}
+	if earlier == nil {
+		earlier = &ir.Absent{T: field.Type}
+	}
+	return &ir.Conditional{
+		Cond: &ir.CallBuiltin{Builtin: ir.ValueHasOwn, Args: []ir.Expr{box(source), box(&ir.StringConst{Value: name})}},
+		Then: present,
+		Else: earlier,
+	}
+}
+
 // missingOwnProperty is missingProperty for a spread or a rest element, which copy own
 // properties only: undefined where object holds name on its prototype (a class's getter or
 // method, which `in` finds). object is pure.
@@ -235,11 +269,13 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	// A method of an array that erased code makes (`[x].slice(1)`, `new Array<T>(n).fill(x)`),
 	// whose signature mentions an erased type parameter, is found at run time too.
 	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamic(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
-		object := l.expression(callee.Expression())
-		if object == nil {
-			return nil
-		}
-		return l.dynamicMethodCall(call, callee, object)
+		return l.keepingAnyInstanceRoot(l.anyInstanceRoot(callee), call.Arguments.Nodes, func() ir.Expr {
+			object := l.expression(callee.Expression())
+			if object == nil {
+				return nil
+			}
+			return l.dynamicMethodCall(call, callee, object)
+		})
 	}
 	function := l.expression(callee)
 	if function == nil {

@@ -371,3 +371,77 @@ Files are in `/tmp/h10b/review3/`:
 - `m777_snap3.jsonl`, `m748_snap3.jsonl`, `bin/`
 
 The archive is `/tmp/h10b/h10b-review3-probes.tar.gz` (no binaries), and `/tmp/h10b/review3.done` is touched.
+
+## Round 4 (snapshot 4: `8539bd6d4` plus the round-3 fixes, committed as `af348bc6e`; the same reviewer, resumed)
+
+# H10b review, round 4 (snapshot `/tmp/h10b/snap4`, HEAD `8539bd6d4` plus the staged round-4 change)
+
+Not ready. All five round-3 findings are fixed for the cases they named, and nothing else changed against snapshot 3. But three of this round's fixes leave regressions against HEAD, two of them silently wrong. A fourth (spread copies) is a new silent path where HEAD stopped at PTS1001.
+
+## What I checked
+- **777-case matrix:** **751 OK, 24 PTS1001, 2 TYPEERR**, identical to rounds 1–3. Nothing got worse than HEAD.
+- **748-case H10b matrix:** **732 OK, 12 PTS1001, 4 WRONG**, identical to rounds 2–3. The 4 WRONG are R1-F13's recorded cases.
+- **Suite:** suite4 finished with no failures.
+- **Re-runs:** all 170 earlier files (repros r1/r2/r3, probes p1/q/s), in `old_outputs_snap4.txt`. Against snapshot 3 (`bin/cmpsnaps.py`), the only changes are the round-3 fixes, plus timing noise in the speed probes.
+- **New probes:** t01–t09 and 6 `r4_*` repros. Each repro is compared on snapshot 4, snapshot 3 and base (`r4_outputs.txt`).
+
+## Earlier findings
+- **Round 3, all fixed:**
+  - R3-F1 for local and parameter roots (`s02`, `s13c`).
+  - R3-F2 (`s04`, `s04c`, `s04d`, `s13`, `s13b`, `s15`).
+  - R3-F3 (`s06`, `s06b`, `r3_fresh_nested`).
+  - R3-F4 for `{...b.rec}` and `{...b.meta}` (`r3_spread_member_record`).
+  - R3-F5 (`s03b`, `r3_adapter_defaults_rest`).
+- **Rounds 1–2:** unchanged from round 3. Fixed ones stay fixed, intended ones stay as intended, and the flows end in explicit TypeErrors. Same out-of-scope items.
+
+## New findings
+Repros are in `/tmp/h10b/review4/r/`. "Base" is HEAD before H10b.
+
+**R4-F1 · High · silently wrong where HEAD was right.** Function identity is still lost when the `C<any>` root isn't a local or a parameter.
+- Repro: `r4_identity_non_local_roots.pts`, with `Emitter<any>` objects only and no `instanceof`.
+- Node and base print `0 0 0 0 0`; snapshot 4 prints `1 2 2 2 1`. So `off(f)` removes nothing when the emitter is reached through:
+  - a field (`svc.bus`, and `this.bus` inside a class)
+  - an array element (`buses[0]`)
+  - a call (`busOf()`)
+  - a getter
+- `t01` shows the same, while local, parameter, `?.`, `| null`, subclass and generic-subclass roots keep identity.
+- Root cause: `anyInstanceFunction` (`any_instances.go`) falls back to the as-is adapter whenever `!isPure(rootValue)`. A field read, an element read or a call is not pure, so the function is wrapped in a new closure. This is the most common emitter shape, `this.bus.on(h)` and `this.bus.off(h)`.
+
+**R4-F2 · High · TypeError where HEAD and snapshot 3 ran.** The restricted generic-method route now catches H10a's dynamic locals.
+- Repro `r4_flow_local_generic_method.pts`: `const m = o; m.map(f)` after `o instanceof Box`, for an `object` source and for a non-generic interface source.
+- Repro `r4b_dynamic_local_generic_method.pts`: `const n = o.next!; n.map(f)`, and `const m = x` for a narrowed array element.
+- Node, base and snapshot 3 print `9 6` and `3 5`. Snapshot 4 throws `Expected Box<any>, got Box<number>`.
+- Root cause: `callsAnyInstanceGenericMethod` excludes only the narrowed reference itself (`isUninferredNarrowing`) and receivers declared `any`/`unknown`. H10a held these locals as dynamic values (`isInstanceofDynamicLocal`), which dispatched at run time. Now they get the checked downcast to the instance for any.
+- `t08` confirms the `unknown`, `any` and `catch` locals behave as on base (they threw there too).
+
+**R4-F3 · High · silently wrong where HEAD (and snapshot 3) stopped at PTS1001.** An object spread of a dynamic value's member copies that member's arrays.
+- Repro: `r4_member_spread_copies.pts`.
+  - `{ ...b.meta }` for a `Box<any>` place holding a `Box<number>`.
+  - `{ ...u.meta }` for an `unknown` narrowed to Box.
+- Node shares `meta.tags` and prints `[2,3]`; snapshot 4 prints `[]`. Base and snapshot 3 were PTS1001.
+- The place case breaks D-219's own rule, "never a silent copy of another instance's objects": it should be the as-is TypeError.
+- Root cause: `spreadObject` (`objects.go`) uses `convertMember(…, ofAnyInstance)` with `ofAnyInstance = holdsAnyInstance(part.node.Expression())`. That is false for a member (`b.meta`), so the plain `convert` copies.
+- For the `unknown` source the copy is D-179's, but the program used to be rejected and now loses writes.
+
+**R4-F4 · Medium · regression (Box<any> objects only).** Member spreads through the new `spreadNames` case.
+- Repro: `r4_member_spread_optional_method.pts`; part 1 alone is `r4b_member_spread_optional.pts`.
+- Part 1: an optional property that is absent at run time gets added as a key. Snapshot 4 prints `Object.keys` = `name,opt` and `"opt" in` = `true`; Node and base print `name` and `false`.
+- Part 2: a member whose type has a method is PTS1001 `an object literal whose spreads don't give every property`. Node and base copy it (`lit f,x 4`).
+- Root cause: the new case in `spreadNames` (`destructuring.go:429-436`) lists every non-method property tsc knows and reads each one at run time. Missing optional keys are still written, and methods are dropped from a literal whose type requires them.
+
+## Checked and fine
+- Typed-context literals (`t04`): tuples, `| undefined`, `readonly`, generic contexts, spreads inside, nested, arguments, returns, property initializers and `map` results all work for `Box<any>` objects; a `Box<number>` gets honest TypeErrors.
+- Into typed element types (`t07b`), behaviour is the same as base: D-071's intended copies.
+- Narrowings still get PTS1001 or dynamic containers. `ident(o)` into a typed literal is an honest TypeError (`t09`).
+- The generic-method route for parameters, locals, fields, elements and chains with `Box<any>` objects, and for narrowings themselves from interface, object, `unknown` and `any` sources (`t03`).
+- `#f in o` and earlier private-member probes are unchanged.
+- **Noted, not counted:** an `Emitter<number>` in an `Emitter<any>` place gets the adapter, so `off()` misses there too (`t02`). That is D-075's documented adapter behaviour (the C288 class), and HEAD was PTS1001 for it.
+
+**VERDICT: NOT READY**
+
+Files are in `/tmp/h10b/review4/`:
+- `r/` (the six repros), `p/` (t01–t09), `old/` (the 170 earlier files)
+- `r4_outputs.txt`, `t_outputs_snap4.txt`, `old_outputs_snap4.txt`
+- `m777_snap4.jsonl`, `m748_snap4.jsonl`, `bin/`
+
+The archive is `/tmp/h10b/h10b-review4-probes.tar.gz` (no binaries), and `/tmp/h10b/review4.done` is touched.

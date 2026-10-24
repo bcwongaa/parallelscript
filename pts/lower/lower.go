@@ -3085,19 +3085,25 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	if l.storesCopyingFunction(expr.Left, expr.Right) {
 		return nil
 	}
-	target, ok := l.assignmentTarget(expr.Left)
-	value := l.expression(expr.Right)
-	if !ok || value == nil {
-		return nil
+	var root *ast.Node // `this.bus` of `this.bus.cfg.onRows = addAll` (R4-F1)
+	if left := ast.SkipParentheses(expr.Left); ast.IsAccessExpression(left) {
+		root = l.anyInstanceRoot(left)
 	}
-	value = l.storedFunctionValue(expr.Left, expr.Right, value) // `m.cfg.onRows = addAll` for a C<any, …> place's m (H10b)
-	if value = l.convert(value, target.valueType(), expr.Right); value == nil {
-		return nil
-	}
-	if target.local != nil || target.field != nil || target.index != nil || target.arrayLength || target.key != nil {
-		return l.assignmentValue(target, target.store(value, false), node) // the store evaluates the instance (or array and index) first
-	}
-	return l.withObject(target, func(target place) ir.Expr { return l.assignmentValue(target, target.store(value, false), node) })
+	return l.keepingAnyInstanceRoot(root, []*ast.Node{expr.Right}, func() ir.Expr {
+		target, ok := l.assignmentTarget(expr.Left)
+		value := l.expression(expr.Right)
+		if !ok || value == nil {
+			return nil
+		}
+		value = l.storedFunctionValue(expr.Left, expr.Right, value) // `m.cfg.onRows = addAll` for a C<any, …> place's m (H10b)
+		if value = l.convert(value, target.valueType(), expr.Right); value == nil {
+			return nil
+		}
+		if target.local != nil || target.field != nil || target.index != nil || target.arrayLength || target.key != nil {
+			return l.assignmentValue(target, target.store(value, false), node) // the store evaluates the instance (or array and index) first
+		}
+		return l.withObject(target, func(target place) ir.Expr { return l.assignmentValue(target, target.store(value, false), node) })
+	})
 }
 
 // assignmentValue is stored, the value of `x = value` or `x op= value` (node) as the store

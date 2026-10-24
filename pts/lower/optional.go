@@ -107,6 +107,9 @@ func (l *lowerer) propertyIn(expr *ast.BinaryExpression) ir.Expr {
 	if object == nil {
 		return nil
 	}
+	if object.Type() == ir.Value { // a dynamic value of an object type (a rest of a C<any, …> place's member, R4-F4): looked up at run time
+		return &ir.CallBuiltin{Builtin: ir.DynamicHas, Args: []ir.Expr{object, box(&ir.StringConst{Value: name})}}
+	}
 	var field *ir.Field
 	switch t := object.Type().(type) {
 	case *ir.Interface:

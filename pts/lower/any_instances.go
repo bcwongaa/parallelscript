@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -51,8 +52,8 @@ func (l *lowerer) callsAnyInstanceGenericMethod(call *ast.CallExpression) bool {
 		return false
 	}
 	receiver := ast.SkipParentheses(callee.Expression())
-	if l.isUninferredNarrowing(receiver) {
-		return false // the object an instanceof narrowing holds, typically another instance: through any, as before
+	if l.narrowedByInstanceof(receiver) {
+		return false // the object an instanceof narrowing holds (also through a local, `const m = o`, R4-F2), typically another instance: through any, as before
 	}
 	if declared := l.declaredTypeOfReference(receiver); declared != nil && declared.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
 		return false // an `unknown` or `any` narrowed to C<any, …> (D-179)
@@ -182,12 +183,43 @@ func (l *lowerer) anyInstanceRoot(node *ast.Node) *ast.Node {
 	}
 }
 
+// keepingAnyInstanceRoot is lower's lowering of a call or a store whose object is root or a
+// member of it (anyInstanceRoot), and which gives functions (givesFunction) that
+// anyInstanceFunction may test root for: a root whose evaluation may have an effect, or isn't
+// a local's read (`this.bus.on(f)`, `buses[0].off(f)`, `busOf().on(f)`, a getter), is
+// evaluated once, where the call or store first evaluates it, into a local both read (R4-F1).
+func (l *lowerer) keepingAnyInstanceRoot(root *ast.Node, functions []*ast.Node, lower func() ir.Expr) ir.Expr {
+	if root == nil || !l.mayHaveEffect(root) || !slices.ContainsFunc(functions, l.givesFunction) {
+		return lower()
+	}
+	if _, ok := l.kept[root]; ok {
+		return lower()
+	}
+	value := l.expression(root)
+	if value == nil {
+		return nil
+	}
+	local := l.newLocal("instance", value.Type())
+	l.kept[root] = &ir.LocalRef{Local: local}
+	x := lower()
+	delete(l.kept, root)
+	if x == nil {
+		return nil
+	}
+	return &ir.Bind{Local: local, Value: value, In: x}
+}
+
+// givesFunction reports whether tsc types node, an argument or a stored value, as a function.
+func (l *lowerer) givesFunction(node *ast.Node) bool {
+	return node.Kind != ast.KindSpreadElement && len(l.checker.GetSignaturesOfType(l.checker.GetNonNullableType(l.typeAt(node)), checker.SignatureKindCall)) > 0
+}
+
 // anyInstanceFunction is value, a function of the program given to a method of, or stored in,
 // a member of root, a value tsc types C<any, …> (R2-F2, R3-F1): as it is where root is C's
 // instance for any, whose code takes the function's own types, keeping its identity (`off(f)`
 // finds it), else the as-is adapter, which takes another instance's objects as they are or
 // throws; one asIsAdapter can't make (defaults, a rest parameter) goes as through any (D-075).
-// root, when its value can't be read again without side effects, gets the adapter.
+// root is read again for the test: a local, or what keepingAnyInstanceRoot keeps of it.
 func (l *lowerer) anyInstanceFunction(value ir.Expr, node, root *ast.Node) ir.Expr {
 	adapted := func(fn ir.Expr) ir.Expr {
 		if adapter := l.asIsAdapter(fn, node); adapter != nil {

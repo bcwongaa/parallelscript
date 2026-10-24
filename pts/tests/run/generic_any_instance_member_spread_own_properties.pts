@@ -1,0 +1,31 @@
+// H10b review round 4 (R4-F4), the reviewer's r4_member_spread_optional_method.pts: object
+// spreads and rest patterns of a Box<any> value's members copy the properties the member
+// has as its own: an optional property it leaves out stays out (also over an earlier
+// value), an object type's methods are copied, and `in` on a rest of one is looked up.
+
+class Box<T> {
+  meta: { name: string; opt?: number } = { name: "m" };
+  full: { name: string; opt?: number } = { name: "n", opt: 5 };
+  lit: { f(): number; x: number } = { f() { return 4; }, x: 5 };
+  constructor(public v: T) {}
+}
+const b = new Box<any>(0);
+const s2 = { ...b.meta };
+console.log("meta", Object.keys(s2).join(","), "opt" in s2);
+const s3 = { ...b.lit };
+console.log("lit", Object.keys(s3).join(","), s3.f(), s3.x);
+const over = { opt: 1, ...b.meta };
+const overFull = { opt: 1, ...b.full };
+const twice = { ...b.full, ...b.meta };
+console.log("over", JSON.stringify(over), JSON.stringify(overFull), JSON.stringify(twice));
+const after = { ...b.meta, opt: 2 };
+console.log("after", JSON.stringify(after), Object.keys(after).join(","));
+const { name, ...rest } = b.meta;
+const { name: fullName, ...fullRest } = b.full;
+console.log("rest", name, Object.keys(rest), "opt" in rest, fullName, Object.keys(fullRest), "opt" in fullRest);
+// expect:
+// meta name false
+// lit f,x 4 5
+// over {"opt":1,"name":"m"} {"opt":5,"name":"n"} {"name":"m","opt":5}
+// after {"name":"m","opt":2} name,opt
+// rest m [] false n [ 'opt' ] true

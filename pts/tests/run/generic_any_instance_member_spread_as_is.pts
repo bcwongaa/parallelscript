@@ -1,0 +1,31 @@
+// no-diff: a Box<number> held in a Box<any> place or narrowed from unknown throws TypeError where a spread would copy its arrays, where Node shares them (D-219)
+// H10b review round 4 (R4-F3), the reviewer's r4_member_spread_copies.pts: an object spread
+// of a member of a Box<any> value (`{ ...b.meta }`), or of an `unknown` narrowed to Box,
+// takes the member's objects as they are: Box's instance for any's array itself, which the
+// spread's object shares, and for another instance (a Box<number>, whose number[] would be
+// a copy that writes miss) a TypeError, never a silent copy (D-219).
+
+class Box<T> {
+  meta: { name: string; tags: T[] } = { name: "m", tags: [] };
+  constructor(public v: T) {}
+}
+const t = (name: string, f: () => unknown) => {
+  try { console.log(name, JSON.stringify(f())); } catch (e) { console.log(name, (e as Error).name); }
+};
+function viaPlace(b: Box<any>): string[] { const m = { ...b.meta }; m.tags.push(2); return Object.keys(m); }
+function viaUnknown(u: unknown): string[] { if (u instanceof Box) { const m = { ...u.meta }; m.tags.push(3); return Object.keys(m); } return []; }
+const anyBox = new Box<any>(0);
+t("place", () => viaPlace(anyBox));
+t("unknown", () => viaUnknown(anyBox));
+console.log("shared", JSON.stringify(anyBox.meta.tags));
+const numberBox = new Box<number>(0);
+t("place other", () => viaPlace(numberBox));
+t("unknown other", () => viaUnknown(numberBox));
+console.log("unchanged", JSON.stringify(numberBox.meta.tags));
+// expect:
+// place ["name","tags"]
+// unknown ["name","tags"]
+// shared [2,3]
+// place other TypeError
+// unknown other TypeError
+// unchanged []

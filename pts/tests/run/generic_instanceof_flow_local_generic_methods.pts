@@ -1,0 +1,30 @@
+// H10b review round 4 (R4-F2), the reviewer's r4_flow_local_generic_method.pts and
+// r4b_dynamic_local_generic_method.pts: a generic method called on a local that holds an
+// instanceof narrowing's object (`const m = o` for an `object`, an interface or an array
+// element's source; `const n = o.next!`) runs on the object it holds, another instance of
+// Box here, as before H10b, not as on Box's instance for any.
+
+interface Shape { kind(): string; }
+class Box<T> implements Shape {
+  next: Box<T> | null = null;
+  constructor(public v: T) {}
+  kind(): string { return "box"; }
+  map<R>(f: (v: T) => R): Box<R> { return new Box(f(this.v)); }
+}
+function fromObject(o: object): number {
+  if (!(o instanceof Box)) return -1;
+  const m = o;
+  return m.map((v) => 9).v;
+}
+function fromShape(s: Shape): number {
+  if (!(s instanceof Box)) return -1;
+  const m = s;
+  return m.map((v) => 6).v;
+}
+function fromObjectNext(o: object): number { if (!(o instanceof Box)) return -1; const n = o.next!; return n.map((v) => 3).v; }
+function fromArray(xs: object[]): number { const x = xs[0]; if (!(x instanceof Box)) return -1; const m = x; return m.map((v) => 5).v; }
+const n = new Box<number>(0);
+n.next = new Box<number>(9);
+console.log(fromObject(new Box<number>(1)), fromShape(new Box<number>(1)), fromObjectNext(n), fromArray([n]));
+// expect:
+// 9 6 3 5

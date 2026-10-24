@@ -606,10 +606,14 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		if i == 0 && len(part.names) == len(shape.Fields) && isObject(source.Type()) && !isArray(source.Type()) {
 			orderOf = source // later properties only replace values: the copy lists them in the source's order
 		}
+		// a C<any, …> place's object or a member of one (`{ ...b.meta }`), whose objects
+		// convert as they are (R2-F4, R4-F3)
+		ofAnyInstance := part.node.Kind == ast.KindSpreadAssignment && l.anyInstanceRoot(part.node.Expression()) != nil
 		for _, name := range part.names {
 			field := shape.Field(name)
 			read := propertyOf(source, name)
-			if read == nil && field != nil && (isObjectOrUnionOfObjects(source.Type()) || source.Type() == ir.Value) {
+			own := read == nil && field != nil && (isObjectOrUnionOfObjects(source.Type()) || source.Type() == ir.Value)
+			if own {
 				read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223), or a C<any, …> place's object's (H10b)
 			}
 			if field == nil || read == nil {
@@ -626,8 +630,9 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 			}
 			if earlier, ok := values[field]; ok && isOptionalRead(read) {
 				read = l.spreadOver(read.(*ir.FieldRef), earlier, field, part.node)
+			} else if own {
+				read = l.copiedOwnProperty(source, name, field, values[field], func(x ir.Expr) ir.Expr { return l.convertMember(x, field.Type, part.node, ofAnyInstance) })
 			} else {
-				ofAnyInstance := part.node.Kind == ast.KindSpreadAssignment && l.holdsAnyInstance(part.node.Expression())
 				read = l.convertMember(copiedRead(read, field), field.Type, part.node, ofAnyInstance)
 			}
 			if read == nil {

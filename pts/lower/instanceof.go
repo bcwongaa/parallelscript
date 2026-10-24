@@ -911,8 +911,10 @@ func (l *lowerer) declaredTypeOfReference(node *ast.Node) *checker.Type {
 		}
 	case ast.KindElementAccessExpression:
 		object := l.typeAt(node.Expression())
-		if t := l.checker.GetTypeOfPropertyOfType(object, node.AsElementAccessExpression().ArgumentExpression.Text()); t != nil {
-			return l.instantiate(t) // a tuple's element, an object type's property
+		if key := node.AsElementAccessExpression().ArgumentExpression; ast.IsStringOrNumericLiteralLike(key) {
+			if t := l.checker.GetTypeOfPropertyOfType(object, key.Text()); t != nil {
+				return l.instantiate(t) // a tuple's element, an object type's property
+			}
 		}
 		if infos := l.checker.GetIndexInfosOfType(object); len(infos) > 0 {
 			return l.instantiate(infos[0].ValueType()) // an array's or record's element

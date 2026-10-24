@@ -1,0 +1,56 @@
+// H10b review round 4 (R4-F1), the reviewer's r4_identity_non_local_roots.pts and t01:
+// a function given to, or stored in, a C<any> value reached through a field, `this.bus`,
+// an element, a call or a getter keeps its identity, so off(f) finds it; the root is
+// evaluated once, in order, so a call or a getter runs once per use.
+
+class Emitter<T> {
+  handlers: ((rows: T[]) => void)[] = [];
+  handler: ((rows: T[]) => void) | null = null;
+  cfg: { onRows: ((rows: T[]) => void) | null } = { onRows: null };
+  on(h: (rows: T[]) => void): number { this.handlers.push(h); return this.handlers.length; }
+  off(h: (rows: T[]) => void): boolean { const i = this.handlers.indexOf(h); if (i >= 0) this.handlers.splice(i, 1); return i >= 0; }
+}
+class Service {
+  bus: Emitter<any> = new Emitter<any>();
+  reads = 0;
+  get viaGetter(): Emitter<any> { this.reads++; return this.bus; }
+  attach(f: (rows: any[]) => void): void { this.bus.on(f); }
+  detach(f: (rows: any[]) => void): void { this.bus.off(f); }
+}
+const order: string[] = [];
+function log(rows: any[]): void { rows.push(1); }
+function handler(): (rows: any[]) => void { order.push("argument"); return log; }
+
+const svc = new Service();
+svc.bus.on(log); svc.bus.off(log);
+const a = svc.bus.handlers.length;
+svc.attach(log); svc.detach(log);
+const b = svc.bus.handlers.length;
+const buses: Emitter<any>[] = [new Emitter<any>(), new Emitter<any>()];
+buses[0].on(log); buses[0].off(log);
+let calls = 0;
+const busOf = () => { calls++; order.push("busOf"); return buses[0]; };
+busOf().on(handler()); busOf().off(log);
+const s2 = new Service();
+s2.viaGetter.on(log); s2.viaGetter.off(log);
+console.log(a, b, buses[0].handlers.length, s2.bus.handlers.length);
+console.log("evaluated", calls, s2.reads, order.join(","));
+
+busOf().handler = log;
+busOf().cfg.onRows = log;
+s2.viaGetter.handler = log;
+console.log("stored", buses[0].handler === log, buses[0].cfg.onRows === log, s2.bus.handler === log, calls, s2.reads);
+
+let i = 0;
+buses[i++].on(log);
+console.log("index", i, buses[0].handlers.length, buses[1].handlers.length, buses[0].off(log));
+const rows: any[] = [];
+s2.bus.on(log);
+for (const f of s2.bus.handlers) f(rows);
+console.log("called", rows);
+// expect:
+// 0 0 0 0
+// evaluated 2 2 busOf,argument,busOf
+// stored true true true 4 3
+// index 1 1 0 true
+// called [ 1 ]

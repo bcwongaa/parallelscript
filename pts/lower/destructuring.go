@@ -428,11 +428,10 @@ func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *as
 		return nil, false // reported
 	case source.Type() == ir.Value && l.isObjectType(objectType) && len(l.checker.GetIndexInfosOfType(objectType)) == 0:
 		// a dynamic value of an object type (`{ ...b.meta }` of a Box<any> place's member): the
-		// properties tsc lists, read at run time (R3-F4)
+		// properties tsc lists, its methods too (R4-F4), each read at run time if the object
+		// has it as its own (R3-F4)
 		for _, property := range l.checker.GetPropertiesOfType(objectType) {
-			if property.Flags&ast.SymbolFlagsMethod == 0 {
-				names = append(names, property.Name)
-			}
+			names = append(names, property.Name)
 		}
 	case isClass && !class.Shape:
 		for _, field := range class.AllFields() {
@@ -479,7 +478,8 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 		read := propertyOf(source, name)
 		property := l.checker.GetPropertyOfType(restType, name)
 		method := property == nil || property.Flags&ast.SymbolFlagsMethod != 0
-		if read == nil && !method && isPure(source) && (isObjectOrUnionOfObjects(source.Type()) || source.Type() == ir.Value) {
+		own := read == nil && !method && isPure(source) && (isObjectOrUnionOfObjects(source.Type()) || source.Type() == ir.Value)
+		if own {
 			read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223), which a rest copies if it is the object's own
 		}
 		switch {
@@ -490,7 +490,12 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 			l.notSupportedYet(element, fmt.Sprintf("rest properties holding `%s`, which the object's type lacks, are", name))
 			return nil
 		}
-		value := l.convertMember(copiedRead(read, field), field.Type, element, ofAnyInstance)
+		var value ir.Expr
+		if own {
+			value = l.copiedOwnProperty(source, name, field, nil, func(x ir.Expr) ir.Expr { return l.convertMember(x, field.Type, element, ofAnyInstance) })
+		} else {
+			value = l.convertMember(copiedRead(read, field), field.Type, element, ofAnyInstance)
+		}
 		if value == nil {
 			return nil
 		}
