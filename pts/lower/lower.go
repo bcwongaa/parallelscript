@@ -3048,6 +3048,9 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 			return l.staticSetterCall(accessors.setter, expr.Right)
 		}
 	}
+	if l.storesCopyingFunction(expr.Left, expr.Right) {
+		return nil
+	}
 	target, ok := l.assignmentTarget(expr.Left)
 	value := l.expression(expr.Right)
 	if !ok || value == nil {

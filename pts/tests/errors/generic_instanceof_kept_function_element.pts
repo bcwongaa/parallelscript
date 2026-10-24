@@ -1,0 +1,28 @@
+// H10a review round 7 (R7-F2, kept/k_element_assign.pts): a function stored at an element of an array member is called later with the instance's arrays, which it would get as copies; PTS1001, not a silent copy.
+// error: storing a function whose parameter is a value[][] in the object an `instanceof` narrowing holds as a dynamic value
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  list: ((rows: V[][]) => void)[] = [];
+  cfg: { onRows: (rows: V[][]) => void } = { onRows: () => {} };
+  constructor(public key: K, public val: V) {}
+  get(key: K): V | undefined {
+    return key === this.key ? this.val : undefined;
+  }
+  fire(): void {
+    for (const f of this.list) f(this.matrix);
+    this.cfg.onRows(this.matrix);
+  }
+}
+function addRow(rows: any[][]): void {
+  rows.push([9]);
+}
+function run(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) c.list[0] = addRow;
+}
+const m = new MapLRU<string, number>("k", 0);
+run(m);
+m.fire();
+console.log(m.matrix.length);

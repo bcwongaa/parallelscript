@@ -477,3 +477,34 @@ The 11 error tests compile on fix5 and give one PTS1001 each on fix6; the 5 run 
 
 ### What READY would take
 1. F1: only-read exemptions only for primitive-element copies. 2. F2: count reduce's accumulator when the initial value holds an instanceof dynamic value. 3. F3: guard or keep as values the element conversions of spreads, `Array.from`, `Set`/`Map` constructors and iterator results, and check spread arguments; or record them, with justification. 4. F5: memoize and re-time. 5. F4, F6: exempt fresh results, nested arrays of primitives (with `.par`) and lib methods that only store their argument; record the rest as R3-F3's trade-off with one error test. 6. F7: a known-gap line next to `s04b`.
+
+## Round 7: `f801eb17d`
+
+NOT READY
+
+# H10a review, round 7: commit `f801eb17d` (fix7) against `842c97cf3` (fix6)
+
+(The round-6 reviewer, resumed. Probes: [h10a-review7-probes.tar.gz](h10a-review7-probes.tar.gz); `bin/cmp.sh FILE [fix5 fix6 fix7 base]`.)
+
+fix7 fixes R6-F1, R6-F2, R6-F4, R6-F5 and the spread-argument part of R6-F3, and keeps nothing new from fix6 broken outside instanceof code. The reasoning for not taking R6-F6 as suggested holds. Blocking: R7-F2 (silent lost writes: R6-F6's rule is enforced only for call arguments) and R7-F1 (a regression: the new reduce rule rejects `groupBy`-style reducers).
+
+### R7-F1 (Medium, regression against fix5 and fix6): by-reference reducers with a fresh non-array accumulator are PTS1001
+`c.items.reduce(groupInto, {})` with `groupInto(acc: Record<string, any[]>, x)`, `c.items.reduce(count, new Map<any, any[]>())`, `c.items.reduce(collect, start)` for a local `const start: any[] = []`: Node, fix5 and fix6 `{ n: [ 3, 3 ] } Map(1) { 3 => [ 3 ] } [ 3, 3 ]`, fix7 PTS1001. `arrayCallbackObjectParameters` counts the accumulator unless `isNewArray(initial)`. Suggested: count it only without an initial value, or where the initial value holds an instanceof dynamic value, or converts to the accumulator's type by a copy (N9's own `number[]` needs counting). Inline reducers still work.
+
+### R7-F2 (High, silent; base threw; same on fix5 and fix6): functions kept by members through push or assignment
+`c.list.push(addRow)`, `c.list.push((rows: any[][]) => { rows.push([8]); })`, `c.list[2] = addRow`, `c.cfg.onRows = addRow`, then the instance's `fire()` calls each with `this.matrix`: Node `6`, fix5/fix6/fix7 `2`, base TypeError. One form per file in `kept/`: `k_array_push`, `k_array_unshift`, `k_array_splice`, `k_element_assign`, `l_inline_push_annotated`, `l_inline_assign_annotated`, `n_nested_field_assign`, `n_array_literal_assign` (`c.list = [addRow]`), `n_concat_assign`: Node 3, fix6 and fix7 2. Already PTS1001 on fix7: `c.list.push(...fs)`, `c.handlers.set(k, addRow)`, `c.onRows = addRow`, `c.cfg = { onRows: addRow }`. Working: an untyped inline `c.list.push((rows) => …)`, an annotated inline given to `Map.set`. Fix: apply `copyingParameterIn` wherever a typed function is boxed into a value made dynamic by an instanceof narrowing (dynamic element and property sets, array mutators, array literals assigned to members), and make an annotated inline callback given to a keeping method a dynamic local.
+
+### R7-F3 (Low, regression against fix5 and fix6): `handsToCallback` counts every non-literal callback as handing the array
+`function each(_x, i, arr: any[]) { if (i === 0) arr.forEach(show) }` with a one-parameter `show`: Node, fix5, fix6 `item 3` twice, fix7 PTS1001. Fix: use `knownFunction` and its declared parameter count. Message: for inline rest callbacks the PTS1001 says "a function written there takes them as they are", which is false there.
+
+### Recorded gaps: justified?
+R6-F6 (kept handlers stay PTS1001): justified (the kept-handler program prints 2 on fix5 where Node prints 3; typed code without instanceof reports PTS1001 for the same `set`; an uninferred source may hold any instance). C285 (container flows → H10b): acceptable as recorded; the same copies happen without instanceof for an `any` holding typed rows cast to `any[][]` (`c01_container_any_control.pts`), the D-179/`s04b` class, and H10b's design C won't cover `any[][]` containers, so H10b's acceptance must cover C285 explicitly, as the plan line does. C288, C286, C287 and the deep read-only PTS1001s: consistent with earlier trade-offs; read-only deep helpers on an uninferred source (`total(o.matrix)` with `rows: any[][]`) ran as Node on the base, fix5 and fix6 and are now PTS1001 (`z_deep_read_only_param.pts`): honest, deserves its own known-gap line. The F7 revert: agreed.
+
+### What holds (verified)
+R6-F5: `u01_chain_depth22` 65.7 s (fix6) → 0.14 s (fix7), depth 40 0.18 s, depth 80 0.17 s, `u02_instanceof_chain_depth16` 1.43 → 0.10 s, dynamic-member chains at depth 40 about 0.5 s. R6-F1, R6-F2, N10: honest PTS1001s. R6-F4: fresh `filter`/`slice` results, `.par` over nested and fresh arrays of primitives, `concat` run as Node. N15: `u.each` callbacks keep writes (the remaining `u.mapRows((row) => row)` identity miss is lost on the base too, D-179). New forms matching Node (`h01`, `h03`): pattern defaults, `map` identity into `number[][]`, `typeof`/`Array.isArray` narrowing of nested values, `Record` dot access, `for…in`, computed keys, nested generic members, closures, `as unknown as any[]`, `splice`, `length` writes, compound writes, generic-class methods narrowing other instances. rerun5 changes only `s03b` and `t04`; the matrix 622 / 130 / 25. Programs without instanceof: emit-c identical on fix6 and fix7 for 60 random programs and all 21 using `.concat(`; the `arrayValues` change fixes a predicate-narrowed `a.concat(u)` that threw on fix6; `rows.concat(t)` with an `Array.isArray`-narrowed `t` still nests (pre-existing C287).
+
+### Test quality
+All 18 changed or new error tests give exactly one PTS1001 on fix7 with the expected text; the 7 new ones compile on fix6 except `nested_object_returned`. The 3 new run tests equal Node and fail on fix6; the skipped container test matches Node and fails on fix7. Gaps: kept functions (R7-F2), reducers with `{}`/`new Map()` (R7-F1), a named callback in a by-reference function (R7-F3).
+
+### What READY would take
+1. R7-F2: report a typed function with a copying parameter wherever it is stored into a made-dynamic value (array mutators, element and property sets, array literals assigned to members); annotated inline callbacks given to keeping methods as dynamic locals. 2. R7-F1: narrow the reduce rule (fresh objects, collections and same-typed locals don't count) with a run guard. 3. Optional: R7-F3, and a known-gap line for deep read-only helpers. "With 1 and 2 done, every remaining divergence I know of is a recorded gap, and I'd expect READY."

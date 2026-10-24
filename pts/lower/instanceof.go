@@ -872,7 +872,8 @@ func (l *lowerer) callSource(call *ast.Node) *ast.Node {
 // handsInstanceObjects reports whether the method that the callback of parameter is given to
 // (callbackArgument) may hand the parameter objects of its receiver or of its instance: an
 // array's method its first argument's element and array parameters
-// (arrayCallbackObjectParameters), any other method any parameter.
+// (arrayCallbackObjectParameters, but not an accumulator it owns), any other method, and an
+// array's method that keeps it (`c.list.push(f)`), any parameter.
 func (l *lowerer) handsInstanceObjects(parameter *ast.Node) bool {
 	fn := parameter.Parent
 	call, argument := callbackArgument(fn)
@@ -880,11 +881,19 @@ func (l *lowerer) handsInstanceObjects(parameter *ast.Node) bool {
 		return false
 	}
 	method, ok := l.arrayMethodName(ast.SkipParentheses(call.Expression()))
-	if !ok {
+	if !ok || keepingArrayMethods[method] {
 		return true
 	}
-	return call.Arguments()[0] == argument && slices.Contains(l.arrayCallbackObjectParameters(method, call.Arguments()), slices.Index(fn.Parameters(), parameter))
+	index := slices.Index(fn.Parameters(), parameter)
+	if index == 0 && parameter.Name().Kind == ast.KindIdentifier && l.ownsAccumulator(method, call.Arguments(), l.irType(l.typeOfSymbol(l.checker.GetSymbolAtLocation(parameter.Name())), parameter.Name())) {
+		return false
+	}
+	return call.Arguments()[0] == argument && slices.Contains(l.arrayCallbackObjectParameters(method, call.Arguments()), index)
 }
+
+// keepingArrayMethods are the array methods that keep their arguments in the array, where
+// code that reads it may call a kept function with any of its objects (R7-F2).
+var keepingArrayMethods = map[string]bool{"push": true, "unshift": true, "splice": true, "fill": true}
 
 // returnsToDynamicInstanceCall reports whether fn, a function written without a result type,
 // is a callback (callbackArgument) of a method whose code an instanceof narrowing's dynamic
@@ -940,7 +949,8 @@ func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.N
 		return false
 	}
 	var parameters []int // those the method hands its objects; nil for every one
-	if method, ok := l.arrayMethodName(callee); ok {
+	method, isArrayMethod := l.arrayMethodName(callee)
+	if isArrayMethod && !keepingArrayMethods[method] {
 		parameters = l.arrayCallbackObjectParameters(method, call.Arguments.Nodes)
 		if index != 0 || parameters == nil {
 			return false // an array's method calls no other argument
@@ -963,7 +973,8 @@ func (l *lowerer) copiesCallbackArgument(call *ast.CallExpression, callee *ast.N
 			break // a parameter the function's type adds for the callback type's, which its code doesn't have
 		}
 		t := parameterTypeAt(fn, i)
-		if parameters != nil && !slices.Contains(parameters, i) || !copiesInstanceObjects(t) || declaration != nil && !copiesElements(t) && l.onlyReadsParameter(declaration, i) {
+		if parameters != nil && !slices.Contains(parameters, i) || !copiesInstanceObjects(t) || declaration != nil && !copiesElements(t) && l.onlyReadsParameter(declaration, i) ||
+			i == 0 && l.ownsAccumulator(method, call.Arguments.Nodes, t) {
 			continue
 		}
 		l.reportCallbackCopy(t, argument)
@@ -990,7 +1001,31 @@ func (l *lowerer) copiesSpreadCallbacks(callee, spread *ast.Node) bool {
 // reportCallbackCopy reports, at argument, the function copiesCallbackArgument finds, whose
 // parameter of type t would get a copy of the instance's objects.
 func (l *lowerer) reportCallbackCopy(t ir.Type, argument *ast.Node) {
-	l.notSupportedYet(argument, fmt.Sprintf("giving a function whose parameter is a %s to a method of the object an `instanceof` narrowing holds as a dynamic value, which may hand it that object's own values (the parameter would get a copy, which wouldn't show changes; a function written there takes them as they are, and so does a parameter of type `any`), is", t))
+	l.notSupportedYet(argument, fmt.Sprintf("giving a function whose parameter is a %s to a method of the object an `instanceof` narrowing holds as a dynamic value, which may hand it that object's own values (the parameter would get a copy, which wouldn't show changes; a parameter of type `any` takes them as they are), is", t))
+}
+
+// storesCopyingFunction reports, at value, a function stored by an assignment into a dynamic
+// value an instanceof narrowing made (`c.list[2] = f`, `c.cfg.onRows = f`, `c.list = [f]`)
+// that has a parameter a dynamic value converts to by a copy: the instance's code may call it
+// later with its own objects, which it would get as copies (R7-F2).
+func (l *lowerer) storesCopyingFunction(target, value *ast.Node) bool {
+	target = ast.SkipParentheses(target)
+	if !ast.IsAccessExpression(target) || !l.madeDynamicByInstanceof(target) && !l.madeDynamicByInstanceof(target.Expression()) {
+		return false
+	}
+	if !l.mentionsAny(l.typeAt(value), 0) {
+		return false // no parameter type that a dynamic value converts to by a copy
+	}
+	t := l.irType(l.typeAt(value), value)
+	if t == nil || !holdsFunctions(t, map[ir.Type]bool{}) {
+		return false
+	}
+	copying := copyingParameterIn(t, map[ir.Type]bool{})
+	if copying == nil {
+		return false
+	}
+	l.notSupportedYet(value, fmt.Sprintf("storing a function whose parameter is a %s in the object an `instanceof` narrowing holds as a dynamic value, whose code may call it with that object's own values (the parameter would get a copy, which wouldn't show changes; a parameter of type `any` takes them as they are), is", copying))
+	return true
 }
 
 // arrayMethodName is the name of the method callee calls, if its receiver is an array or a
@@ -1009,21 +1044,39 @@ func (l *lowerer) arrayMethodName(callee *ast.Node) (string, bool) {
 // arrayCallbackObjectParameters is the indexes of the parameters of the callback of an
 // array's method that it hands objects it didn't make: an element and the array itself, and
 // reduce's accumulator, which is the first element where the call (of arguments) gives no
-// initial value and otherwise that value, unless it is a new array (`[]`, isNewArray). nil
-// for a method that calls no callback.
+// initial value and otherwise that value, unless the value is the accumulator's own
+// (ownsAccumulator). nil for a method that calls no callback.
 func (l *lowerer) arrayCallbackObjectParameters(method string, arguments []*ast.Node) []int {
 	switch method {
 	case "reduce", "reduceRight":
-		if len(arguments) >= 2 && l.isNewArray(arguments[1]) {
-			return []int{1, 3}
-		}
-		return []int{0, 1, 3}
+		return []int{0, 1, 3} // the accumulator unless ownsAccumulator
 	case "sort", "toSorted":
 		return []int{0, 1}
 	case "every", "filter", "find", "findIndex", "findLast", "findLastIndex", "flatMap", "forEach", "map", "some":
 		return []int{0, 2}
 	}
 	return nil
+}
+
+// ownsAccumulator reports whether the accumulator of type t of a callback that call, of an
+// array's method (method), is given is the callback's own: reduce's initial value is a new
+// array, object or collection (`[]`, `{}`, `new Map()`), or a value of the accumulator's type
+// that an instanceof narrowing doesn't give, which the callback gets as it is, not as a copy
+// (R7-F1). Another initial value (`c.tags`, a `number[]` where the accumulator is an `any[]`)
+// may be the instance's, or convert by a copy (R6-F2).
+func (l *lowerer) ownsAccumulator(method string, arguments []*ast.Node, t ir.Type) bool {
+	if method != "reduce" && method != "reduceRight" || len(arguments) < 2 {
+		return false
+	}
+	initial := ast.SkipParentheses(arguments[1])
+	for initial.Kind == ast.KindAsExpression || initial.Kind == ast.KindSatisfiesExpression {
+		initial = ast.SkipParentheses(initial.Expression())
+	}
+	switch initial.Kind {
+	case ast.KindArrayLiteralExpression, ast.KindObjectLiteralExpression, ast.KindNewExpression:
+		return true
+	}
+	return l.isNewArray(initial) || !l.holdsInstanceofDynamicValue(initial) && l.irType(l.typeAt(initial), initial) == t
 }
 
 // copiesInstanceObjects reports whether t is a type that a dynamic value holding an
@@ -1125,6 +1178,11 @@ func parameterTypeAt(fn *ir.FuncType, i int) ir.Type {
 	return nil
 }
 
+// isRestParameter reports whether a parameter declaration is a rest parameter.
+func isRestParameter(parameter *ast.Node) bool {
+	return parameter.AsParameterDeclaration().DotDotDotToken != nil
+}
+
 // declaresArgument reports whether fn, a function declaration or expression, has a parameter
 // that takes its argument at index i: one of its own, or a rest parameter before it.
 func declaresArgument(fn *ast.Node, i int) bool {
@@ -1149,8 +1207,9 @@ func (l *lowerer) onlyReadsParameter(fn *ast.Node, i int) bool {
 
 // handsToCallback reports whether fn calls an array method on its parameter param with a
 // callback that the method may hand param itself (forEach's third parameter, reduce's
-// fourth): a callback not written there, or one that declares that parameter, through which
-// writes reach the array (`row.forEach((x, i, a) => { a[i] = 8; })`; R6-F1's class).
+// fourth): a callback whose code isn't known (knownFunction), or one that declares that
+// parameter, through which writes reach the array (`row.forEach((x, i, a) => { a[i] = 8; })`;
+// R6-F1's class).
 func (l *lowerer) handsToCallback(fn *ast.Node, param *ast.Symbol) bool {
 	hands := false
 	var visit func(node *ast.Node) bool
@@ -1162,9 +1221,8 @@ func (l *lowerer) handsToCallback(fn *ast.Node, param *ast.Symbol) bool {
 				if name := callee.AsPropertyAccessExpression().Name().Text(); name == "reduce" || name == "reduceRight" {
 					arrayAt = 3
 				}
-				callback := ast.SkipParentheses(node.Arguments()[0])
-				literal := callback.Kind == ast.KindArrowFunction || callback.Kind == ast.KindFunctionExpression
-				if !literal || len(callback.Parameters()) > arrayAt {
+				known := l.knownFunction(ast.SkipParentheses(node.Arguments()[0])) // written there, or named (R7-F3)
+				if known == nil || len(known.Parameters()) > arrayAt || slices.ContainsFunc(known.Parameters(), isRestParameter) {
 					hands = true
 					return true
 				}
