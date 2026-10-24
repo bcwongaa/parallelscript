@@ -1,0 +1,30 @@
+// A loose local declared `T | undefined` and read from an element (D-172; tsc narrows it
+// to T) used as a shorthand property: where the property admits undefined (an optional
+// property) it holds undefined, as in JS; in an object literal without a contextual type
+// it is the type tsc narrowed it to, and a present value goes in. pts took the
+// shorthand's value as the declared `string | undefined` and failed to convert it to the
+// literal's `string` (PTS1001 "converting string | undefined to string is not supported
+// yet") on a valid program (H11 reproducer N1). With the value missing, a literal of its
+// own type throws D-090's TypeError (run/loose_locals_required_destinations.pts).
+interface Flag {
+  name: string;
+  value?: string;
+}
+const args = ["--out", "a.txt"];
+const value: string | undefined = args[1];
+const name: string | undefined = args[0];
+console.log({ value });
+console.log(JSON.stringify({ name, value }));
+const missing: string | undefined = args[2];
+const flag: Flag = { name: name ?? "", value: missing };
+const short: Flag = { name: "-o", value };
+const parsed = (): Flag => {
+  const value: string | undefined = args[3];
+  return { name: "--x", value };
+};
+console.log(flag, short, parsed());
+
+// expect:
+// { value: 'a.txt' }
+// {"name":"--out","value":"a.txt"}
+// { name: '--out', value: undefined } { name: '-o', value: 'a.txt' } { name: '--x', value: undefined }

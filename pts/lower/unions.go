@@ -181,6 +181,9 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 			if l.isTestedOperand(node) {
 				return x // tested for undefined: the union it holds
 			}
+			if l.goesWhereUndefinedGoes(node) {
+				return l.looseValue(x, narrow) // the value of a place undefined goes to (an optional property, `unknown`)
+			}
 			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
 		}
 		if !isClass(narrow) && l.mayHaveChanged(node) {

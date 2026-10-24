@@ -1,0 +1,35 @@
+// Array patterns over tuples (a declaration's, a parameter's, a `for…of` binding's over
+// tuple rows and map entries, `entries()`), and loops reading elements in range, use their
+// names as their types, as in JS: tsc knows a tuple's length, so these names aren't
+// loose and stay typed (D-172, D-177). A guard for H11's widening of the patterns that
+// may bind past the end.
+function sum([first, second]: [number, number]): number {
+  return first + second;
+}
+const pair: [string, number] = ["ab", 2];
+const [word, count] = pair;
+console.log("declaration", word.length + count);
+console.log("parameter", sum([1, 2]));
+const rows: [string, number][] = [["a", 1], ["bc", 2]];
+let total = 0;
+for (const [key, value] of rows) total += key.length + value;
+console.log("tuple rows", total);
+const scores = new Map([["a", 1], ["b", 2]]);
+let scored = 0;
+for (const [name, score] of scores) scored += name.length * score;
+console.log("map entries", scored);
+let indexed = 0;
+for (const [i, w] of ["a", "bc"].entries()) indexed += i + w.length;
+console.log("entries", indexed);
+const values = [1, 2, 3];
+let plain = 0;
+for (let i = 0; i < values.length; i++) plain += values[i];
+console.log("in range", plain);
+
+// expect:
+// declaration 4
+// parameter 3
+// tuple rows 6
+// map entries 3
+// entries 4
+// in range 6

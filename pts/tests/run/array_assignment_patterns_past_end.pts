@@ -1,0 +1,10 @@
+// An assignment pattern's target of an array whose element type holds undefined takes
+// undefined past the end, as in JS; pts threw D-015's RangeError, whose hint suggests
+// giving the element type `| undefined`, which it has (H11a review round 1, R1-F9;
+// pre-existing).
+let p: number | undefined, q: number | undefined;
+[p, q] = [1] as (number | undefined)[];
+console.log(p, q);
+
+// expect:
+// 1 undefined

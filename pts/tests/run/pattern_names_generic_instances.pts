@@ -1,0 +1,13 @@
+// Whether a pattern's name is loose is decided once for a generic function, by tsc's own
+// type of what it destructures, not by the instance lowered first: a tuple instance
+// lowered before a `string[]` one left the later instance's name past the end a
+// RangeError where JS gives undefined (H11a review round 1, R1-F8; pre-existing).
+function second<T extends readonly unknown[]>([a, b]: T): unknown {
+  return b;
+}
+console.log(second([1, 2] as [number, number]));
+console.log(second(["x"] as string[]));
+
+// expect:
+// 2
+// undefined

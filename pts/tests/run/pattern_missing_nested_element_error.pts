@@ -1,0 +1,20 @@
+// skip: known issue (H22, N5): a nested pattern over a missing element throws RangeError where JS throws TypeError
+// A nested array pattern over an element that isn't there destructures undefined, which
+// JS rejects with TypeError (undefined is not iterable). pts reads the missing element
+// with D-015's checked read and throws RangeError (H11 reproducer N5): the error class
+// differs; both stop the program at the same place.
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+show("missing row", () => {
+  const rows: string[][] = [["x"]];
+  const [[a], [b]] = rows;
+  console.log("missing row", a, b);
+});
+
+// expect:
+// missing row threw TypeError

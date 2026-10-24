@@ -1,0 +1,61 @@
+// A name a `for…of` binding's array pattern binds past the end of an item is undefined,
+// as in JS, and as a declaration's own pattern binds it (D-172, D-177): rows of arrays,
+// `split`'s results, strings, sets, typed arrays and generators, with `const` and `let`.
+// pts threw RangeError for arrays and strings and TypeError at the binding for
+// iterables (C31, H11).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function* pairs(): Generator<string> {
+  yield "g";
+}
+show("rows", () => {
+  const rows: string[][] = [["a", "1"], ["b"]];
+  for (const [key, value] of rows) console.log("rows", key, value);
+});
+show("split", () => {
+  for (const [key, value] of ["a=1", "b"].map((line) => line.split("="))) {
+    console.log("split", key, value === undefined ? "(none)" : value);
+  }
+});
+show("let", () => {
+  const rows: number[][] = [[1, 2], [3]];
+  for (let [x, y] of rows) {
+    y ??= 0;
+    console.log("let", x, y);
+  }
+});
+show("maybe", () => {
+  const rows: (number | undefined)[][] = [[1]];
+  for (const [x, y] of rows) console.log("maybe", x, y);
+});
+show("strings", () => {
+  for (const [first, second] of ["ab", "c"]) console.log("strings", first, second);
+});
+show("sets", () => {
+  for (const [first, second] of [new Set(["x"])]) console.log("sets", first, second);
+});
+show("typed arrays", () => {
+  for (const [first, second] of [new Float64Array([1])]) console.log("typed arrays", first, second);
+});
+show("generators", () => {
+  for (const [first, second] of [pairs()]) console.log("generators", first, second);
+});
+
+// expect:
+// rows a 1
+// rows b undefined
+// split a 1
+// split b (none)
+// let 1 2
+// let 3 0
+// maybe 1 undefined
+// strings a b
+// strings c undefined
+// sets x undefined
+// typed arrays 1 undefined
+// generators g undefined

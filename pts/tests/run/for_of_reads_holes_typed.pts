@@ -1,0 +1,48 @@
+// skip: known issue (H11b, D-183): for…of over a string[] or an object array throws D-085's RangeError at a hole, where JS reads undefined
+// `for…of` over a string[] or an object array reads a hole as undefined, as JS's array
+// iterator does; D-183 left these arrays' loops to H11 (their spreads keep the holes by
+// design, D-182). pts threw D-085's RangeError at the first hole. A `(T | undefined)[]`
+// already gives undefined (control).
+class Point {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function words(): string[] {
+  const a = new Array<string>(3);
+  a[1] = "b";
+  return a;
+}
+function points(): Point[] {
+  const a = new Array<Point>(2);
+  a[1] = new Point(1);
+  return a;
+}
+function maybe(): (string | undefined)[] {
+  const a = new Array<string | undefined>(2);
+  a[1] = "b";
+  return a;
+}
+show("string[]", () => {
+  for (const w of words()) console.log("string[]", w === undefined ? "hole" : w);
+});
+show("objects", () => {
+  for (const p of points()) console.log("objects", p?.x);
+});
+show("control", () => {
+  for (const w of maybe()) console.log("control", w);
+});
+
+// expect:
+// string[] hole
+// string[] b
+// string[] hole
+// objects undefined
+// objects 1
+// control undefined
+// control b

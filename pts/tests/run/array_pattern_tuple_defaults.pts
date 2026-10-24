@@ -1,0 +1,16 @@
+// A default in an array pattern applies to a tuple's element that is undefined: a
+// literal's `undefined` (`[a = 1] = [undefined]`, `const [b = 2] = [undefined]`) or an
+// element of a `[number | undefined, string]`. pts took a tuple's elements as never
+// undefined, so the default was skipped, and `const [b = 2] = [undefined]` was PTS1001
+// (H11a review round 1, R1-F6; C297's literal form, pre-existing).
+let a: number | undefined = 0;
+[a = 1] = [undefined];
+const t: [number | undefined, string] = [undefined, "x"];
+let e: number | undefined = 0;
+[e = 4] = t;
+const [b = 2] = [undefined];
+const [d = 3, s = "s"] = t;
+console.log(a, e, b, d, s);
+
+// expect:
+// 1 4 2 3 x

@@ -1,0 +1,142 @@
+// A loose local (D-090, D-172: a name a declaration's array pattern binds from a
+// non-tuple, or a local read from an element and tested for undefined or declared
+// `| undefined`) holds undefined where JS does. Where it goes to a place whose type
+// admits undefined (an optional property, shorthand or `k: v`; a constructor's optional
+// parameter; a `T | undefined`, `unknown` or `any` local, result, array element or map
+// value; an assignment or a conditional's branch there), it goes as it is, as in JS. pts
+// checked it as a T there (`TypeError: Expected string, got undefined`), though the
+// destination doesn't need one (C11, Opus #3, H11). A place that requires a T still
+// checks (run/loose_locals_required_destinations.pts).
+interface Agg {
+  kind: string;
+  column?: string;
+}
+interface Range {
+  low: number;
+  high?: number;
+}
+class Spec {
+  constructor(public kind: string, public column?: string) {}
+}
+class Holder {
+  value: string | undefined = "x";
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function parse(spec: string): Agg {
+  const [kind, column] = spec.split(":");
+  return { kind, column };
+}
+function columnOf(spec: string): string | undefined {
+  const [, column] = spec.split(":");
+  return column;
+}
+function anyColumn(spec: string): unknown {
+  const [, column] = spec.split(":");
+  return column;
+}
+show("shorthand", () => {
+  const [kind, column] = "count".split(":");
+  const agg: Agg = { kind, column };
+  console.log("shorthand", agg);
+});
+show("property", () => {
+  const [kind, column] = "count".split(":");
+  const agg: Agg = { kind: kind, column: column };
+  console.log("property", agg);
+});
+show("pushed literal", () => {
+  const aggs: Agg[] = [];
+  for (const spec of "count,sum:units".split(",")) {
+    const [kind, column] = spec.split(":");
+    aggs.push({ kind, column });
+  }
+  console.log("pushed literal", aggs);
+});
+show("returned literal", () => console.log("returned literal", parse("count")));
+show("constructor", () => {
+  const [kind, column] = "count".split(":");
+  console.log("constructor", new Spec(kind, column));
+});
+show("union local", () => {
+  const [, column] = "count".split(":");
+  const copy: string | undefined = column;
+  const nullable: string | null | undefined = column;
+  console.log("union local", copy, nullable);
+});
+show("unknown and any locals", () => {
+  const [, column] = "count".split(":");
+  const u: unknown = column;
+  const a: any = column;
+  console.log("unknown and any locals", u, a);
+});
+show("results", () => console.log("results", columnOf("count"), anyColumn("count")));
+show("array element", () => {
+  const [, column] = "count".split(":");
+  const columns: (string | undefined)[] = [column];
+  console.log("array element", columns);
+});
+show("map value", () => {
+  const [, column] = "count".split(":");
+  const byKind = new Map<string, string | undefined>();
+  byKind.set("count", column);
+  console.log("map value", byKind);
+});
+show("assignment", () => {
+  const [, column] = "count".split(":");
+  let last: string | undefined = "x";
+  last = column;
+  const holder = new Holder();
+  holder.value = column;
+  console.log("assignment", last, holder.value);
+});
+show("conditional", () => {
+  const [, column] = "count".split(":");
+  const picked: string | undefined = Math.random() < 2 ? column : "none";
+  console.log("conditional", picked);
+});
+show("tested element", () => {
+  const args = ["--out"];
+  const value = args[1];
+  if (value === undefined) console.log("tested element: no value");
+  const agg: Agg = { kind: args[0], column: value };
+  console.log("tested element", agg);
+});
+show("declared element", () => {
+  const args = ["--out"];
+  const value: string | undefined = args[1];
+  const agg: Agg = { kind: args[0], column: value };
+  console.log("declared element", agg);
+});
+show("number", () => {
+  const [low, high] = [1, 2].slice(0, 1);
+  const range: Range = { low, high };
+  const copy: number | undefined = high;
+  console.log("number", range, copy);
+});
+
+// expect:
+// shorthand { kind: 'count', column: undefined }
+// property { kind: 'count', column: undefined }
+// pushed literal [
+//   { kind: 'count', column: undefined },
+//   { kind: 'sum', column: 'units' }
+// ]
+// returned literal { kind: 'count', column: undefined }
+// constructor Spec { kind: 'count', column: undefined }
+// union local undefined undefined
+// unknown and any locals undefined undefined
+// results undefined undefined
+// array element [ undefined ]
+// map value Map(1) { 'count' => undefined }
+// assignment undefined undefined
+// conditional undefined
+// tested element: no value
+// tested element { kind: '--out', column: undefined }
+// declared element { kind: '--out', column: undefined }
+// number { low: 1, high: undefined } undefined

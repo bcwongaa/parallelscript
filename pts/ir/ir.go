@@ -882,7 +882,7 @@ const (
 	ArrayWith                              // a.with(i, v): a copy with v at i (from the end if negative); RangeError out of range
 	ArrayKeys                              // a.keys() as a number[] of a's indices
 	ArrayPushFlat                          // flatMap's step: pushes the elements of v, a dynamic value, if it is an array or a tuple, else v, each as a's element type holds it (D-180)
-	ArrayElementOrUndefined                // a[i] for an a whose element type holds undefined, as JS reads it: undefined for a hole or an index out of range
+	ArrayElementOrUndefined                // a[i] for an a whose element type holds undefined, as JS reads it: undefined for a hole or an index out of range; with As, of any array, as As (a loose local's `T | undefined`, H11)
 	ArrayHas                               // whether a has an element at i, not past its end or a hole (JS's HasProperty); a match's undefined group is one (D-133)
 	ArraySpread                            // [...x, …]: a new array; each x is an array of a's type whose elements it takes as iterating reads them (holes undefined where the elements may be), or an element; each x is read before the next is evaluated, as JS iterates a spread at its place
 )
@@ -902,7 +902,7 @@ type ArrayCall struct {
 	Op   ArrayOp
 	Args []Expr
 	To   *Array // the result of ArrayFlat
-	As   Type   // what ArrayElementOrUndefined reads an element of pointers as, if not the element type: a union with undefined, or a dynamic value
+	As   Type   // what ArrayElementOrUndefined reads an element as, if not the element type: a union with undefined, or for pointers a dynamic value
 }
 
 // MapOp is an operation on a map or set.

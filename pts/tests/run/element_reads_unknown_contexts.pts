@@ -1,0 +1,64 @@
+// An element read out of range gives undefined where any value can go (D-015): as an
+// `unknown` or `any` argument, an `unknown` or `any` result (a function's or an arrow's),
+// an element of an `unknown[]` or `any[]` literal, an `unknown` property and an
+// `unknown` map value, as `const u: unknown = s[9]` and `String(s[9])` already did.
+// pts threw D-015's RangeError there (C224, H11).
+class Point {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function describe(value: unknown): string {
+  return value === undefined ? "missing" : `got ${String(value)}`;
+}
+function loose(value: any): string {
+  return value === undefined ? "missing" : `got ${value}`;
+}
+const text = "ab";
+const words = ["a"];
+const counts = [1];
+const points = [new Point(1)];
+show("unknown argument", () => console.log("unknown argument", describe(text[5]), describe(words[5]), describe(counts[5]), describe(points[5])));
+show("any argument", () => console.log("any argument", loose(text[5]), loose(words[5])));
+show("unknown result", () => {
+  const at = (i: number): unknown => words[i];
+  console.log("unknown result", at(0), at(5));
+});
+show("any result", () => {
+  function charAt(i: number): any {
+    return text[i];
+  }
+  console.log("any result", charAt(0), charAt(5));
+});
+show("unknown[] literal", () => {
+  const row: unknown[] = [words[0], words[5], counts[5]];
+  console.log("unknown[] literal", row);
+});
+show("unknown property", () => {
+  const cell: { value: unknown } = { value: points[5] };
+  console.log("unknown property", cell);
+});
+show("unknown map value", () => {
+  const cache = new Map<string, unknown>();
+  cache.set("k", counts[5]);
+  console.log("unknown map value", cache);
+});
+show("controls", () => {
+  const u: unknown = text[5];
+  console.log("controls", u, String(text[5]), words[5] ?? "none");
+});
+
+// expect:
+// unknown argument missing missing missing missing
+// any argument missing missing
+// unknown result a undefined
+// any result a undefined
+// unknown[] literal [ 'a', undefined, undefined ]
+// unknown property { value: undefined }
+// unknown map value Map(1) { 'k' => undefined }
+// controls undefined undefined none

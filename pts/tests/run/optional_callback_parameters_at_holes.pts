@@ -1,0 +1,66 @@
+// skip: known issue (H11b, C111): an optional element parameter of find and its kin and Array.from's mapper gets a hole as D-085's RangeError, not undefined
+// find, findIndex, findLast, findLastIndex and Array.from's mapper visit every index
+// below the length, a hole too, which JS gives the callback as undefined. A callback
+// whose element parameter is optional (`(p?: Point) => …`, a function expression, a named
+// function) takes it as undefined, as one whose parameter is `Point | undefined` already
+// does (D-183). pts read the hole as a required element and threw RangeError (C111, H11),
+// over object arrays and string[]s alike.
+class Point {
+  constructor(public x: number) {}
+}
+interface Item {
+  name: string;
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function points(): Point[] {
+  const a = new Array<Point>(3);
+  a[1] = new Point(1);
+  return a;
+}
+function items(): Item[] {
+  const a = new Array<Item>(2);
+  a[1] = { name: "i" };
+  return a;
+}
+function words(): string[] {
+  const a = new Array<string>(3);
+  a[1] = "b";
+  return a;
+}
+function isMissing(p?: Point): boolean {
+  return p === undefined;
+}
+show("findIndex", () => console.log("findIndex", points().findIndex((p?: Point) => p === undefined)));
+show("find", () => console.log("find", points().find((p?: Point) => p !== undefined && p.x === 1)));
+show("findLast", () => console.log("findLast", points().findLast((p?: Point) => p !== undefined && p.x === 1)));
+show("type predicate control", () => console.log("type predicate control", points().findLast((p?: Point) => p !== undefined)));
+show("findLastIndex", () => console.log("findLastIndex", points().findLastIndex((p?: Point) => p === undefined)));
+show("Array.from", () => console.log("Array.from", Array.from(points(), (p?: Point) => p?.x ?? -1)));
+show("function expression", () => {
+  console.log("function expression", points().findIndex(function (p?: Point) {
+    return p === undefined;
+  }));
+});
+show("named function", () => console.log("named function", points().findLastIndex(isMissing)));
+show("interface", () => console.log("interface", items().findIndex((item?: Item) => item === undefined)));
+show("string[]", () => console.log("string[]", words().findIndex((w?: string) => w === undefined)));
+show("union control", () => console.log("union control", points().findIndex((p: Point | undefined) => p === undefined)));
+
+// expect:
+// findIndex 0
+// find Point { x: 1 }
+// findLast Point { x: 1 }
+// type predicate control Point { x: 1 }
+// findLastIndex 2
+// Array.from [ -1, 1, -1 ]
+// function expression 0
+// named function 2
+// interface 0
+// string[] 0
+// union control 0

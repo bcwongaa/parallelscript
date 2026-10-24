@@ -1,4 +1,3 @@
-// skip: known issue (H11, C102): array patterns read a hole under a default as a required element, and a rest element keeps holes
 // Array patterns read their source through its iterator, which gives undefined for a
 // hole: a default applies at a hole (and at a match group that took no part, which is
 // undefined, D-133), and a rest element holds undefined for each hole, where the element

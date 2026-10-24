@@ -1,0 +1,70 @@
+// An array pattern reads its source as its iterator does, which gives undefined for a
+// hole, so a default applies at a hole in every binding form, not only a declaration's
+// (run/array_patterns_read_holes.pts): a parameter's pattern, a `for…of` binding, a
+// nested pattern, a pattern in an object pattern and a pattern inside a rest element,
+// over a string[] or an object array with holes and over a match whose group took no part
+// (D-133). pts read an element under a default as a required one: RangeError at a hole,
+// D-133's TypeError at a group (C102, H11).
+class Point {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function words(): string[] {
+  const a = new Array<string>(3);
+  a[1] = "b";
+  return a;
+}
+function points(): Point[] {
+  const a = new Array<Point>(2);
+  a[1] = new Point(1);
+  return a;
+}
+const origin = new Point(0);
+show("parameter", () => {
+  const label = ([first = "first", second = "second", third = "third"]: string[]): string => [first, second, third].join(",");
+  console.log("parameter", label(words()));
+});
+show("for…of", () => {
+  for (const [first = "first", second = "second"] of [words()]) console.log("for…of", first, second);
+});
+show("nested", () => {
+  const [[first = "first", second = "second"]] = [words()];
+  console.log("nested", first, second);
+});
+show("in an object pattern", () => {
+  const { list: [first = "first", second = "second"] } = { list: words() };
+  console.log("in an object pattern", first, second);
+});
+show("inside a rest element", () => {
+  const [, ...[second = "second", third = "third"]] = words();
+  console.log("inside a rest element", second, third);
+});
+show("objects", () => {
+  const [start = origin, end = origin] = points();
+  console.log("objects", start.x, end.x);
+});
+show("match group", () => {
+  const match = /(a)|(b)/.exec("xb")!;
+  const [whole, a = "no a", b = "no b"] = match;
+  console.log("match group", whole, a, b);
+});
+show("match group parameter", () => {
+  const groups = ([, a = "no a", b = "no b"]: RegExpExecArray): string => `${a}/${b}`;
+  console.log("match group parameter", groups(/(a)|(b)/.exec("xb")!));
+});
+
+// expect:
+// parameter first,b,third
+// for…of first b
+// nested first b
+// in an object pattern first b
+// inside a rest element b third
+// objects 0 1
+// match group b no a b
+// match group parameter no a/b

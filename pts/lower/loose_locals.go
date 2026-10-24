@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"slices"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -11,9 +13,10 @@ import (
 // element may be past the array's end, and programs check such locals for undefined
 // later (`if (next === undefined)`). A local whose initializer reads an element of an
 // array, a string or a hash-map object and that the program tests for undefined, or that
-// a declaration's array pattern binds from anything but a tuple, holds `T | undefined`:
-// its initializer reads undefined past the end as JS does, and each use of it as a T is
-// checked (TypeError if it is undefined), as a dynamic value's is.
+// an array pattern binds from anything but a tuple, holds `T | undefined`: its
+// initializer reads undefined past the end as JS does, and each use of it as a T is
+// checked (TypeError if it is undefined), as a dynamic value's is; where undefined goes
+// (an optional property, a `T | undefined`, `unknown`), it goes as it is.
 
 // collectUndefinedTests records the symbols of the variables that files test for
 // undefined: compare with undefined or null, test for truth, `??`, `?.` or `typeof`.
@@ -67,12 +70,7 @@ func (l *lowerer) isUndefinedTest(node *ast.Node, tested *ast.Node) bool {
 	if node.Kind != ast.KindCallExpression {
 		return true
 	}
-	signature := l.checker.GetResolvedSignature(node)
-	if signature == nil || signature.Declaration() == nil {
-		return false
-	}
-	file := ast.GetSourceFileOfNode(signature.Declaration())
-	if l.program.IsSourceFileDefaultLibrary(file.Path()) || lib.IsLibPath(file.FileName()) {
+	if !l.callsProgramFunction(node) {
 		return false // `n.toFixed(d)`: a builtin's optional parameter
 	}
 	contextual := l.checker.GetContextualType(tested, checker.ContextFlagsNone)
@@ -92,8 +90,8 @@ func testedOperands(node *ast.Node) []*ast.Node {
 			case isNullishLiteral(binary.Left):
 				return []*ast.Node{binary.Right}
 			}
-		case ast.KindQuestionQuestionToken, ast.KindQuestionQuestionEqualsToken, ast.KindAmpersandAmpersandToken, ast.KindBarBarToken:
-			return []*ast.Node{binary.Left}
+		case ast.KindQuestionQuestionToken, ast.KindQuestionQuestionEqualsToken, ast.KindAmpersandAmpersandToken, ast.KindBarBarToken, ast.KindInstanceOfKeyword:
+			return []*ast.Node{binary.Left} // `x instanceof C` is false for undefined
 		}
 	case ast.KindPrefixUnaryExpression:
 		if node.AsPrefixUnaryExpression().Operator == ast.KindExclamationToken {
@@ -127,10 +125,10 @@ func isNullishLiteral(node *ast.Node) bool {
 }
 
 // isLoose reports whether a variable is a loose local: one of a type without undefined
-// that a declaration's array pattern binds from anything but a tuple (`const [op, arg] =
-// line.split(" ")`, where JS binds undefined past the end and a program may use arg only
-// where it is there), or whose initializer reads an element and that the program tests
-// for undefined.
+// that an array pattern binds from anything but a tuple (`const [op, arg] =
+// line.split(" ")`, a parameter's or a `for…of` binding's pattern, where JS binds
+// undefined past the end and a program may use arg only where it is there), or whose
+// initializer reads an element and that the program tests for undefined.
 func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 	if symbol == nil || symbol.ValueDeclaration == nil {
 		return false
@@ -149,9 +147,10 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 
 // readsElement reports whether a variable declaration's initializer reads an element of
 // an array, a string or a hash-map object, or a binding element of an array pattern
-// binds, without a default, one of the items of what the declaration destructures other
-// than a tuple: an array, string, map, set, iterator, iterable or dynamic value, which
-// may end before the pattern does (D-172, H03).
+// binds, without a default, one of the items of what the pattern destructures other than
+// a tuple: an array, string, map, set, iterator, iterable or dynamic value, which may end
+// before the pattern does (D-172, H03), in a declaration, a parameter, a `for…of`
+// binding, a nested pattern or a rest element's pattern (H11).
 func (l *lowerer) readsElement(declaration *ast.Node) bool {
 	switch declaration.Kind {
 	case ast.KindVariableDeclaration:
@@ -163,14 +162,10 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 	case ast.KindBindingElement:
 		pattern := declaration.Parent
 		element := declaration.AsBindingElement()
-		if pattern.Kind != ast.KindArrayBindingPattern || element.DotDotDotToken != nil || element.Initializer != nil || pattern.Parent.Kind != ast.KindVariableDeclaration {
+		if pattern.Kind != ast.KindArrayBindingPattern || element.DotDotDotToken != nil || element.Initializer != nil {
 			return false
 		}
-		initializer := pattern.Parent.Initializer()
-		if initializer == nil {
-			return false
-		}
-		t := l.typeAt(initializer)
+		t := l.patternSourceType(pattern)
 		if t.Flags()&checker.TypeFlagsTypeParameter != 0 {
 			if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {
 				t = constraint // the same for every instance, which share this answer
@@ -179,6 +174,17 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 		return !checker.IsTupleType(t) // a tuple's length is known; anything else may end before the pattern does
 	}
 	return false
+}
+
+// patternSourceType is the type of what a binding pattern destructures: a declaration's
+// initializer, or the type tsc gives the pattern's declaration (a parameter's, a `for…of`
+// binding's item, a nested pattern's element, a rest element's array).
+func (l *lowerer) patternSourceType(pattern *ast.Node) *checker.Type {
+	// tsc's own type, not an instance's: isLoose's answer is the same for every instance
+	if parent := pattern.Parent; parent.Kind == ast.KindVariableDeclaration && parent.Initializer() != nil {
+		return l.checker.GetTypeAtLocation(parent.Initializer())
+	}
+	return l.checker.GetTypeAtLocation(pattern)
 }
 
 // isElementRead reports whether node reads an element of an array, a string or a
@@ -201,6 +207,171 @@ func mayHoldUndefined(t *checker.Type) bool {
 		return false
 	}
 	return t.Flags()&undefined != 0
+}
+
+// placeTakesUndefined reports whether node goes to a place whose type holds undefined: a
+// union with undefined, or any or unknown as the value of a place (`const u: unknown =
+// s[9]`, an `unknown` parameter or result), where an element that isn't there is
+// undefined, as in JS (D-015).
+func (l *lowerer) placeTakesUndefined(node *ast.Node) bool {
+	if l.contextTakesUndefined(node) {
+		return true
+	}
+	return isPlaceValue(node) && l.placeType(node) == ir.Value
+}
+
+// goesWhereUndefinedGoes reports whether node is the value of a place whose type holds
+// undefined (isPlaceValue): an optional property, a `T | undefined`, any or unknown, where
+// a loose local goes as the union it holds (H11).
+func (l *lowerer) goesWhereUndefinedGoes(node *ast.Node) bool {
+	if !isPlaceValue(node) {
+		return false
+	}
+	t := l.placeType(node)
+	return t != nil && ir.HoldsUndefined(t)
+}
+
+// placeType is the type of the place whose value node is (isPlaceValue): the function's
+// result for a returned value, its yield type for a yielded one, the field of the type an object literal makes for a
+// property's value, a conditional's place for its branch, else node's contextual type
+// (an array literal's element's only where the literal is made as its context's array or
+// tuple type, an argument's only where the callee is the program's or a builtin declares
+// the parameter with a type parameter, a property declaration's its declared type); nil
+// if it has none or it has no IR type.
+func (l *lowerer) placeType(node *ast.Node) ir.Type {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	switch node.Parent.Kind {
+	case ast.KindArrayLiteralExpression:
+		if contextual := l.contextualType(node.Parent); contextual == nil || !checker.IsTupleType(contextual) && !l.checker.IsArrayType(contextual) {
+			return nil // a literal made as its own type (`console.log([k, v])`'s string[]), not its context's
+		}
+	case ast.KindReturnStatement, ast.KindArrowFunction:
+		return l.function.Result
+	case ast.KindYieldExpression:
+		yielded, _, _ := l.iterationTypes(l.generatorType()) // as yieldPoint converts it
+		return l.irTypeOrNone(yielded, node)
+	case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:
+		return l.literalFieldType(node.Parent)
+	case ast.KindConditionalExpression:
+		if !isPlaceValue(node.Parent) {
+			return nil
+		}
+		return l.placeType(node.Parent)
+	case ast.KindCallExpression, ast.KindNewExpression:
+		if !l.callsProgramFunction(node.Parent) && !l.goesToTypeArgument(node.Parent, node) {
+			return nil // a builtin's own parameter, which its lowering reads as tsc's type (`n.toFixed(d)`, `Object.keys(o)`)
+		}
+	case ast.KindPropertyDeclaration:
+		return l.irTypeOrNone(l.typeOfSymbol(node.Parent.Symbol()), node) // `col?: string = column`, whose annotation lacks `?`'s undefined
+	}
+	contextual := l.contextualType(node)
+	if contextual == nil {
+		return nil
+	}
+	return l.irTypeOrNone(contextual, node)
+}
+
+// literalFieldType is the type of the field that property, of an object literal, gives
+// a value of the type the literal makes (objectLiteral: a hash-map object of its
+// recordContext, or literalType's): `column?: string` of an Agg for `{ kind, column }`,
+// or the value type of a `Record<string, unknown>`; nil for a computed name.
+func (l *lowerer) literalFieldType(property *ast.Node) ir.Type {
+	literal, name := property.Parent, property.Name()
+	if literal.Kind != ast.KindObjectLiteralExpression || name.Kind != ast.KindIdentifier && name.Kind != ast.KindStringLiteral && name.Kind != ast.KindNumericLiteral {
+		return nil
+	}
+	made := l.recordContext(literal) // a hash-map object's (objectLiteral)
+	if made == nil {
+		made = l.literalType(literal)
+	}
+	if field := l.checker.GetPropertyOfType(made, name.Text()); field != nil {
+		return l.irTypeOrNone(l.typeOfSymbol(field), property)
+	}
+	if index := l.checker.GetIndexInfoOfType(made, l.checker.GetStringType()); index != nil {
+		return l.irTypeOrNone(index.ValueType(), property)
+	}
+	return nil
+}
+
+// callsProgramFunction reports whether call calls a function of the program, not a
+// builtin or a library function.
+func (l *lowerer) callsProgramFunction(call *ast.Node) bool {
+	signature := l.checker.GetResolvedSignature(call)
+	if signature == nil || signature.Declaration() == nil {
+		return false
+	}
+	file := ast.GetSourceFileOfNode(signature.Declaration())
+	return !l.program.IsSourceFileDefaultLibrary(file.Path()) && !lib.IsLibPath(file.FileName())
+}
+
+// goesToTypeArgument reports whether argument, of a call of a builtin, goes to a parameter
+// the builtin declares with one of its type parameters (`push(...items: T[])`,
+// `set(key: K, value: V)` of an `unknown[]` or a `Map<string, unknown>`), which the call
+// converts to its type argument's type.
+func (l *lowerer) goesToTypeArgument(call *ast.Node, argument *ast.Node) bool {
+	signature := l.checker.GetResolvedSignature(call)
+	index := slices.Index(call.Arguments(), argument)
+	if signature == nil || signature.Declaration() == nil || index < 0 {
+		return false
+	}
+	parameters := signature.Declaration().Parameters()
+	if len(parameters) == 0 {
+		return false
+	}
+	parameter := parameters[min(index, len(parameters)-1)]
+	if index >= len(parameters) && parameter.AsParameterDeclaration().DotDotDotToken == nil || parameter.Type() == nil {
+		return false
+	}
+	t := l.checker.GetTypeFromTypeNode(parameter.Type())
+	if parameter.AsParameterDeclaration().DotDotDotToken != nil && l.checker.IsArrayType(t) {
+		t = l.checker.GetElementTypeOfArrayType(t) // `...items: T[]`
+	}
+	return t != nil && t.Flags()&checker.TypeFlagsTypeParameter != 0
+}
+
+// isPlaceValue reports whether node is the value a place takes as it is, converted to the
+// place's type: a declaration's initializer, the right side of `=`, a
+// returned value or an arrow's body, a yielded value, an argument, a property's value (a
+// shorthand property's name), an element of an array literal, or a conditional's branch
+// where the conditional is one (sameType converts both). An operand of `&&`, `||` or `??` isn't:
+// its expression has a type of its own.
+func isPlaceValue(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	switch parent := node.Parent; parent.Kind {
+	case ast.KindVariableDeclaration, ast.KindPropertyDeclaration, ast.KindPropertyAssignment:
+		return parent.Initializer() == node // not a parameter's default, which converts to the parameter's narrowed type (C306)
+	case ast.KindShorthandPropertyAssignment:
+		return parent.Name() == node
+	case ast.KindBinaryExpression:
+		binary := parent.AsBinaryExpression()
+		return binary.OperatorToken.Kind == ast.KindEqualsToken && binary.Right == node
+	case ast.KindReturnStatement, ast.KindArrowFunction:
+		return true
+	case ast.KindYieldExpression:
+		return parent.AsYieldExpression().AsteriskToken == nil
+	case ast.KindCallExpression, ast.KindNewExpression:
+		return slices.Contains(parent.Arguments(), node)
+	case ast.KindArrayLiteralExpression:
+		return true
+	case ast.KindConditionalExpression:
+		return parent.AsConditionalExpression().Condition != node && isPlaceValue(parent)
+	}
+	return false
+}
+
+// looseValue is x, a loose local's union, as the value of a place undefined goes to: the
+// type tsc narrowed it to there, or undefined (`hit` after `hit !== null`, whose union
+// holds null too).
+func (l *lowerer) looseValue(x ir.Expr, narrow ir.Type) ir.Expr {
+	t := l.withUndefined(narrow)
+	if t == x.Type() {
+		return x
+	}
+	return &ir.FromUnion{X: x, To: t}
 }
 
 // looseRead is the use of a loose local, x, where tsc gives it the type narrow: checked,

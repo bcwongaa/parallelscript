@@ -1,0 +1,103 @@
+// A name a parameter's array pattern binds past the end of its argument is undefined,
+// as in JS, and as a declaration's own pattern binds it (D-172, D-177): for arrays
+// (`(number | undefined)[]` too), strings, `split`'s result, sets, maps, typed arrays,
+// generators and iterables, in functions, arrows, methods, constructors, callbacks and
+// parameters with a default or of a type parameter. pts threw RangeError for arrays and
+// strings (for a `(number | undefined)[]` with a hint to add `| undefined`, which the type
+// has), and TypeError at the binding for iterables (C31, H03a review round 6, H11).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function* letters(): Generator<string> {
+  yield "g";
+}
+function iterableOf(items: string[]): Iterable<string> {
+  return items;
+}
+function strings([a, b]: string[]): void {
+  console.log("string[]", a, b);
+}
+function maybeNumbers([a, b]: (number | undefined)[]): void {
+  console.log("(number | undefined)[]", a, b);
+}
+function numbers([a, b]: number[]): void {
+  console.log("number[]", a, b);
+}
+function chars([a, b]: string): void {
+  console.log("string", a, b);
+}
+function setItems([a, b]: Set<string>): void {
+  console.log("Set", a, b);
+}
+function entries([a, b]: Map<string, number>): void {
+  console.log("Map", a, b);
+}
+function floats([a, b]: Float64Array): void {
+  console.log("Float64Array", a, b);
+}
+function generated([a, b]: Generator<string>): void {
+  console.log("Generator", a, b);
+}
+function iterated([a, b]: Iterable<string>): void {
+  console.log("Iterable", a, b);
+}
+function withDefault([a, b]: string[] = ["d"]): void {
+  console.log("default", a, b);
+}
+function generic<T extends string[]>([a, b]: T): void {
+  console.log("generic", a, b);
+}
+const arrow = ([a, b]: string[]): void => console.log("arrow", a, b);
+class Parser {
+  constructor([a, b]: string[]) {
+    console.log("constructor", a, b);
+  }
+  parse([a, b]: string[]): void {
+    console.log("method", a, b);
+  }
+}
+show("string[]", () => strings(["x"]));
+show("(number | undefined)[]", () => maybeNumbers([1]));
+show("number[]", () => numbers([1]));
+show("string", () => chars("x"));
+show("split", () => strings("key".split("=")));
+show("Set", () => setItems(new Set(["x"])));
+show("Map", () => entries(new Map([["k", 1]])));
+show("Float64Array", () => floats(new Float64Array([1])));
+show("Generator", () => generated(letters()));
+show("Iterable", () => iterated(iterableOf(["x"])));
+show("default", () => withDefault());
+show("generic", () => generic(["x"]));
+show("arrow", () => arrow(["x"]));
+show("constructor", () => new Parser(["x"]));
+show("method", () => new Parser(["x", "y"]).parse(["x"]));
+show("callback", () => [["x"], ["y", "z"]].forEach(([a, b]) => console.log("callback", a, b)));
+show("tested", () => {
+  const option = ([name, value]: string[]): string => (value === undefined ? `${name} (no value)` : `${name}=${value}`);
+  console.log("tested", option("a=1".split("=")), option("b".split("=")));
+});
+
+// expect:
+// string[] x undefined
+// (number | undefined)[] 1 undefined
+// number[] 1 undefined
+// string x undefined
+// string[] key undefined
+// Set x undefined
+// Map [ 'k', 1 ] undefined
+// Float64Array 1 undefined
+// Generator g undefined
+// Iterable x undefined
+// default d undefined
+// generic x undefined
+// arrow x undefined
+// constructor x undefined
+// constructor x y
+// method x undefined
+// callback x undefined
+// callback y z
+// tested a=1 b (no value)

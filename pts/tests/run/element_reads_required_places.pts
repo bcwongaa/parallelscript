@@ -1,0 +1,44 @@
+// no-diff: D-015/D-085: an element read out of range or at a hole where its type is required throws RangeError where Node goes on with undefined
+// An element read straight into a place that requires its type (a typed local, a typed
+// parameter or result, a callback's required element parameter at a hole) throws D-015's
+// RangeError with its hint, where JS goes on with undefined (D-015, D-085, D-183). Places
+// that take any value read undefined (run/element_reads_unknown_contexts.pts); these must
+// keep throwing.
+class Point {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+function length(word: string): number {
+  return word.length;
+}
+function points(): Point[] {
+  const a = new Array<Point>(2);
+  a[1] = new Point(1);
+  return a;
+}
+const words = ["a"];
+const counts = [1];
+show("const", () => {
+  const n: number = counts[5];
+  console.log("const", n);
+});
+show("parameter", () => console.log("parameter", length(words[5])));
+show("result", () => {
+  const at = (i: number): string => words[i];
+  console.log("result", at(5));
+});
+show("required callback parameter at a hole", () => {
+  console.log("required callback parameter at a hole", points().findIndex((p: Point) => p.x === 1));
+});
+
+// expect:
+// const threw RangeError Array index 5 is out of range (length 1); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
+// parameter threw RangeError Array index 5 is out of range (length 1); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
+// result threw RangeError Array index 5 is out of range (length 1); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
+// required callback parameter at a hole threw RangeError Array index 0 is out of range (length 2); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first

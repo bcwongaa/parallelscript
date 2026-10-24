@@ -1423,6 +1423,18 @@ static inline pts_value pts_array_get_or_undefined(const pts_array *array, doubl
   return element == 0 ? PTS_VALUE_UNDEFINED : element;
 }
 
+/* An element of an array of numbers as a value of `number | undefined`: undefined for an index out of range (a loose local's, D-090, H11). */
+static inline pts_value pts_array_number_or_undefined(const pts_array *array, double index) {
+  const uint64_t *slot = (const uint64_t *)pts_array_slot_or_null(array, index, sizeof(double));
+  if (slot == NULL) {
+    return PTS_VALUE_UNDEFINED;
+  }
+  uint64_t bits = __atomic_load_n(slot, __ATOMIC_RELAXED);
+  double number;
+  memcpy(&number, &bits, sizeof number);
+  return pts_value_from_number(number);
+}
+
 /* Typed access for generated code: T is the C type of the array's elements; PTS_ARRAY_GET_WORD for pointers and dynamic values. */
 #define PTS_ARRAY_GET(T, array, index) (*(T *)pts_array_slot((array), (index), sizeof(T)))
 #define PTS_ARRAY_GET_WORD(T, array, index) ((T)pts_array_get_word((array), (index)))

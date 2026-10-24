@@ -448,3 +448,20 @@ func TestAPanicWhileEmittingIsAnInternalErrorAtItsStatement(t *testing.T) {
 	assert.Equal(t, internal.Format("/p"), "main.pts:4 - error PTS9001: internal compiler error while emitting C: interface conversion: ir.Type is *ir.Primitive, not *ir.Array")
 	assert.Assert(t, strings.Contains(internal.Detail, "pts/cgen.(*emitter).elementType"), internal.Detail)
 }
+
+func TestElementOrUndefinedReadsEachElementKindAsItsUnionWithUndefined(t *testing.T) {
+	t.Parallel()
+	read := func(array *ir.Array, element ir.Expr, index float64) ir.Expr {
+		literal := &ir.NewArray{Array: array, Elems: []ir.Expr{element}}
+		orUndefined := &ir.Union{Members: []ir.Type{array.Elem, ir.Undefined}}
+		return &ir.ArrayCall{Op: ir.ArrayElementOrUndefined, Args: []ir.Expr{literal, num(index)}, As: orUndefined}
+	}
+	bools := &ir.Array{Elem: ir.Bool}
+	var stmts []ir.Stmt
+	for line, index := range []float64{0, 1, -1, 0.5} {
+		stmts = append(stmts, logAt(line+1, read(ir.NumberArray, num(1.5), index), read(ir.StringArray, str("a"), index), read(bools, &ir.BoolConst{Value: true}, index)))
+	}
+	program := programOf(stmts...)
+	assert.Assert(t, strings.Contains(cgen.Emit(program), "pts_array_number_or_undefined("), "a number array's element is read inline")
+	assert.Equal(t, run(t, program), "1.5 a true\nundefined undefined undefined\nundefined undefined undefined\nundefined undefined undefined\n")
+}

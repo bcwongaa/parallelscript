@@ -222,8 +222,8 @@ func namesOfTuple(pattern *ast.Node, value ir.Expr) []*ast.Node {
 		return nil
 	}
 	for _, element := range elements {
-		if element.Kind != ast.KindBindingElement || element.Name() == nil || element.Name().Kind != ast.KindIdentifier || element.AsBindingElement().DotDotDotToken != nil {
-			return nil
+		if element.Kind != ast.KindBindingElement || element.Name() == nil || element.Name().Kind != ast.KindIdentifier || element.AsBindingElement().DotDotDotToken != nil || element.AsBindingElement().Initializer != nil {
+			return nil // a default applies where an element is undefined (`const [b = 2] = [undefined]`)
 		}
 	}
 	names := make([]*ast.Node, len(elements))
@@ -519,7 +519,14 @@ func (l *lowerer) elementPart(source ir.Expr, element *ast.Node, index int, init
 	switch t := source.Type().(type) {
 	case *ir.Class:
 		if t.Tuple && !rest && index < len(t.Fields) {
-			return &ir.FieldRef{X: source, Field: t.Fields[index]} // a tuple's elements are never undefined, so a default can't apply
+			field := &ir.FieldRef{X: source, Field: t.Fields[index]}
+			switch {
+			case initializer == nil || !ir.HoldsUndefined(field.Type()):
+				return field // an element that is never undefined, where a default can't apply
+			case field.Type() == ir.Undefined:
+				return l.expression(initializer) // always undefined: the default (`[a = 1] = [undefined]`)
+			}
+			return l.withDefault(field, initializer, patternElementTarget(element)) // `[e = 4] = t` for a `[number | undefined, string]`
 		}
 		if t.Tuple && !rest && initializer != nil {
 			return l.expression(initializer) // past the tuple's end, so undefined: the default applies
@@ -530,27 +537,74 @@ func (l *lowerer) elementPart(source ir.Expr, element *ast.Node, index int, init
 	case *ir.Array:
 		position := &ir.NumberConst{Value: float64(index)}
 		if rest {
-			return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{source, position, &ir.NumberConst{Value: math.Inf(1)}}}
+			rest := &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{source, position, &ir.NumberConst{Value: math.Inf(1)}}}
+			if ir.HoldsUndefined(t.Elem) {
+				return &ir.ArrayCall{Op: ir.ArrayCopy, Args: []ir.Expr{rest}} // holes read as undefined, as iterating reads them (D-182, C102)
+			}
+			return rest
 		}
-		if initializer == nil && element.Kind == ast.KindBindingElement && element.Name().Kind == ast.KindIdentifier && l.isLoose(l.checker.GetSymbolAtLocation(element.Name())) {
-			return &ir.ArrayCall{Op: ir.ArrayElement, Args: []ir.Expr{source, position}} // undefined past the end (D-090)
+		// An element under a default, or a loose local's (D-090): undefined past the end or
+		// at a hole, as the array's iterator reads it, where the default applies (C102).
+		name := patternElementTarget(element)
+		if initializer != nil && (ir.IsNumeric(t.Elem) || t.Elem == ir.Bool) {
+			return l.defaultPastTheEnd(source, position, t, initializer) // no holes and never undefined (D-085)
 		}
-		read := &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, position}}
-		if initializer == nil {
-			return read
+		orUndefined := l.elementOrUndefined(source, position, t, name)
+		if initializer != nil {
+			return l.withDefault(orUndefined, initializer, name)
 		}
-		fallback := l.expression(initializer)
-		if fallback == nil {
-			return nil
+		switch {
+		case element.Kind == ast.KindBindingElement && name.Kind == ast.KindIdentifier && l.isLoose(l.checker.GetSymbolAtLocation(name)):
+			return orUndefined
+		case element.Kind != ast.KindBindingElement && ir.HoldsUndefined(t.Elem):
+			return orUndefined // an assignment's target of the element type, which holds undefined (`[p, q] = maybe`)
 		}
-		if fallback = l.convert(fallback, t.Elem, initializer); fallback == nil {
-			return nil
-		}
-		inRange := &ir.Binary{Op: ir.Lt, X: position, Y: &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{source}}}
-		return &ir.Conditional{Cond: inRange, Then: read, Else: fallback}
+		return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, position}}
 	}
 	l.notSupportedYet(element, fmt.Sprintf("destructuring a %s with an array pattern is", source.Type()))
 	return nil
+}
+
+// patternElementTarget is what an element of an array pattern binds or assigns: a binding
+// element's name, an assignment's target (`[p, q = "D"] = xs`'s p and q).
+func patternElementTarget(element *ast.Node) *ast.Node {
+	switch element.Kind {
+	case ast.KindBindingElement:
+		return element.Name()
+	case ast.KindBinaryExpression:
+		return element.AsBinaryExpression().Left
+	}
+	return element
+}
+
+// defaultPastTheEnd is element position of array source under a default (initializer)
+// for an array of numbers or booleans, which has no holes and no undefined elements: the
+// element, or past the end the default.
+func (l *lowerer) defaultPastTheEnd(source ir.Expr, position ir.Expr, array *ir.Array, initializer *ast.Node) ir.Expr {
+	fallback := l.expression(initializer)
+	if fallback == nil {
+		return nil
+	}
+	if fallback = l.convert(fallback, array.Elem, initializer); fallback == nil {
+		return nil
+	}
+	inRange := &ir.Binary{Op: ir.Lt, X: position, Y: &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{source}}}
+	return &ir.Conditional{Cond: inRange, Then: &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, position}}, Else: fallback}
+}
+
+// elementOrUndefined reads element position of array source for name, a pattern's: as
+// the element type or undefined, which an element of the array is, where name's type is
+// that element type (D-220); else as a dynamic value, which binding converts to name's
+// type with a check (an instance's `const [first] = x` for an x narrowed to `T &
+// string[]` holding numbers).
+func (l *lowerer) elementOrUndefined(source ir.Expr, position ir.Expr, array *ir.Array, name *ast.Node) ir.Expr {
+	orUndefined := l.withUndefined(array.Elem)
+	if name.Kind == ast.KindIdentifier {
+		if t := l.bindingType(l.checker.GetSymbolAtLocation(name), name); t == nil || l.withUndefined(t) != orUndefined {
+			return &ir.ArrayCall{Op: ir.ArrayElement, Args: []ir.Expr{source, position}}
+		}
+	}
+	return &ir.ArrayCall{Op: ir.ArrayElementOrUndefined, Args: []ir.Expr{source, position}, As: orUndefined}
 }
 
 // parameterPrologue binds the parameters of fn that need it, in order, at the start of

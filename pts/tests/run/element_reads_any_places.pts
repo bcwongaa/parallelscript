@@ -1,0 +1,23 @@
+// An element read whose place is any or unknown, with no contextual type to say so: the
+// result of a function whose inferred result is any or unknown, a property of a literal of
+// its own type, a generic call's `unknown` result, a conditional there. These are the
+// programs the change's first snapshot failed on (PTS9001: a nil contextual type) or that
+// review round 1 kept for its fixes.
+function getAny(o: Record<string, any>, k: string) {
+  return o[k];
+}
+const getUnknown = (o: Record<string, unknown>, k: string) => o[k];
+function pick(c: boolean, xs: unknown[]) {
+  return c ? xs[5] : 1;
+}
+function first<T>(xs: T[]) {
+  return xs[0];
+}
+const xs: unknown[] = [1];
+const rec: Record<string, any> = { a: 1 };
+console.log(getAny({ a: 1 }, "b"), getUnknown({ a: 1 }, "b"), pick(true, [1]));
+console.log({ v: xs[3] }, { v: rec["b"], w: rec["a"] }, first<unknown>([]), first<number>([5]));
+
+// expect:
+// undefined undefined undefined
+// { v: undefined } { v: undefined, w: 1 } undefined 5

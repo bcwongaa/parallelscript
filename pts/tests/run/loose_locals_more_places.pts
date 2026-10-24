@@ -1,0 +1,31 @@
+// More places that take a loose local's undefined (D-220): a branch of a nested
+// conditional (R1-F5: PTS1001 in the change's first form), an optional class field's
+// initializer (whose annotation lacks `?`'s undefined, R1-F7), a yielded value of a
+// generator whose yield type holds undefined (R1-F11), a `Record<string, unknown>`
+// literal's property. (A parameter's default converts to the parameter's narrowed type:
+// C306, H12.)
+const [, column] = "count".split(":");
+const c = Math.random() < 2;
+const nested: string | undefined = c ? (c ? column : "a") : "b";
+class Holder {
+  col?: string = column;
+  other: string | undefined = column;
+}
+function* pairs([a, b]: string[]): Generator<string | undefined> {
+  yield a;
+  yield b;
+  yield b ? b : "none";
+}
+async function* later(s: string): AsyncGenerator<string | undefined> {
+  const [, b] = s.split(":");
+  yield b;
+}
+const record: Record<string, unknown> = { v: column };
+console.log(nested, new Holder(), [...pairs(["x"])], record);
+(async () => {
+  for await (const v of later("x")) console.log("later", v);
+})();
+
+// expect:
+// undefined Holder { col: undefined, other: undefined } [ 'x', undefined, 'none' ] { v: undefined }
+// later undefined

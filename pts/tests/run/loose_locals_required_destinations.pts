@@ -1,0 +1,90 @@
+// no-diff: D-090/D-172: a loose local used as its type while it is undefined throws TypeError where Node goes on with undefined
+// A loose local that goes where its type is required (a `string` local, parameter,
+// result, array element or property, a generic call whose type argument tsc infers from
+// it, an operand of arithmetic, a property of an object literal without a contextual
+// type, which tsc types with the narrowed T: H11 reproducer N1) is checked, and throws `TypeError: Expected T, got
+// undefined` while it is undefined (D-090, D-172). Places that admit undefined don't
+// check it (run/loose_locals_undefined_destinations.pts); these must keep checking.
+interface Required {
+  kind: string;
+  column: string;
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name, (e as Error).message);
+  }
+}
+function need(column: string): string {
+  return column;
+}
+function columnOf(spec: string): string {
+  const [, column] = spec.split(":");
+  return column;
+}
+function id<T>(x: T): T {
+  return x;
+}
+show("const", () => {
+  const [, column] = "count".split(":");
+  const copy: string = column;
+  console.log("const", copy);
+});
+show("parameter", () => {
+  const [, column] = "count".split(":");
+  console.log("parameter", need(column));
+});
+show("result", () => console.log("result", columnOf("count")));
+show("array element", () => {
+  const [, column] = "count".split(":");
+  const columns: string[] = [column];
+  console.log("array element", columns);
+});
+show("property", () => {
+  const [kind, column] = "count".split(":");
+  const spec: Required = { kind, column };
+  console.log("property", spec);
+});
+show("inferred generic", () => {
+  const [, column] = "count".split(":");
+  console.log("inferred generic", id(column));
+});
+show("arithmetic", () => {
+  const [, high] = [1, 2].slice(0, 1);
+  console.log("arithmetic", high + 1);
+});
+show("tested element", () => {
+  const args = ["--out"];
+  const value = args[1];
+  if (value === undefined) console.log("tested element: no value");
+  console.log("tested element", need(value));
+});
+show("literal of its own type", () => {
+  const args = ["--out"];
+  const value: string | undefined = args[1];
+  console.log("literal of its own type", { value });
+});
+show("stringified literal", () => {
+  const [name, value] = "--out".split("=");
+  console.log("stringified literal", JSON.stringify({ name, value }));
+});
+show("present", () => {
+  const [kind, column] = "sum:units".split(":");
+  const spec: Required = { kind, column };
+  console.log("present", spec, need(column));
+});
+
+// expect:
+// const threw TypeError Expected string, got undefined
+// parameter threw TypeError Expected string, got undefined
+// result threw TypeError Expected string, got undefined
+// array element threw TypeError Expected string, got undefined
+// property threw TypeError Expected string, got undefined
+// inferred generic threw TypeError Expected string, got undefined
+// arithmetic threw TypeError Expected number, got undefined
+// tested element: no value
+// tested element threw TypeError Expected string, got undefined
+// literal of its own type threw TypeError Expected string, got undefined
+// stringified literal threw TypeError Expected string, got undefined
+// present { kind: 'sum', column: 'units' } units

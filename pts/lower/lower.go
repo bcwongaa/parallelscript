@@ -1550,17 +1550,19 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		if l.isMatchElement(node) {
 			return l.matchElement(node)
 		}
-		if (l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node)) || isNever(l.typeAt(node))) {
+		if (l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.placeTakesUndefined(node) || mayHoldUndefined(l.typeAt(node)) || isNever(l.typeAt(node))) {
 			// An element of type never (a `never[]`'s, an instance's for never) can only be missing.
 			x := l.valueExpression(node)
 			if x == nil {
 				return nil
 			}
-			t := l.contextualType(node)
-			if !l.contextTakesUndefined(node) {
-				t = l.typeAt(node) // an element of a `Partial<Record<K, V>>`, which may be undefined
+			switch {
+			case l.contextTakesUndefined(node):
+				return l.convert(x, l.irType(l.contextualType(node), node), node) // `return list[9]` for a T | undefined: undefined, as in JS
+			case l.placeTakesUndefined(node):
+				return box(x) // the value of an any or unknown place (H11)
 			}
-			return l.convert(x, l.irType(t, node), node) // `return list[9]` for a T | undefined: undefined, as in JS
+			return l.convert(x, l.irType(l.typeAt(node), node), node) // an element of a `Partial<Record<K, V>>`, which may be undefined
 		}
 		if l.isEnumReverseMapping(node) {
 			return l.enumReverseMapping(node, true)
@@ -3702,6 +3704,28 @@ func (l *lowerer) emptyArrayAs(x ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 	return l.convert(x, array, node)
 }
 
+// takesOperandsUndefined reports whether node, a conditional or logical expression whose
+// operand a or b may be undefined where tsc says it isn't (a loose local, or an element
+// read, also as a branch of a nested conditional), goes to a place that takes undefined:
+// the loose local's union, or any value for an element that isn't there (H11).
+func (l *lowerer) takesOperandsUndefined(node, a, b *ast.Node) bool {
+	if l.anyBranch(a, l.isLooseIdentifier) || l.anyBranch(b, l.isLooseIdentifier) {
+		return l.goesWhereUndefinedGoes(node)
+	}
+	return (l.anyBranch(a, l.isElementRead) || l.anyBranch(b, l.isElementRead)) && l.placeTakesUndefined(node)
+}
+
+// anyBranch reports whether is holds for node or, for a conditional, for one of its
+// branches, recursively.
+func (l *lowerer) anyBranch(node *ast.Node, is func(*ast.Node) bool) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind == ast.KindConditionalExpression {
+		conditional := node.AsConditionalExpression()
+		return l.anyBranch(conditional.WhenTrue, is) || l.anyBranch(conditional.WhenFalse, is)
+	}
+	return is(node)
+}
+
 // sameType lowers two expressions that must end up with one type (the branches of ?:,
 // the operands of && and ||), converting numbers to the type the semantic pass chose.
 // Either both results are nil or neither is.
@@ -3723,6 +3747,17 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 	}
 	if x == nil || y == nil {
 		return nil, nil
+	}
+	if !deadX && !deadY && x.Type() != y.Type() && l.takesOperandsUndefined(node, a, b) {
+		// A loose local's undefined where undefined goes (`out.push(c ? "none" : v)` to an
+		// unknown[]), or an element that isn't there where any value goes (`const u: unknown
+		// = c ? s[5] : 1`): both as the place's type (H11).
+		if t := l.placeType(node); t != nil {
+			if x, y = l.convert(x, t, a), l.convert(y, t, b); x == nil || y == nil {
+				return nil, nil
+			}
+			return x, y
+		}
 	}
 	if t := l.numericType(node); t != nil && !isNullish(x.Type()) && !isNullish(y.Type()) { // `c ? undefined : n` is a number | undefined
 		if !deadX && !isNonNumeric(x.Type()) { // `c ? n : s` for a number | string keeps s a string

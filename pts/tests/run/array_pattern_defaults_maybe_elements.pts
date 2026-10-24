@@ -1,0 +1,34 @@
+// A default in an array pattern over a `(T | undefined)[]` gives the name the type T,
+// which the element or the default is: declarations, parameters, `for…of` bindings and
+// nested patterns alike. pts failed to compile them (PTS1001 "converting string |
+// undefined to string is not supported yet"): the element under a default was read as
+// the array's element type and then converted to T (H11 reproducer N2).
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const parts: (string | undefined)[] = ["a", undefined];
+show("declaration", () => {
+  const [first = "x", second = "y", third = "z"] = parts;
+  console.log("declaration", first, second, third);
+});
+show("parameter", () => {
+  const label = ([first = "x", second = "y"]: (string | undefined)[]): string => `${first}${second}`;
+  console.log("parameter", label(parts));
+});
+show("for…of", () => {
+  for (const [first = "x", second = "y"] of [parts]) console.log("for…of", first, second);
+});
+show("nested", () => {
+  const [[first = "x", second = "y"]] = [parts];
+  console.log("nested", first, second);
+});
+
+// expect:
+// declaration a y z
+// parameter ay
+// for…of a y
+// nested a y

@@ -1,0 +1,73 @@
+// skip: known issue (H11b, C112): find and its kin stop at the length a callback shortened the array to, where JS visits every starting index
+// find, findIndex, findLast and findLastIndex visit every index below the length they
+// start with, so a callback that shortens the array is called with undefined for each
+// index it cut off, as JS does (D-183). A callback whose element parameter takes
+// undefined (optional or `T | undefined`) gets undefined there, over string[]s, number
+// arrays and object arrays. pts stopped calling at the current length (C112, H11).
+// forEach and the other callback methods skip the indices cut off, as JS does (controls).
+class Point {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+show("find string[]", () => {
+  const words = ["a", "b", "c"];
+  const seen: unknown[] = [];
+  const found = words.find((w?: string, i?: number) => {
+    if (i === 0) words.length = 1;
+    seen.push(w);
+    return false;
+  });
+  console.log("find string[]", seen, found);
+});
+show("findIndex number[]", () => {
+  const counts = [1, 2, 3];
+  const seen: unknown[] = [];
+  const index = counts.findIndex((n: number | undefined, i: number) => {
+    if (i === 0) counts.pop();
+    seen.push(n);
+    return n === undefined;
+  });
+  console.log("findIndex number[]", seen, index);
+});
+show("findLast objects", () => {
+  const points = [new Point(1), new Point(2), new Point(3)];
+  const seen: unknown[] = [];
+  points.findLast((p?: Point, i?: number) => {
+    if (i === 2) points.length = 1;
+    seen.push(p?.x);
+    return false;
+  });
+  console.log("findLast objects", seen);
+});
+show("findLastIndex string[]", () => {
+  const words = ["a", "b", "c"];
+  const seen: unknown[] = [];
+  const index = words.findLastIndex((w: string | undefined, i: number) => {
+    if (i === 2) words.length = 1;
+    seen.push(w);
+    return w === undefined;
+  });
+  console.log("findLastIndex string[]", seen, index);
+});
+show("forEach control", () => {
+  const words = ["a", "b", "c"];
+  const seen: unknown[] = [];
+  words.forEach((w, i) => {
+    if (i === 0) words.length = 1;
+    seen.push(w);
+  });
+  console.log("forEach control", seen);
+});
+
+// expect:
+// find string[] [ 'a', undefined, undefined ] undefined
+// findIndex number[] [ 1, 2, undefined ] 2
+// findLast objects [ 3, undefined, 1 ]
+// findLastIndex string[] [ 'c', undefined ] 1
+// forEach control [ 'a' ]

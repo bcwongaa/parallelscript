@@ -1,0 +1,18 @@
+// A default in an array pattern of a destructuring assignment applies when the element
+// is undefined, there or past the end, as in JS: `[a = 1] = [undefined]` assigns 1. pts
+// read an element under a default with a check of the index only, so an element that
+// was there but undefined skipped the default (C297, H10b review round 7's
+// `w03b_array_assign_default_preexisting.pts`, pre-existing; fixed with C102 by D-220).
+let a: number | undefined = 0;
+[a = 1] = [undefined] as (number | undefined)[];
+let b = 0;
+[b = 2] = [] as number[];
+let c: number | undefined = 0, d = 0;
+[c = 3, d = 4] = [undefined, 5] as any[];
+const e = 6;
+let f = 0;
+({ f = 7 } = {} as { f?: number });
+console.log(a, b, c, d, e, f);
+
+// expect:
+// 1 2 3 5 6 7

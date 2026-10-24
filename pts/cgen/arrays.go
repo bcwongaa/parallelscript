@@ -91,7 +91,14 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 	case ir.ArrayWith:
 		c = fmt.Sprintf("pts_array_with(%s, %s, (%s[]){%s}, %t)", args[0], args[1], elem, args[2], readsHoles(call.Args[0]))
 	case ir.ArrayElementOrUndefined:
-		c = fmt.Sprintf("pts_array_get_or_undefined(%s, %s)", args[0], args[1])
+		switch elem := call.Args[0].Type().(*ir.Array).Elem; {
+		case holdsPointer(elem):
+			c = fmt.Sprintf("pts_array_get_or_undefined(%s, %s)", args[0], args[1])
+		case elem == ir.Number:
+			c = fmt.Sprintf("pts_array_number_or_undefined(%s, %s)", args[0], args[1])
+		default: // a boolean or a sized number, as a dynamic value: a union with undefined is one
+			c = fmt.Sprintf("pts_array_element(%s, %s)", args[0], args[1])
+		}
 	case ir.ArrayHas:
 		has := "pts_array_has"
 		if holdsPointer(call.Args[0].Type().(*ir.Array).Elem) {

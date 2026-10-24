@@ -1,0 +1,59 @@
+// A name a nested array pattern, a pattern inside a rest element, or an array pattern
+// nested in an object pattern binds past the end of what it destructures is undefined,
+// as in JS, and as a declaration's own pattern binds it (D-172, D-177). pts threw
+// RangeError for arrays and strings and TypeError at the binding for iterables (C31,
+// H11). An element that isn't there at all still can't be destructured: JS throws
+// TypeError for it.
+function show(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+interface Command {
+  name: string;
+  args: string[];
+}
+show("nested", () => {
+  const rows: string[][] = [["x"]];
+  const [[a, b]] = rows;
+  console.log("nested", a, b);
+});
+show("nested tuple", () => {
+  const pair: [string[], number] = [["x"], 1];
+  const [[a, b], n] = pair;
+  console.log("nested tuple", a, b, n);
+});
+show("nested set", () => {
+  const sets: Set<string>[] = [new Set(["x"])];
+  const [[a, b]] = sets;
+  console.log("nested set", a, b);
+});
+show("rest pattern", () => {
+  const words: string[] = ["x"];
+  const [a, ...[b, c]] = words;
+  console.log("rest pattern", a, b, c);
+});
+show("rest pattern of a string", () => {
+  const [a, ...[b, c]] = "x";
+  console.log("rest pattern of a string", a, b, c);
+});
+show("object nesting an array pattern", () => {
+  const command: Command = { name: "ls", args: [] };
+  const { name, args: [first, second] } = command;
+  console.log("object nesting an array pattern", name, first, second);
+});
+show("parameter nesting", () => {
+  const run = ({ name, args: [first] }: Command): void => console.log("parameter nesting", name, first);
+  run({ name: "pwd", args: [] });
+});
+
+// expect:
+// nested x undefined
+// nested tuple x undefined 1
+// nested set x undefined
+// rest pattern x undefined undefined
+// rest pattern of a string x undefined undefined
+// object nesting an array pattern ls undefined undefined
+// parameter nesting pwd undefined

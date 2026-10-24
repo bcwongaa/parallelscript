@@ -845,10 +845,14 @@ func (l *lowerer) shorthandValue(property *ast.Node) ir.Expr {
 	symbol := l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(property))
 	if x, ok := l.binding(name, symbol); ok {
 		if x != nil && isUnion(x.Type()) && l.isLoose(symbol) {
-			if t := l.irType(l.typeOfSymbol(symbol), name); t != nil {
-				return l.looseRead(x, t, name) // D-090
+			t := l.irType(l.typeAt(name), name) // its narrowed type, the literal's field's
+			if t == nil {
+				return nil
 			}
-			return nil
+			if l.goesWhereUndefinedGoes(name) {
+				return l.looseValue(x, t) // `{ kind, column }` for an optional column: undefined as it is
+			}
+			return l.looseRead(x, t, name) // D-090
 		}
 		return l.narrowed(name, x)
 	}

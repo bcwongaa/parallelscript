@@ -1,0 +1,51 @@
+// A loose local that tsc narrowed (past null, by typeof, by instanceof) goes to a place
+// that takes undefined as its narrowed type or undefined, not as the whole union it holds:
+// a `Rec | undefined` result for a `Rec | null` element read after `hit !== null`, a
+// `number | undefined` result after `typeof v === "number"`, an optional property after
+// a test. The change's first form passed the whole union and failed to compile
+// (PTS1001 "converting null | undefined | {n: number} to undefined | {n: number}"; H11a
+// review round 1, R1-F1; the shorthand form was PTS1001 on the base too). `x instanceof
+// A` tests for undefined (false), as in JS; it threw D-090's TypeError.
+interface Rec {
+  n: number;
+}
+interface Opt {
+  label?: string;
+}
+class A {
+  constructor(public name: string) {}
+}
+const cache: Record<string, Rec | null> = { a: { n: 1 }, b: null };
+function find(key: string): Rec | undefined {
+  const hit = cache[key];
+  if (hit === undefined) return undefined;
+  if (hit !== null) return hit;
+  return undefined;
+}
+const labels: (string | null)[] = ["x", null];
+function opt(i: number): Opt {
+  const label = labels[i];
+  if (label === undefined || label === null) return {};
+  return { label };
+}
+const rows: (string | number)[][] = [["a", 1], ["b"]];
+function firstNumber(): number | undefined {
+  for (const [, v] of rows) {
+    if (typeof v === "number") return v;
+  }
+  return undefined;
+}
+const things: (A | string)[] = [new A("a"), "s"];
+function firstA(i: number): A | undefined {
+  const [t] = things.slice(i);
+  if (t instanceof A) return t;
+  return undefined;
+}
+console.log(find("a"), find("b"), find("c"));
+console.log(opt(0), opt(1), opt(5));
+console.log(firstNumber(), firstA(0), firstA(1), firstA(2));
+
+// expect:
+// { n: 1 } undefined undefined
+// { label: 'x' } {} {}
+// 1 A { name: 'a' } undefined undefined
