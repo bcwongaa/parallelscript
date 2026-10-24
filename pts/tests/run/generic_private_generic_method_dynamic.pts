@@ -1,0 +1,16 @@
+// H10b review round 1 (R1-F4), the reviewer's probe r05_generic_private_method_dynamic.pts:
+// R1-F5: a generic private method called on another instance: through a Box<T> parameter in
+// the instance for any (HEAD ran it as Node; the snapshot throws), and on an `object` source
+// narrowed by instanceof (both throw; the snapshot's message claims the receiver is no Box).
+class Box<T> {
+  constructor(public v: T) {}
+  #pair<U>(x: U): [T, U] { return [this.v, x]; }
+  pairWith(other: Box<T>, tag: string): string { return JSON.stringify(other.#pair(tag)); }
+  static pairOf(o: object): string { return o instanceof Box ? JSON.stringify(o.#pair(0)) : "no"; }
+}
+const a = new Box<any>(1);
+console.log(a.pairWith(new Box<any>("b"), "t"));
+console.log(Box.pairOf(new Box<number>(2)));
+// expect:
+// ["b","t"]
+// [2,0]

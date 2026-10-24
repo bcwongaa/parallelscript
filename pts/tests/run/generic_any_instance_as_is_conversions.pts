@@ -1,0 +1,47 @@
+// no-diff: a Box<number> held in a Box<any> place throws TypeError where its member goes into an `any[]` place, where Node shares the number[] (D-219)
+// H10b review round 1 (R1-F1, R1-F7): a place tsc types Box<any> may hold Box's instance for
+// any, whose `items` is an `any[]`, or another instance, whose `items` is a `number[]`. Where
+// such a member goes into a place of a type that holds dynamic values (`any[]`, an annotated
+// local, a return, a parameter, `??`, a destructuring assignment), it is taken as it is: the
+// instance for any's array itself, so writes reach it, and for a Box<number> a TypeError
+// rather than a copy that writes would miss (the base was PTS1001 for the Box<number>, the
+// first H10b build PTS1001 for both, as for an instanceof narrowing's objects).
+class Box<T> {
+  items: T[] = [];
+  constructor(public v: T) {
+    this.items.push(v);
+  }
+}
+function fill(xs: any[]): void {
+  xs.push("filled");
+}
+function itemsOf(b: Box<any>): any[] {
+  return b.items;
+}
+function tryAll(label: string, b: Box<any>): void {
+  const forms: [string, () => void][] = [
+    ["local", () => { const kept: any[] = b.items; kept.push("local"); }],
+    ["argument", () => fill(b.items)],
+    ["return", () => itemsOf(b).push("returned")],
+    ["nullish", () => { const xs: any[] = b.items ?? []; xs.push("nullish"); }],
+    ["destructuring", () => { let it: any[] = []; ({ items: it } = b); it.push("destructured"); }],
+  ];
+  for (const [name, form] of forms) {
+    try {
+      form();
+    } catch (e) {
+      console.log(label, name, (e as Error).constructor.name, (e as Error).message);
+    }
+  }
+  console.log(label, JSON.stringify(b.items));
+}
+tryAll("any", new Box<any>(1));
+tryAll("number", new Box<number>(2));
+// expect:
+// any [1,"local","filled","returned","nullish","destructured"]
+// number local TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// number argument TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// number return TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// number nullish TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// number destructuring TypeError Expected value[], got Array, which converts to it only as a copy that wouldn't show later changes
+// number [2]

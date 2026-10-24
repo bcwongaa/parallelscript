@@ -1,9 +1,9 @@
-// skip: known issue (C238, H29): an erased copy (a generic function called through a generic value) that makes a generic class of its parameter and reads it (`new Box(x).value`) is PTS1001, live code too
 // A generic function passed as a generic value runs its erased copy (D-078, D-148), where
 // `x: T & number` is a dynamic value. `new Box(x).value` there is PTS1001 (`` `new
 // Box(x).value` is not supported yet ``), in a live statement as in one tsc narrows to `T &
 // any[]`; Node runs both. Found by H09b4b2's reproducer (`generic_typed_never_regions.pts`'s
-// value call); pre-existing and not about narrowing.
+// value call); pre-existing and not about narrowing. H10b: the erased copy's `new Box(x)` is a
+// Box<any>, a dynamic value whose `value` is read at run time (D-219), so both run (C238).
 class Box<T> {
   constructor(public value: T) {}
 }

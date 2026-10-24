@@ -8,6 +8,7 @@
  * which a write through the object's own type could change.
  */
 #include "pts.h"
+#include "dynamic_internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1128,4 +1129,16 @@ pts_value pts_value_convert(pts_value value, const pts_check *check) {
     pts_throw_type_mismatch(value, check->name);
   }
   return result;
+}
+
+pts_value pts_value_convert_as_is(pts_value value, const pts_check *check) {
+  pts_value result;
+  if (pts_value_try_convert_as_is(value, check, &result)) {
+    return result;
+  }
+  if (pts_value_try_convert(value, check, &result)) { /* a copy, which writes through either wouldn't show in the other */
+    pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s, which converts to it only as a copy that wouldn't show later changes", check->name,
+                  pts_value_description(value));
+  }
+  pts_throw_type_mismatch(value, check->name);
 }

@@ -1,0 +1,23 @@
+// H10b review round 1 (R1-F6), the reviewer's probe r16_any_place_destructuring_copies.pts without its
+// destructuring assignment into an annotated any[] (generic_any_instance_as_is_conversions.pts):
+// R1-F16: Box<any> places holding a Box<number>: names bound by destructuring (a for…of
+// pattern over Box<any>[], a parameter pattern, a destructuring assignment) are copies of the
+// object's arrays, so writes through them are lost silently. HEAD was PTS1001 at the Box<any>
+// places. (`const { items } = b` and `const items = b.items` keep the array.)
+class Box<T> {
+  items: T[] = [];
+  constructor(public v: T) {}
+}
+const n = new Box<number>(0);
+const boxes: Box<any>[] = [n];
+for (const { items } of boxes) items.push(1);
+function take({ items }: Box<any>): void { items.push(2); }
+take(n);
+const b: Box<any> = n;
+const { items } = b;
+items.push(4);
+const direct = b.items;
+direct.push(5);
+console.log(JSON.stringify(n.items));
+// expect:
+// [1,2,4,5]

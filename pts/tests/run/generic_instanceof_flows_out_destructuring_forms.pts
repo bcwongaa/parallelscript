@@ -1,0 +1,31 @@
+// H10b review round 1 (R1-F6), the reviewer's probe r16c_flow_destructuring_forms.pts:
+// R1-F16c: destructuring forms over values that flowed out of an instanceof narrowing into C<any> places: a destructured forEach parameter (1), a nested for…of pattern over a Map (4), an array pattern (5), `const { items } = h.m!` (7) lose the writes silently (Node [1..7]; HEAD threw TypeError).
+interface Cache<K, V> { get(key: K): V | undefined; }
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {}
+  get(k: K): V | undefined { return k === this.key ? this.val : undefined; }
+}
+class Holder { m: MapLRU<any, any> | null = null; }
+function probe(c: Cache<string, number>, h: Holder): void {
+  if (c instanceof MapLRU) {
+    [c].forEach(({ items }) => items.push(1));
+    [c].map((m) => m)[0].items.push(2);
+    h.m = c;
+    const byKey = new Map<string, MapLRU<any, any>>([["k", c]]);
+    byKey.get("k")!.items.push(3);
+    for (const [, { items }] of byKey) items.push(4);
+    const arr = [c];
+    const [{ items: first }] = arr;
+    first.push(5);
+  }
+}
+const m = new MapLRU<string, number>("k", 0);
+const h = new Holder();
+probe(m, h);
+h.m!.items.push(6);
+const { items } = h.m!;
+items.push(7);
+console.log(JSON.stringify(m.items));
+// expect:
+// [1,2,3,4,5,6,7]

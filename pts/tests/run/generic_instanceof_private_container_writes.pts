@@ -1,0 +1,21 @@
+// H10b review round 1 (R1-F8), the reviewer's probe r13c_private_array_object_source.pts:
+// R1-F13c: writes through private array/Map fields of an uninferred instanceof narrowing (object
+// source) and of an `any` receiver: lost silently on the snapshot (and on HEAD for the object
+// source; HEAD threw for the any receiver's... see output).
+class Box<T> {
+  #items: T[] = [];
+  #byKey = new Map<string, T>();
+  items(): string { return `${JSON.stringify(this.#items)} ${this.#byKey.size}`; }
+  static viaObject(o: object, x: any): void {
+    if (o instanceof Box) { o.#items.push(x); o.#byKey.set("k", x); }
+  }
+  static viaAny(o: any, x: any): void { o.#items.push(x); }
+}
+const n = new Box<number>();
+Box.viaObject(n, 1);
+console.log("object", n.items());
+Box.viaAny(n, 3);
+console.log("any", n.items());
+// expect:
+// object [1] 1
+// any [1,3] 1

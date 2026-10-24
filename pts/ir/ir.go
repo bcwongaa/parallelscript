@@ -1115,6 +1115,9 @@ type FromUnion struct {
 	X       Expr
 	To      Type
 	Checked bool
+	// AsIs, for X a dynamic value and To a type it converts to by a copy, converts it only
+	// where it is one already: otherwise TypeError, never a copy writes would miss (D-219).
+	AsIs bool
 }
 
 // IsNullish is whether X, a value of a union or a dynamic value, is null or undefined

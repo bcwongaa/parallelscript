@@ -609,8 +609,8 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		for _, name := range part.names {
 			field := shape.Field(name)
 			read := propertyOf(source, name)
-			if read == nil && field != nil && isObjectOrUnionOfObjects(source.Type()) {
-				read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223)
+			if read == nil && field != nil && (isObjectOrUnionOfObjects(source.Type()) || source.Type() == ir.Value) {
+				read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223), or a C<any, …> place's object's (H10b)
 			}
 			if field == nil || read == nil {
 				of := part.of

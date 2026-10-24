@@ -1,0 +1,19 @@
+// H10b review round 1 (R1-F1), the reviewer's probe r07_any_instance_callbacks.pts:
+// R1-F7: H10a's by-reference callback and kept-function rules now apply to Box<any> objects
+// (no instanceof): a named function with an any[] parameter given to a Box<any> value's method,
+// or stored in its member. HEAD ran it as Node.
+class Box<T> {
+  rows: T[][] = [[1 as any], []];
+  handlers: ((row: T[]) => void)[] = [];
+  each(f: (row: T[]) => void): void { this.rows.forEach(f); }
+  fire(): void { for (const h of this.handlers) h(this.rows[0]); }
+}
+function show(row: any[]): void { row.push("seen"); }
+const b = new Box<any>();
+b.each(show);
+b.handlers.push(show);
+b.fire();
+b.rows.forEach(show);
+console.log(JSON.stringify(b.rows));
+// expect:
+// [[1,"seen","seen","seen"],["seen","seen"]]

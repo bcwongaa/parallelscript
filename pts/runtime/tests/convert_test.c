@@ -273,6 +273,29 @@ static void a_map_of_other_value_types_is_copied(void) {
   CHECK(!pts_value_try_convert(pts_value_from_object(wrong), &number_map_check, &out));
 }
 
+/* pts_value_convert_as_is (D-219): the value itself where it is one of the type already, else TypeError, never a copy. */
+static void as_is_takes_an_array_of_the_type_itself(void) {
+  pts_value elements[] = {pts_value_from_number(1)};
+  pts_array *loose = values_of(1, elements);
+  CHECK(pts_value_convert_as_is(pts_value_from_object(loose), &anys_check) == pts_value_from_object(loose));
+}
+
+static void as_is_throws_where_only_a_copy_converts(void) {
+  double elements[] = {1, 2};
+  pts_array *numbers = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 2);
+  const pts_check *targets[] = {&anys_check, &number_check};
+  for (size_t i = 0; i < sizeof targets / sizeof targets[0]; i++) { /* a number[] as an any[] (a copy); an array as a number (no conversion) */
+    pts_handler handler;
+    pts_try_enter(&handler);
+    if (_setjmp(handler.jump) == 0) {
+      pts_value_convert_as_is(pts_value_from_object(numbers), targets[i]);
+      CHECK(false);
+    } else {
+      CHECK(pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_TypeError));
+    }
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   an_array_of_the_right_kind_is_the_same_array();
@@ -285,5 +308,7 @@ int main(int argc, char **argv) {
   objects_of_a_members_types_stay_the_same();
   an_object_that_converts_to_no_declaring_member_is_taken_as_it_is();
   a_map_of_other_value_types_is_copied();
+  as_is_takes_an_array_of_the_type_itself();
+  as_is_throws_where_only_a_copy_converts();
   return pts_runtime_exit(CHECK_DONE());
 }

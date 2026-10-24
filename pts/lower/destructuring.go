@@ -420,7 +420,12 @@ func propertyOf(source ir.Expr, name string) ir.Expr {
 func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *ast.Node) (names []string, ok bool) {
 	class, isClass := source.Type().(*ir.Class)
 	_, isInterface := source.Type().(*ir.Interface)
+	if instance := l.anyInstanceIn(objectType); source.Type() == ir.Value && instance != nil {
+		class, isClass = l.classOf(instance, node), true // a C<any, …> place's object: any of C's instances, whose own properties are C's fields (H10b)
+	}
 	switch {
+	case isClass && class == nil:
+		return nil, false // reported
 	case isClass && !class.Shape:
 		for _, field := range class.AllFields() {
 			if !field.Method && !isPrivateName(field.Name) {
@@ -447,7 +452,11 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 	if shape == nil {
 		return nil
 	}
-	names, ok := l.spreadNames(source, restType, element) // tsc keeps source's order in restType
+	objectType := restType // tsc keeps source's order in restType
+	if pattern := l.typeAt(element.Parent); source.Type() == ir.Value && l.anyInstanceIn(pattern) != nil {
+		objectType = pattern // a C<any, …> place's object, whose own properties are C's fields (H10b)
+	}
+	names, ok := l.spreadNames(source, objectType, element)
 	if !ok {
 		return nil
 	}
@@ -461,7 +470,7 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 		read := propertyOf(source, name)
 		property := l.checker.GetPropertyOfType(restType, name)
 		method := property == nil || property.Flags&ast.SymbolFlagsMethod != 0
-		if read == nil && !method && isPure(source) && isObjectOrUnionOfObjects(source.Type()) {
+		if read == nil && !method && isPure(source) && (isObjectOrUnionOfObjects(source.Type()) || source.Type() == ir.Value) {
 			read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223), which a rest copies if it is the object's own
 		}
 		switch {
@@ -660,7 +669,10 @@ func (l *lowerer) destructuringAssignment(pattern *ast.Node, valueNode *ast.Node
 		return nil
 	}
 	whole := l.newLocal("destructured", value.Type())
+	outer := l.partsAsIs
+	l.partsAsIs = outer || l.holdsAnyInstance(valueNode) // `({ items: it } = boxes[0])` for a Box<any>[] (H10b)
 	stores, ok := l.assignParts(pattern, &ir.LocalRef{Local: whole})
+	l.partsAsIs = outer
 	if !ok {
 		return nil
 	}
@@ -753,7 +765,12 @@ func (l *lowerer) assignPart(target *ast.Node, value ir.Expr) ir.Expr {
 	if !ok {
 		return nil
 	}
-	if value = l.convert(value, destination.valueType(), target); value == nil {
+	if l.partsAsIs && value.Type() == ir.Value && copiesInstanceObjects(destination.valueType()) {
+		value = l.asIsConversion(value, destination.valueType(), target) // a C<any, …> object's member, taken as it is (D-219)
+	} else {
+		value = l.convert(value, destination.valueType(), target)
+	}
+	if value == nil {
 		return nil
 	}
 	if destination.local != nil || destination.field != nil || destination.index != nil || destination.arrayLength {

@@ -1130,20 +1130,31 @@ func commonClass(x ir.Expr, y ir.Expr) (ir.Expr, ir.Expr) {
 }
 
 // privateIn lowers `#f in o`: whether o has the private member, which only instances of
-// the class that declares it (and of its subclasses) have.
+// the class that declares it (and of its subclasses) have: for a generic class, any of its
+// instances, which are one class in JS; o may be a dynamic value too (H10b).
 func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	declaring := ast.GetContainingClass(l.checker.GetSymbolAtLocation(expr.Left).ValueDeclaration)
-	class := l.classes[l.declaredSymbol(declaring)]
-	if _, isGeneric := l.genericClasses[l.declaredSymbol(declaring)]; isGeneric {
-		class = l.currentClass() // `#f in o` is in the class's own code, so in the instance being lowered
+	member := privateDeclaration(expr.Left)
+	if member == nil {
+		l.notSupportedYet(expr.Left, "this `#private in` is")
+		return nil
 	}
 	x := l.expression(expr.Right)
 	switch {
-	case x == nil || class == nil:
+	case x == nil:
 		return nil
-	case !isObject(x.Type()):
+	case !isObject(x.Type()) && !isDynamic(x.Type()):
 		l.notSupportedYet(expr.Right, fmt.Sprintf("`#private in` on a %s is", x.Type()))
+		return nil
+	}
+	if generic, ok := l.genericClasses[l.declaredSymbol(member.Parent)]; ok {
+		if generic == nil {
+			return nil // the class failed, which was reported
+		}
+		return &ir.InstanceOf{X: x, Family: &generic.classes}
+	}
+	class := l.classes[l.declaredSymbol(member.Parent)]
+	if class == nil {
 		return nil
 	}
 	return &ir.InstanceOf{X: x, Class: class}

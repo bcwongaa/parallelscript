@@ -1,0 +1,17 @@
+// H10b review round 1 (R1-F10), the reviewer's probe r09_container_par_read_only.pts's first form: a
+// new array of an instanceof narrowing's rows given to a parameter of type any[][] that only
+// reads it: its rows would be copies (D-218's R6-F1 rule), PTS1001 as for count(c.matrix) itself.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[][]
+interface Cache<K, V> { get(key: K): V | undefined; }
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [];
+  constructor(public key: K, public val: V) { for (let i = 0; i < 50; i++) this.matrix.push([i as V]); }
+  get(k: K): V | undefined { return k === this.key ? this.val : undefined; }
+}
+function count(rows: any[][]): number { let n = 0; for (const r of rows) n += r.length; return n; }
+function probe(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    console.log("count", count([...c.matrix]));
+  }
+}
+probe(new MapLRU<string, number>("k", 1));

@@ -676,7 +676,7 @@ func mayRecurse(f *ir.Func) bool {
 	found := false
 	ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
 		switch x := x.(type) {
-		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.InstanceCall, *ir.New, *ir.ArrayCall, *ir.ToString:
+		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.InstanceCall, *ir.New, *ir.ArrayCall, *ir.ToString, *ir.FamilyCall:
 			found = true
 		case *ir.CallBuiltin: // one that may convert an object to a string calls its toString()
 			found = found || !ir.IsConsole(x.Builtin) && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
@@ -1130,14 +1130,30 @@ func (e *emitter) familySetField(x *ir.FamilySetField) string {
 }
 
 // familyCall writes `o.#m(…)` for o, a dynamic value held where tsc says a generic class C:
-// the private method of whichever of C's instances o is, called through its dynamic entry
-// with the arguments, evaluated in order, or the TypeError JS throws for an object of
-// another class (H10b).
+// which of C's instances o is, or the TypeError JS throws for an object of another class,
+// found before the arguments are evaluated (JS reads `o.#m` first), then that instance's
+// private method called through its dynamic entry with the arguments, evaluated in order
+// (H10b).
 func (e *emitter) familyCall(x *ir.FamilyCall) string {
 	object := &ir.Local{Name: "object", Type: ir.Value}
 	objectName := e.declareLocal(object)
+	which := e.declareLocal(&ir.Local{Name: "which", Type: ir.I32})
 	var c strings.Builder
 	fmt.Fprintf(&c, "({ pts_value %s = %s; ", objectName, e.expr(x.X))
+	var entries []string
+	found := "0"
+	for i := len(*x.Family) - 1; i >= 0; i-- {
+		class := (*x.Family)[i]
+		method := class.Method(x.Name, ir.Plain)
+		if method == nil || method.Abstract {
+			continue
+		}
+		entries = append(entries, dynamicEntryName(e.entryNames[method.Func]))
+		test := e.expr(&ir.InstanceOf{X: &ir.LocalRef{Local: object}, Class: class})
+		found = fmt.Sprintf("(%s ? %d : %s)", test, len(entries), found)
+	}
+	message := "Receiver must be an instance of class " + x.Class
+	fmt.Fprintf(&c, "int32_t %s = %s; if (%s == 0) pts_throw_new(&pts_type_builtin_TypeError, \"%%s\", %s); ", which, found, which, cString(message))
 	args := make([]string, len(x.Args))
 	for i, arg := range x.Args {
 		args[i] = e.declareLocal(&ir.Local{Name: "arg", Type: ir.Value})
@@ -1148,17 +1164,14 @@ func (e *emitter) familyCall(x *ir.FamilyCall) string {
 		argv = e.declareLocal(&ir.Local{Name: "argv", Type: ir.Value})
 		fmt.Fprintf(&c, "pts_value %s[] = {%s}; ", argv, strings.Join(args, ", "))
 	}
-	message := "Receiver must be an instance of class " + x.Class
-	call := "(pts_throw_new(&pts_type_builtin_TypeError, \"%s\", " + cString(message) + "), PTS_VALUE_UNDEFINED)"
-	for i := len(*x.Family) - 1; i >= 0; i-- {
-		class := (*x.Family)[i]
-		method := class.Method(x.Name, ir.Plain)
-		if method == nil || method.Abstract {
+	call := "PTS_VALUE_UNDEFINED"
+	for i, entry := range entries {
+		called := fmt.Sprintf("%s(pts_value_as_object(%s), %d, %s)", entry, objectName, len(args), argv)
+		if i == 0 {
+			call = called
 			continue
 		}
-		test := e.expr(&ir.InstanceOf{X: &ir.LocalRef{Local: object}, Class: class})
-		entry := fmt.Sprintf("%s(pts_value_as_object(%s), %d, %s)", dynamicEntryName(e.entryNames[method.Func]), objectName, len(args), argv)
-		call = "(" + test + " ? " + entry + " : " + call + ")"
+		call = fmt.Sprintf("(%s == %d ? %s : %s)", which, i+1, called, call)
 	}
 	fmt.Fprintf(&c, "%s; })", call)
 	return c.String()
@@ -1179,6 +1192,13 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 	value := e.expr(x.X)
 	if x.Checked {
 		value = "pts_value_non_null(" + value + ")"
+	}
+	if x.X.Type() == ir.Value && x.To != ir.Value && x.AsIs && !hasValueTest(x.To) { // as it is, never copied (D-219)
+		converted := "pts_value_convert_as_is(" + value + ", &" + e.checks[x.To] + ")"
+		if isUnion(x.To) {
+			return converted
+		}
+		return "((" + e.cDeclaredType(x.To) + ")pts_value_as_object(" + converted + "))"
 	}
 	if x.X.Type() == ir.Value && x.To != ir.Value {
 		return e.fromValue(value, x.To)

@@ -1,0 +1,18 @@
+// H10b review round 1 (R1-F1), the reviewer's probe r01_any_member_to_any_array.pts:
+// R1-F1: no instanceof anywhere. A program that only makes Box<any> objects and hands their
+// any[] member to any[] places (a return, an annotated local, a mutating parameter). HEAD
+// compiled and ran it as Node; the snapshot is PTS1001 naming an instanceof narrowing.
+class Box<T> {
+  items: T[] = [];
+  constructor(public v: T) { this.items.push(v); }
+}
+function itemsOf(b: Box<any>): any[] { return b.items; }
+function pushTo(xs: any[]): void { xs.push("p"); }
+const a = new Box<any>(1);
+itemsOf(a).push("two");
+const kept: any[] = a.items;
+kept.push(3);
+pushTo(a.items);
+console.log(a.items, kept === a.items);
+// expect:
+// [ 1, 'two', 3, 'p' ] true

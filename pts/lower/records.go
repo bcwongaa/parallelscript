@@ -460,7 +460,15 @@ func (l *lowerer) spreadIntoRecord(record ir.Expr, sourceNode *ast.Node) ir.Expr
 	built, object := l.newLocal("record", mt), l.newLocal("spread", source.Type()) // evaluated in this order
 	var result ir.Expr = &ir.LocalRef{Local: built}
 	for _, name := range names {
-		value := l.convert(propertyOf(&ir.LocalRef{Local: object}, name), mt.Value, sourceNode)
+		read := propertyOf(&ir.LocalRef{Local: object}, name)
+		if read == nil && source.Type() == ir.Value {
+			read = l.missingOwnProperty(&ir.LocalRef{Local: object}, name) // a C<any, …> place's object's (H10b)
+		}
+		if read == nil {
+			l.notSupportedYet(sourceNode, fmt.Sprintf("spreading the property `%s` of a %s into a %s is", name, source.Type(), mt))
+			return nil
+		}
+		value := l.convert(read, mt.Value, sourceNode)
 		if value == nil {
 			return nil
 		}

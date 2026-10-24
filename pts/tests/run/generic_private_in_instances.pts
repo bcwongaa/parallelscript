@@ -1,0 +1,14 @@
+// H10b review round 1 (R1-F2): `#f in o` for a generic class tests every instance of the class, which
+// are one class in JS (HEAD tested only the instance being lowered, and was PTS9001 in a static
+// method), for receivers held as dynamic values and of a non-generic class too.
+class Box<T> {
+  #v: T;
+  constructor(v: T) { this.#v = v; }
+  isBox(o: unknown): boolean { return typeof o === "object" && o !== null && #v in o; }
+  static check(o: object): boolean { return #v in o; }
+}
+class Plain { #p = 1; static has(o: any): boolean { return #p in o; } }
+const nb = new Box<number>(1), sb = new Box<string>("s");
+console.log(nb.isBox(sb), sb.isBox(nb), nb.isBox({}), Box.check(sb), Box.check(new Plain()), Plain.has(new Plain()), Plain.has(nb));
+// expect:
+// true true false true false true false

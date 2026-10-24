@@ -23,18 +23,18 @@ import (
 // narrowing holds as a dynamic value (holdsInstanceofDynamicValue), or an iterator's step
 // (isInstanceofIteratorStep).
 func (l *lowerer) isInstanceofContainer(node *ast.Node) bool {
-	return l.instanceofContainer(node, false)
+	return l.instanceofContainer(node, sourceHeld)
 }
 
-// instanceofContainerKey is a node and whether instanceofContainer asks for values an
-// instanceof narrowing made dynamic, in the instance being lowered, whose types are its own.
+// instanceofContainerKey is a node and which values instanceofContainer asks about, in the
+// instance being lowered, whose types are its own.
 type instanceofContainerKey struct {
 	node  *ast.Node
-	made  bool
+	mode  sourceMode
 	subst *substitution
 }
 
-func (l *lowerer) instanceofContainer(node *ast.Node, made bool) bool {
+func (l *lowerer) instanceofContainer(node *ast.Node, mode sourceMode) bool {
 	node = ast.SkipParentheses(node)
 	switch {
 	case len(l.genericClasses) == 0:
@@ -42,7 +42,7 @@ func (l *lowerer) instanceofContainer(node *ast.Node, made bool) bool {
 	case node.Kind != ast.KindArrayLiteralExpression && node.Kind != ast.KindNewExpression && node.Kind != ast.KindCallExpression:
 		return false
 	}
-	key := instanceofContainerKey{node, made, l.subst}
+	key := instanceofContainerKey{node, mode, l.subst}
 	if known, ok := l.instanceofContainers[key]; ok {
 		return known
 	}
@@ -50,40 +50,40 @@ func (l *lowerer) instanceofContainer(node *ast.Node, made bool) bool {
 		l.instanceofContainers = map[instanceofContainerKey]bool{} // a lowerer a test makes
 	}
 	l.instanceofContainers[key] = false // an element that holds the container itself
-	known := l.makesInstanceofContainer(node, made)
+	known := l.makesInstanceofContainer(node, mode)
 	l.instanceofContainers[key] = known
 	return known
 }
 
-func (l *lowerer) makesInstanceofContainer(node *ast.Node, made bool) bool {
+func (l *lowerer) makesInstanceofContainer(node *ast.Node, mode sourceMode) bool {
 	switch node.Kind {
 	case ast.KindArrayLiteralExpression:
 		return l.copiesElementsOf(node) && slices.ContainsFunc(node.Elements(), func(element *ast.Node) bool {
 			if element.Kind == ast.KindSpreadElement {
 				element = element.Expression()
 			}
-			return element.Kind != ast.KindOmittedExpression && l.instanceofDynamicSource(element, made)
+			return element.Kind != ast.KindOmittedExpression && l.instanceofDynamicSource(element, mode)
 		})
 	case ast.KindNewExpression:
 		if !l.isMapConstructor(node) || len(node.Arguments()) != 1 {
 			return false
 		}
 		mt, ok := l.irType(l.typeAt(node), node).(*ir.MapType)
-		return ok && (copiesInstanceObjects(mt.Key) || mt.Value != nil && copiesInstanceObjects(mt.Value)) && l.instanceofDynamicSource(node.Arguments()[0], made)
+		return ok && (copiesInstanceObjects(mt.Key) || mt.Value != nil && copiesInstanceObjects(mt.Value)) && l.instanceofDynamicSource(node.Arguments()[0], mode)
 	case ast.KindCallExpression:
 		callee := ast.SkipParentheses(node.Expression())
 		switch {
 		case l.isArrayStatic(callee, "from") || l.isObjectStatic(callee, "values", "entries"):
-			return len(node.Arguments()) == 1 && l.copiesElementsOf(node) && l.instanceofDynamicSource(node.Arguments()[0], made)
+			return len(node.Arguments()) == 1 && l.copiesElementsOf(node) && l.instanceofDynamicSource(node.Arguments()[0], mode)
 		case l.isArrayStatic(callee, "of"):
 			return l.copiesElementsOf(node) && slices.ContainsFunc(node.Arguments(), func(argument *ast.Node) bool {
 				if argument.Kind == ast.KindSpreadElement {
 					argument = argument.Expression()
 				}
-				return l.instanceofDynamicSource(argument, made)
+				return l.instanceofDynamicSource(argument, mode)
 			})
 		}
-		return l.isInstanceofIteratorStep(node, made)
+		return l.isInstanceofIteratorStep(node, mode)
 	}
 	return false
 }
@@ -92,7 +92,7 @@ func (l *lowerer) makesInstanceofContainer(node *ast.Node, made bool) bool {
 // `it.throw(e)` of an iterator an instanceof narrowing holds as a dynamic value
 // (`c.store.values().next()`), whose value tsc's result type would copy: its result holds
 // the value as it is, and is held as a dynamic value (C285).
-func (l *lowerer) isInstanceofIteratorStep(call *ast.Node, made bool) bool {
+func (l *lowerer) isInstanceofIteratorStep(call *ast.Node, mode sourceMode) bool {
 	callee := ast.SkipParentheses(call.Expression())
 	if callee.Kind == ast.KindNonNullExpression {
 		callee = ast.SkipParentheses(callee.Expression())
@@ -110,7 +110,7 @@ func (l *lowerer) isInstanceofIteratorStep(call *ast.Node, made bool) bool {
 		return false
 	}
 	yield, _, _ := l.iterationTypes(iterator)
-	return copiesInstanceObjects(l.irType(yield, call)) && l.instanceofDynamicSource(callee.Expression(), made)
+	return copiesInstanceObjects(l.irType(yield, call)) && l.instanceofDynamicSource(callee.Expression(), mode)
 }
 
 // copiesElementsOf reports whether node, of an array type to tsc, holds elements that a
@@ -142,4 +142,19 @@ func (l *lowerer) dynamicCollectionOf(mt *ir.MapType) *ir.MapType {
 		value = ir.Value
 	}
 	return l.mapOf(key, value, mt.Set)
+}
+
+// holdsInstanceofContainer reports whether node reads a variable bound to such a container
+// (`const step = it.next()`, `const rows = [...c.matrix]`), which holds it as a dynamic value
+// (isInstanceofDynamicLocal).
+func (l *lowerer) holdsInstanceofContainer(node *ast.Node) bool {
+	if node = ast.SkipParentheses(node); node.Kind != ast.KindIdentifier {
+		return false
+	}
+	symbol := l.readSymbol(node)
+	if symbol == nil || !l.isInstanceofDynamicLocal(symbol) {
+		return false
+	}
+	source := l.bindingSource(symbol)
+	return source != nil && source.Parent.Kind == ast.KindVariableDeclaration && l.isInstanceofContainer(source)
 }

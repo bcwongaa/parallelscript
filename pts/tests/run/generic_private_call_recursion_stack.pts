@@ -1,0 +1,15 @@
+// H10b review round 1 (R1-F9), the reviewer's probe r12_family_call_recursion.pts:
+// R1-F12: unbounded recursion whose only call is a private method called on a dynamic receiver
+// (FamilyCall): mayRecurse (cgen.go:675) doesn't count FamilyCall, so the method gets no stack
+// check. Node throws RangeError (caught here).
+class Walker<T> {
+  constructor(public v: T) {}
+  #rec(o: any, n: number): number { return o.#rec(o, n + 1); }
+  static run(o: object): string {
+    if (!(o instanceof Walker)) return "no";
+    try { return `${o.#rec(o, 0)}`; } catch (e) { return (e as Error).name; }
+  }
+}
+console.log(Walker.run(new Walker<number>(1)));
+// expect:
+// RangeError

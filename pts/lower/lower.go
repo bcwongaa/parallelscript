@@ -391,6 +391,7 @@ type lowerer struct {
 	instanceofInstances  map[instanceofKey]instanceofResult // what references narrowed by instanceof hold (instanceofNarrowing)
 	instanceofLocals     map[instanceofLocal]bool           // variables that hold dynamic values of instanceof narrowings (isInstanceofDynamicLocal)
 	instanceofContainers map[instanceofContainerKey]bool    // the answers of instanceofContainer, per instance being lowered
+	partsAsIs            bool                               // assignParts takes apart a value tsc types C<any, …> (destructuringAssignment)
 	anyMentions          map[*checker.Type]bool             // mentionsAny's answers
 	narrowingAnswers     narrowingAnswers                   // isNarrowedDynamic's and instanceofDynamicSource's answers within one question
 	chainDepth           int                                // how many optional chains are being lowered past their tests
@@ -1053,6 +1054,9 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 	case target == ir.Value:
 		return box(value)
 	case l.copiesInstanceofDynamicValue(value, target, node):
+		if !l.narrowedByInstanceof(ast.SkipParentheses(node)) {
+			return l.asIsConversion(value, target, node) // a C<any, …> place's object's (H10b)
+		}
 		l.reportInstanceofCopy(target, node) // D-218, R3-F2
 		return nil
 	case value.Type() == ir.Value && isCheckable(target): // a dynamic value into a typed place: checked (D-070)
@@ -2184,6 +2188,10 @@ func (l *lowerer) restArray(values []ir.Expr, at []*ast.Node, array *ir.Array) i
 	spread := false
 	for i, value := range values {
 		if s, ok := value.(*spreadValue); ok {
+			if at[i].Kind == ast.KindSpreadElement && copiesInstanceObjects(array.Elem) && l.narrowedByInstanceof(at[i].Expression()) {
+				l.reportInstanceofCopy(array, at[i]) // `pushRest(...c.matrix)`: its rows would be copies (D-218's rule, C285)
+				return nil
+			}
 			if s.x.Type() != array && s.x.Type() != ir.ValueArray {
 				l.notSupportedYet(at[i], fmt.Sprintf("spreading a %s into a rest parameter of type %s is", s.x.Type(), array))
 				return nil

@@ -3,6 +3,7 @@ package lower
 import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
 )
 
@@ -34,14 +35,33 @@ func (l *lowerer) isAnyInstance(t *checker.Type) bool {
 // type arguments, which typeAt gives as their instance (D-218).
 func (l *lowerer) holdsAnyInstance(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
-	if node.Kind == ast.KindSuperKeyword {
-		return false
-	}
-	t := l.typeAt(node)
+	return node.Kind != ast.KindSuperKeyword && l.anyInstanceIn(l.typeAt(node)) != nil
+}
+
+// anyInstanceIn is t if it is tsc's C<any, …> (isAnyInstance), or an intersection's covering
+// member that is, which irType gives as a dynamic value; otherwise nil.
+func (l *lowerer) anyInstanceIn(t *checker.Type) *checker.Type {
 	if t.Flags()&checker.TypeFlagsIntersection != 0 {
 		if member := l.coveringMember(t); member != nil {
 			t = member
 		}
 	}
-	return l.isAnyInstance(t)
+	if !l.isAnyInstance(t) {
+		return nil
+	}
+	return t
+}
+
+// asIsConversion converts value, the dynamic value of a place tsc types C<any, …> or one of
+// its members, objects or containers (`b.items` for a `b: Box<any>`), to target, a type a
+// dynamic value converts to by a copy (`any[]`, a shape holding one: copiesInstanceofDynamicValue),
+// as it is: the place may hold C's instance for any, whose `any[]` is one, or another
+// instance, whose `number[]` would be a copy that writes miss, a TypeError instead (D-219).
+func (l *lowerer) asIsConversion(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
+	converted, ok := l.dynamicConversion(value, target, node).(*ir.FromUnion)
+	if !ok {
+		return nil
+	}
+	converted.AsIs = true
+	return converted
 }

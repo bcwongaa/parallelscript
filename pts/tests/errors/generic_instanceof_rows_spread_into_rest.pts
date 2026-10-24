@@ -1,0 +1,18 @@
+// H10b review round 1 (R1-F12), the reviewer's probe r14_spread_into_rest_parameter.pts: an instanceof
+// narrowing's rows spread into a rest parameter of type any[][] would arrive as copies, which
+// the callee's write would miss (silently, on the base): D-218's PTS1001, as for c.matrix itself.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[][]
+interface Cache<K, V> { get(key: K): V | undefined; }
+class MapLRU<K, V> implements Cache<K, V> {
+  matrix: V[][] = [[], []];
+  constructor(public key: K, public val: V) {}
+  get(k: K): V | undefined { return k === this.key ? this.val : undefined; }
+}
+function pushRest(...rows: any[][]): void { rows[0].push(1); }
+function probe(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    pushRest(...c.matrix);
+  }
+}
+const m = new MapLRU<string, number>("k", 1);
+probe(m);

@@ -274,7 +274,7 @@ func (l *lowerer) narrowedDynamic(node *ast.Node) bool {
 		ast.SkipParentheses(node).Kind == ast.KindAwaitExpression && l.holdsInstanceofDynamicValue(node) { // `(await Promise.resolve(c.items)).push(x)`, `await Promise.all(u.matrix)` (C285)
 		return true // a C of any type arguments narrowed by instanceof, or a member of one tsc types with any (H10)
 	}
-	if l.isInstanceofNestedObject(node) || l.isInstanceofContainer(node) {
+	if l.isInstanceofNestedObject(node) || l.isInstanceofContainer(node) || l.holdsInstanceofContainer(node) {
 		return true // `c.matrix[0]`, `c.meta.tags`, `c.store.get(k)!` (H10a); `[...c.matrix]`, `it.next()` (C285)
 	}
 	if !l.storedDynamic(node) {

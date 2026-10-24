@@ -1,0 +1,30 @@
+// H10b review round 1 (R1-F11), the reviewer's probe r10_iterator_local_step.pts:
+// R1-F10: an iterator of a narrowed instance's Map values kept in a local, then stepped:
+// the step's value is a copy of the instance's array (=== false, writes lost silently).
+// The same step written in one expression keeps the array.
+interface Cache<K, V> { get(key: K): V | undefined; }
+class MapLRU<K, V> implements Cache<K, V> {
+  store = new Map<string, V[]>([["a", []]]);
+  constructor(public key: K, public val: V) {}
+  get(k: K): V | undefined { return k === this.key ? this.val : undefined; }
+}
+function probe(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    const direct = c.store.values().next();
+    direct.value!.push(1);
+    console.log("direct", direct.value === c.store.get("a"));
+    const it = c.store.values();
+    const step = it.next();
+    step.value!.push(2);
+    console.log("local", step.value === c.store.get("a"));
+    const it2 = c.store.entries();
+    it2.next().value![1].push(3);
+  }
+}
+const m = new MapLRU<string, number>("k", 1);
+probe(m);
+console.log(JSON.stringify([...m.store]));
+// expect:
+// direct true
+// local true
+// [["a",[1,2,3]]]

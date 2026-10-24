@@ -1,0 +1,21 @@
+// H10b review round 1 (R1-F6), the reviewer's probe r16b_narrowed_flow_destructuring.pts:
+// R1-F16b: the same with values narrowed by instanceof that flow out (C279's core): a for…of
+// pattern over `[c]` and a parameter pattern of a MapLRU<any, any> function lose the writes.
+interface Cache<K, V> { get(key: K): V | undefined; }
+class MapLRU<K, V> implements Cache<K, V> {
+  items: V[] = [];
+  constructor(public key: K, public val: V) {}
+  get(k: K): V | undefined { return k === this.key ? this.val : undefined; }
+}
+function take({ items }: MapLRU<any, any>): void { items.push(2); }
+function probe(c: Cache<string, number>): void {
+  if (c instanceof MapLRU) {
+    for (const { items } of [c]) items.push(1);
+    take(c);
+  }
+}
+const m = new MapLRU<string, number>("k", 0);
+probe(m);
+console.log(JSON.stringify(m.items));
+// expect:
+// [1,2]

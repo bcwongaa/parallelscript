@@ -1,0 +1,34 @@
+// H10b review round 1 (R1-F14), the reviewer's probe r15_family_call_argument_order.pts:
+// R1-F15: `o.#m(args)` on a dynamic receiver evaluates the arguments before the brand check; V8 throws before evaluating them (Node prints "threw|" with no args logged).
+let log: string[] = [];
+function arg(x: number): number { log.push(`arg${x}`); return x; }
+class Cell<T> {
+  #v: T;
+  constructor(v: T) { this.#v = v; }
+  #m(a: number, b: number): number { return a + b; }
+  static run(o: any): string {
+    let r2: string;
+    try { r2 = `${o.#m(arg(1), arg(2))}`; } catch (e) { r2 = "threw"; }
+    return `${r2}|${log.join(",")}`;
+  }
+  static set(o: any): string {
+    try { o.#v = arg(3); } catch (e) { log.push("threw"); }
+    return log.join(",");
+  }
+  static inc(o: any): string {
+    try { o.#v += arg(4); } catch (e) { log.push("threw"); }
+    return log.join(",");
+  }
+}
+console.log(Cell.run(new Cell<number>(1)));
+log = [];
+console.log(Cell.run({}));
+log = [];
+console.log(Cell.set({}));
+log = [];
+console.log(Cell.inc({}));
+// expect:
+// 3|arg1,arg2
+// threw|
+// arg3,threw
+// threw

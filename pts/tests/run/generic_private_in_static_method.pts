@@ -1,0 +1,11 @@
+// H10b review round 1 (R1-F2), the reviewer's probe r02b_private_in_static_crash.pts:
+// Pre-existing (HEAD too): `#v in o` in a static method of a generic class is PTS9001 (nil
+// currentClass in privateIn, classes.go:1138).
+class Box<T> {
+  #v: T;
+  constructor(v: T) { this.#v = v; }
+  static isBox(o: Box<number>): boolean { return #v in o; }
+}
+console.log(Box.isBox(new Box<number>(1)));
+// expect:
+// true

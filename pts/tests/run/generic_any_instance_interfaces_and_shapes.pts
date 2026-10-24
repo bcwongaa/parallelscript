@@ -1,0 +1,17 @@
+// H10b review round 1 (R1-F1), the reviewer's probe r03_any_instance_to_interface.pts:
+// R1-F3: a Box<any> value converted to an interface or object type (a parameter, an annotated
+// local). Box<any> objects only, no instanceof. HEAD ran it as Node; the snapshot is PTS1001
+// naming an instanceof narrowing.
+interface Getter<V> { get(): V; readonly v: V; }
+class Box<T> {
+  items: T[] = [];
+  constructor(public v: T) { this.items.push(v); }
+  get(): T { return this.v; }
+}
+function viaIface(g: Getter<any>): any { return g.get(); }
+function viaShape(o: { v: any; items: any[] }): number { o.items.push(o.v); return o.items.length; }
+const b = new Box<any>(1);
+const g: Getter<any> = b;
+console.log(viaIface(b), g.get(), viaShape(b), b.items);
+// expect:
+// 1 1 2 [ 1, 1 ]

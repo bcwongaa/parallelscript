@@ -1,0 +1,70 @@
+// H10b: operations on values tsc types Box<any> that HEAD lowered as typed class instances,
+// now dynamic values whose members are found at run time, for an instance for any (`new
+// Box<any>(…)`) and a Box<number> held in a Box<any> place: an object spread, a rest pattern,
+// a spread into a Record, a spread before a yield, `for…in`, `in`, `bind`/`call`/`apply` of a
+// method, passing one where an interface goes, accessors and a conditional. The first H10b
+// build made the spreads, `bind` and the interface PTS1001 (or PTS9001), where HEAD ran the
+// instance for any as Node does.
+interface HasV {
+  label: string;
+  m(): number;
+}
+class Box<T> implements HasV {
+  label = "box";
+  items: T[] = [];
+  constructor(public v: T) {
+    this.items.push(v);
+  }
+  m(): number {
+    return 7;
+  }
+  add(a: number, b: number): number {
+    return a + b;
+  }
+  get twice(): string {
+    return `${this.v}${this.v}`;
+  }
+}
+function viaInterface(i: HasV): string {
+  return `${i.label}/${i.m()}`; // members both instances provide with the same types (a Box<number> as a `{ v: any }` is C280's)
+}
+function* spreadAcrossYield(b: Box<any>): Generator<number, void, number> {
+  const o = { ...b, got: yield 1 };
+  console.log("yielded", o);
+}
+function operations(x: Box<any>): void {
+  const keys: string[] = [];
+  for (const k in x) keys.push(k);
+  console.log("in", keys, "v" in x, Object.keys(x).length);
+  console.log("spread", { ...x, extra: 1 });
+  const { v, ...rest } = x;
+  console.log("rest", v, rest);
+  const record: Record<string, any> = { ...x };
+  console.log("record", record);
+  const bound = x.add.bind(x, 10);
+  console.log("bind", bound(5), x.add.call(x, 1, 2), x.add.apply(x, [3, 4]), x.m.bind(x)());
+  console.log("interface", viaInterface(x), x.twice);
+  const g = spreadAcrossYield(x);
+  g.next();
+  g.next(5);
+}
+const anyBox = new Box<any>(3);
+operations(anyBox);
+const numberBox = new Box<number>(4);
+const held: Box<any> = numberBox;
+operations(Math.random() < 2 ? held : anyBox);
+// expect:
+// in [ 'v', 'label', 'items' ] true 3
+// spread { v: 3, label: 'box', items: [ 3 ], extra: 1 }
+// rest 3 { label: 'box', items: [ 3 ] }
+// record { v: 3, label: 'box', items: [ 3 ] }
+// bind 15 3 7 7
+// interface box/7 33
+// yielded { v: 3, label: 'box', items: [ 3 ], got: 5 }
+// in [ 'v', 'label', 'items' ] true 3
+// spread { v: 4, label: 'box', items: [ 4 ], extra: 1 }
+// rest 4 { label: 'box', items: [ 4 ] }
+// record { v: 4, label: 'box', items: [ 4 ] }
+// bind 15 3 7 7
+// interface box/7 44
+// yielded { v: 4, label: 'box', items: [ 4 ], got: 5 }

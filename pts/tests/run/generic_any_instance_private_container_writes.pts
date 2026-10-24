@@ -1,0 +1,29 @@
+// H10b review round 1 (R1-F8), the reviewer's probe r13_private_array_member_writes.pts:
+// R1-F13: writes through a private array (or Map) field of an instance held as a dynamic value
+// (an instanceof narrowing from `object`, a Box<any> place, a receiver declared any) are lost:
+// the private read converts the field to tsc's type by a copy. Node changes the instance's array.
+class Box<T> {
+  #items: T[] = [];
+  #byKey = new Map<string, T>();
+  items(): string { return `${JSON.stringify(this.#items)} ${this.#byKey.size}`; }
+  static viaObject(o: object, x: any): void {
+    if (o instanceof Box) { o.#items.push(x); o.#byKey.set("k", x); }
+  }
+  static viaPlace(b: Box<any>, x: any): void { b.#items.push(x); b.#items[1] = x; }
+  static viaAny(o: any, x: any): void { o.#items.push(x); }
+}
+const n = new Box<number>();
+Box.viaObject(n, 1);
+console.log("object", n.items());
+Box.viaPlace(n, 2);
+console.log("place", n.items());
+Box.viaAny(n, 3);
+console.log("any", n.items());
+const a = new Box<any>();
+Box.viaPlace(a, "s");
+console.log("any instance", a.items());
+// expect:
+// object [1] 1
+// place [1,2] 1
+// any [1,2,3] 1
+// any instance ["s","s"] 0

@@ -1138,6 +1138,8 @@ pts_value pts_dynamic_call_closure(struct pts_closure *function, uint32_t argc, 
 
 /* value as a value of the type check describes: itself if it is one, else a copy of it converted to one (dynamic data); TypeError if neither. */
 pts_value pts_value_convert(pts_value value, const pts_check *check);
+/* pts_value_convert of a value that is one of check's type already, as it is: TypeError where only a copy converts it (D-219). */
+pts_value pts_value_convert_as_is(pts_value value, const pts_check *check);
 /* pts_value_convert, which reports whether value converts instead of throwing. */
 bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out);
 /* For a read (D-192): pts_value_try_convert without a copy, whether value is one of check's type as it is (a closure of another type adapted; any object as an object type, whose sites verify each property they read), given in check's representation. */

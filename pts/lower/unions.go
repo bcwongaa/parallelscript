@@ -638,13 +638,23 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	if y = l.convert(y, result, expr.Right); y == nil {
 		return nil
 	}
+	asIs := false
 	if l.copiesInstanceofDynamicValue(x, result, expr.Left) {
-		l.reportInstanceofCopy(result, expr.Left) // `c.items ?? []` (D-218, R3-F2)
-		return nil
+		if l.narrowedByInstanceof(ast.SkipParentheses(expr.Left)) {
+			l.reportInstanceofCopy(result, expr.Left) // `c.items ?? []` (D-218, R3-F2)
+			return nil
+		}
+		asIs = true // `b.items ?? []` for a Box<any> place's b (H10b)
 	}
 	tmp := l.newLocal("value", x.Type())
 	ref := &ir.LocalRef{Local: tmp}
-	coalesced := &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: y, Else: fromUnion(ref, result)}}
+	var value ir.Expr = fromUnion(ref, result)
+	if asIs {
+		if value = l.asIsConversion(ref, result, expr.Left); value == nil {
+			return nil
+		}
+	}
+	coalesced := &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: y, Else: value}}
 	if t != required && !l.takesUndefined(node) {
 		if requiredType := l.irType(required, node); requiredType != nil && requiredType != result {
 			return l.checkedConversion(coalesced, requiredType, node)

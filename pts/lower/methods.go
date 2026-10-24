@@ -323,6 +323,14 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	if fn == nil {
 		return nil
 	}
+	if fn.Type() == ir.Value && tuple == nil {
+		// `b.m.bind(b)` for a b held as a dynamic value (a Box<any> place's object, H10b): the
+		// function it holds, its call, apply or bind found at run time, as through any
+		if x := l.dynamicMethodCall(call, callee, fn); x != nil {
+			return l.narrowedValue(call.AsNode(), x)
+		}
+		return nil
+	}
 	ft, ok := fn.Type().(*ir.FuncType)
 	if !ok {
 		l.notSupportedYet(target, fmt.Sprintf("`%s` on a %s is", name, fn.Type()))

@@ -1,0 +1,12 @@
+// H10b review round 1 (R1-F2), the reviewer's probe r02_private_in_any_instance.pts:
+// R1-F2: `#v in other` where other is Box<T>, in the class's instance for any (Box<any>
+// objects only, no instanceof). HEAD ran it as Node; the snapshot is PTS1001.
+class Box<T> {
+  #v: T;
+  constructor(v: T) { this.#v = v; }
+  same(other: Box<T>): boolean { return #v in other; }
+}
+const a = new Box<any>(1);
+console.log(a.same(new Box<any>("b")));
+// expect:
+// true
