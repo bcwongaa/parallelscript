@@ -558,3 +558,83 @@ Files are in `/tmp/h10b/review5/`:
 - tooling: `bin/`
 
 The archive is `/tmp/h10b/h10b-review5-probes.tar.gz` (no binaries), and `/tmp/h10b/review5.done` is touched.
+
+## Round 6 (snapshot 8: `5db31d972` plus the round-5 fixes, committed as `4f1b34621`; the round-5 reviewer, resumed)
+
+# H10b review, round 6 (snapshot 8: `5db31d972` plus `/tmp/h10b/snap8.patch`)
+
+**VERDICT: NOT READY**
+
+All six round-5 findings are fixed for the cases they named. Both matrices, every earlier probe and the emit-c sweep are clean. One new silent copy remains: destructuring assignments whose target has a default (R6-F1). I'm keeping High for it, consistent with how round 5 rated its non-default twin R5-F4, even though it only bites another instance held in a `C<any>` place, or a narrowing. There is also one Low behaviour change in `in` (R6-F2).
+
+## What I checked
+- **777-case matrix on snap8:** 751 OK, 24 PTS1001, 2 TYPEERR. Identical to snap6 and round 4: no class or detail changes.
+- **748-case matrix on snap8:** 732 OK, 12 PTS1001, 4 WRONG. Identical to snap6; the 4 WRONG are the recorded R1-F13 cases.
+- **Suite 8 (the parent's run):** 5,818 pass / 382 skip / 0 fail, 10 packages PASS, empty stderr.
+- **emit-c sweep, snap6 against snap8, 1,579 programs:** 1,571 produce identical C. Of the 8 that differ, 5 are the new tests. The other 3 are intended changes:
+  - a PTS1001 whose column moves to the spread's `...` (`member_spread_copies`);
+  - `pts_object_take_order_of_value` (`own_properties`);
+  - `"k" in x` back to `(x, true)` for a required key (`object_operations`).
+  - No other program changed.
+- **Re-runs on snap8:**
+  - The 170 files of rounds 1–3: 166 identical to snap6, the other 4 differ only in timing.
+  - Round 4's 20 files plus the parent's 9 round-5 probes: 28 identical; p07 only moves its PTS1001 column.
+  - My 41 round-5 files plus the parent's 3 round-6 probes: 22 changed, all of them the R5 fixes (now Node's output, the designed TypeError, or PTS1001) or PTS1001 columns moving. The parent's `p10b` behaves as designed; `p10`'s array pattern is a pre-existing PTS1001.
+- **New probes:** about 45 files in `p/v01`–`p/v13`, each run on Node, snap8, snap6 and base.
+
+## Round 5's findings re-checked
+- **R5-F1 fixed.** Required keys are `true` again on every value kind, including the type-guarded `unknown` (`r5_in…`, `u02`).
+- **R5-F2 fixed.**
+  - Rests of a `Box<any>` place's members and of an `unknown` narrowing's give the as-is TypeError.
+  - Rests of a narrowing's member are PTS1001, as on base.
+  - The same holds for nested patterns, `for…of` declarations, callback parameters, parameter defaults, `for (let …)` and nested declaration defaults (`v03`; snap6 copied four of these silently).
+- **R5-F3 fixed.** Spreads through `getMeta()`, a cast, `find(…)!`, `??`, `||`, `?:`, a comma and `await` give the as-is TypeError (`r5_spread…`, `u11`, `u12b`, `v07`; snap6 copied the `?:` and comma forms silently).
+- **R5-F4 fixed, except with defaults (R6-F1).** Shorthand, member, renamed, rest and nested-rest assignments all give the as-is TypeError.
+- **R5-F5 fixed.** The root is evaluated once and identity is kept in every form I tried: `&&`/`||`/`?:` with the branch taken or not, `??`, templates, spreads, comparisons, arguments, `+=`, `??=`, `&&=`, two levels deep, parenthesized, `!`, and `yield` forms (`v04`, `v04b`, `v09`). Snap6 evaluated each of these twice.
+- **R5-F6 fixed.** Spreads of literals, frozen objects (the copy stays writable), records, absent optional keys and over-spreads all match Node or base (`v05`, `v05d`). A class instance in the member comes out in the type's order, but that is base's own D-108 gap (`v05b`, `v05c`).
+
+## New findings
+Repros are in `/tmp/h10b/review6/r/`.
+
+**R6-F1 · High · silent · since snap1 (the narrowing form is silent on base too).** A destructuring assignment whose target has a default copies the member, so later writes are lost.
+- Repro `r6_assignment_default_copies.pts`: `({ opt = [] } = b)`, `({ opt: o = [] } = b)` and `({ meta: { tags = [] } } = b)` for a `Box<number>` in a `Box<any>` place, and `({ opt = [] } = u)` for an `unknown` narrowing.
+  - Node prints `["s","r","u"] ["n"]`.
+  - Snap8 and snap6 print `[] []`.
+  - The same assignment without a default gives the TypeError.
+  - Base: PTS1001 (it can't hold the `Box<number>`).
+- Repro `r6_assignment_default_narrowing.pts`: `({ opt = [] } = o)` for an `object` narrowing.
+  - Node prints `1 [1]`; snap8, snap6 and base print `1 []`.
+  - Without the default, snap8 gives D-218's PTS1001.
+- Root cause: `assignParts` calls `withDefault`, which calls `dynamicWithDefault` (`dynamic.go:584`). That converts the present value with a plain `l.convert(ref, t, name)`, which is D-071's copy, before `assignShorthand`/`assignPart` reach `convertMember`. By then the value is no longer dynamic, so the as-is or PTS1001 rule never applies. Declarations with defaults are correct (they give the TypeError).
+- Fix direction: pass the `memberCopy` rule into `withDefault`/`dynamicWithDefault` for the present value.
+
+**R6-F2 · Low · silent · since snap5, a trade against base rather than a strict regression.** `"k" in v` for an optional key on a dynamic value is looked up at run time, and that lookup misses keys library objects have on their prototype.
+- Repro: `p/v06/v06_in_optional_library_objects.pts`, with `unknown`s narrowed by type guards to `{ size?: number }`, `{ name?: string }`, `{ then?: unknown }` and `{ length?: number }`.
+- Node: Map `true`, `{}` `false`; function `true`, `{}` `false`; promise `true`, `{}` `false`.
+- Snap8 (same as snap6): the three library objects give `false`; the plain objects are right.
+- Base: `true` for everything, which is wrong for each `{}`.
+- Root cause: `optional.go:352-357` together with `pts_dynamic_has` (`runtime/src/dynamic.c:692-710`), which only knows arrays' `length` and indices and returns false for maps, sets, closures and promises. That runtime gap predates H10b (`"then" in promise` is false through `any` on base). Fixing it in the runtime would make both base's cases and these right.
+
+## What snap8 now rejects (the parent asked for this)
+- **Destructuring assignments from an `object` or interface narrowing that would copy an array are now PTS1001** (`v01`). The forms are renamed `({ items: it } = o)`, shorthand `({ items } = o)` and member `({ tags } = o.meta)`, whether they only read or also write.
+  - Base and snap6 compiled all of them. They were right when only reading, or for a `Box<any>` object.
+  - Base lost `Box<number>` writes silently in the renamed and member forms; snap6 lost them in the member form.
+  - This matches D-218: `tags = o.meta.tags` and `const tags: any[] = o.meta.tags` are already PTS1001 on base (`v01b`).
+- **Read-only rest patterns over narrowings are now PTS1001**, in declarations, `for…of` and callback parameters (`v01` rest forms, `v08a`, `v12a`, `v12c`). Snap6 ran them; base was already PTS1001.
+- **Spreads, rests and assignments of a fresh method result give the as-is TypeError for a `Box<number>`** (`v02`). Snap6 had already thrown for the plain, annotated and declaration forms of the same value.
+
+## Checked and found fine
+- Destructuring assignments whose right side is a literal (`v10a`, `v10b`) and plain swaps: unchanged from snap6 and base.
+- Element defaults where the default is actually used (`v03b`).
+- Rests and spreads of the narrowing itself with scalar fields (`v08b`, `v08c`).
+- The realistic Redux-style program with `Store<any>` (`v11`) matches Node exactly; snap6 read the getter one time too many.
+
+Files are in `/tmp/h10b/review6/`:
+- the two repros: `r/`
+- the probes: `p/`
+- re-run outputs: `old_outputs_snap8.txt`, `r4_outputs_snap8.txt`, `r5_outputs_snap8.txt`
+- matrices: `m777_snap8.*`, `m748_snap8.*`
+- the sweep: `sweep/results.txt`
+- tooling: `bin/`
+
+The archive is `/tmp/h10b/h10b-review6-probes.tar.gz` (no binaries), and `/tmp/h10b/review6.done` is touched.

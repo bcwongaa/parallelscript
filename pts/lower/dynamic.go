@@ -567,8 +567,9 @@ func (l *lowerer) prepareDynamicTypes(funcs []*ir.Func) {
 }
 
 // dynamicWithDefault applies a pattern's default to part, a dynamic value (an any's
-// property): the default if it is undefined, else part, converted to the name's type.
-func (l *lowerer) dynamicWithDefault(part ir.Expr, initializer *ast.Node, name *ast.Node) ir.Expr {
+// property): the default if it is undefined, else part, converted to the name's type as
+// rule says (convertMember).
+func (l *lowerer) dynamicWithDefault(part ir.Expr, initializer *ast.Node, name *ast.Node, rule memberCopy) ir.Expr {
 	t := ir.Type(ir.Value)
 	if name.Kind == ast.KindIdentifier {
 		if t = l.bindingType(l.checker.GetSymbolAtLocation(name), name); t == nil {
@@ -581,7 +582,7 @@ func (l *lowerer) dynamicWithDefault(part ir.Expr, initializer *ast.Node, name *
 	}
 	value := l.newLocal("property", ir.Value)
 	ref := &ir.LocalRef{Local: value}
-	fallback, present := l.convert(fallback, t, initializer), l.convert(ref, t, name)
+	fallback, present := l.convert(fallback, t, initializer), l.convertMember(ref, t, name, rule)
 	if fallback == nil || present == nil {
 		return nil
 	}

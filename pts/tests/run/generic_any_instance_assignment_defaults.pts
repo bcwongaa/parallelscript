@@ -1,0 +1,53 @@
+// no-diff: a Box<number> held in a Box<any> place or narrowed from unknown throws TypeError where a destructuring assignment with a default would copy its arrays, where Node shares them (D-219)
+// H10b review round 6 (R6-F1), the reviewer's r6_assignment_default_copies.pts: a
+// destructuring assignment whose target has a default (`({ opt = [] } = b)`, renamed, nested,
+// from an `unknown` narrowing) takes a Box<any> value's member as it is where it is there:
+// Box's instance for any's array itself, another instance's a TypeError, as without the
+// default; the default itself where it isn't.
+
+class Box<T> {
+  opt?: T[];
+  meta: { tags?: T[] } = {};
+  constructor(public v: T) {}
+}
+const t = (name: string, f: () => unknown) => {
+  try { console.log(name, JSON.stringify(f())); } catch (e) { console.log(name, (e as Error).name); }
+};
+function forms(b: Box<any>): void {
+  t("shorthand default", () => { let opt: any[] = []; ({ opt = [] } = b); opt.push("s"); return opt.length; });
+  t("renamed default", () => { let o: any[] = []; ({ opt: o = [] } = b); o.push("r"); return o.length; });
+  t("nested default", () => { let tags: any[] = []; ({ meta: { tags = [] } } = b); tags.push("n"); return tags.length; });
+}
+function fromUnknown(u: unknown): void {
+  if (u instanceof Box) t("unknown default", () => { let opt: any[] = []; ({ opt = [] } = u); opt.push("u"); return opt.length; });
+}
+const empty = new Box<any>(0);
+forms(empty);
+console.log("defaults", JSON.stringify(empty.opt), JSON.stringify(empty.meta.tags));
+const anyBox = new Box<any>(0);
+anyBox.opt = [];
+anyBox.meta.tags = [];
+forms(anyBox);
+fromUnknown(anyBox);
+console.log("shared", JSON.stringify(anyBox.opt), JSON.stringify(anyBox.meta.tags));
+const numberBox = new Box<number>(0);
+numberBox.opt = [];
+numberBox.meta.tags = [];
+forms(numberBox);
+fromUnknown(numberBox);
+console.log("unchanged", JSON.stringify(numberBox.opt), JSON.stringify(numberBox.meta.tags));
+// expect:
+// shorthand default 1
+// renamed default 1
+// nested default 1
+// defaults undefined undefined
+// shorthand default 1
+// renamed default 2
+// nested default 1
+// unknown default 3
+// shared ["s","r","u"] ["n"]
+// shorthand default TypeError
+// renamed default TypeError
+// nested default TypeError
+// unknown default TypeError
+// unchanged [] []

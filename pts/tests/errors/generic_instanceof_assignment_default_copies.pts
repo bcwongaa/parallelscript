@@ -1,0 +1,20 @@
+// H10b review round 6 (R6-F1), the reviewer's r6_assignment_default_narrowing.pts: a
+// destructuring assignment with a default from an instanceof narrowing (`({ opt = [] } = o)`
+// for an `object` source) would copy the instance's array into `opt: any[]`, which the
+// later write would miss (silently on the base too): D-218's PTS1001, as without the
+// default.
+// error: using the object an `instanceof` narrowing holds as a dynamic value as a value[]
+class Box<T> {
+  opt?: T[];
+  constructor(public v: T) {}
+}
+function run(o: object): number {
+  if (!(o instanceof Box)) return -1;
+  let opt: any[] = [];
+  ({ opt = [] } = o);
+  opt.push(1);
+  return opt.length;
+}
+const n = new Box<number>(0);
+n.opt = [];
+console.log(run(n), JSON.stringify(n.opt));

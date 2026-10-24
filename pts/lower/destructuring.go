@@ -721,7 +721,7 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr, rule memberCopy
 			if part = l.propertyPart(source, element, element.Name(), false); part == nil {
 				return nil, false
 			}
-			if part = l.withDefault(part, element.AsShorthandPropertyAssignment().ObjectAssignmentInitializer, element.Name()); part == nil {
+			if part = l.withDefaultCopying(part, element.AsShorthandPropertyAssignment().ObjectAssignmentInitializer, element.Name(), rule); part == nil {
 				return nil, false
 			}
 			store := l.assignShorthand(element, part, rule)
@@ -737,7 +737,7 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr, rule memberCopy
 				target, fallback = binary.AsBinaryExpression().Left, binary.AsBinaryExpression().Right
 			}
 			if part = l.propertyPart(source, element, property, false); part != nil {
-				part = l.withDefault(part, fallback, target)
+				part = l.withDefaultCopying(part, fallback, target, rule)
 			}
 		case ast.KindSpreadAssignment: // `({ a, ...rest } = o)`
 			target = element.Expression()

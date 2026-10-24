@@ -48,6 +48,25 @@ static void arrays_and_strings_answer_indices_and_length(void) {
   CHECK(pts_dynamic_has(array, str("2")) && !pts_dynamic_has(array, str("3")));
 }
 
+static const pts_type number_map_type = {
+    .kind = PTS_KIND_MAP,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),
+    .name = "Map",
+    .size = sizeof(pts_map),
+    .key = PTS_FIELD_NUMBER,
+    .element = PTS_FIELD_NUMBER,
+};
+
+/* `in` finds what a library object has on its prototype: its methods, a Map's size (H10b's R6-F2). */
+static void in_finds_library_members(void) {
+  double elements[] = {10, 20};
+  pts_value array = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 2));
+  CHECK(pts_dynamic_has(array, str("push")) && pts_dynamic_has(array, str("map")) && !pts_dynamic_has(array, str("size")));
+  pts_value map = pts_value_from_object(pts_map_new(&number_map_type));
+  CHECK(pts_dynamic_has(map, str("size")) && pts_dynamic_has(map, str("get")) && pts_dynamic_has(map, str("forEach")));
+  CHECK(!pts_dynamic_has(map, str("push")) && !pts_dynamic_has(map, str("1")));
+}
+
 static void a_number_element_refuses_a_string(void) {
   double elements[] = {1};
   pts_value array = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 1));
@@ -154,6 +173,7 @@ int main(int argc, char **argv) {
   plus_concatenates_when_either_side_is_a_string();
   comparisons_are_false_with_nan();
   arrays_and_strings_answer_indices_and_length();
+  in_finds_library_members();
   a_number_element_refuses_a_string();
   integers_fit_exactly_or_not_at_all();
   a_found_callee_is_called_later();
