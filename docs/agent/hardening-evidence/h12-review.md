@@ -434,3 +434,105 @@ Everything is in `/tmp/h12/review4/`:
 - archive: `h12-review4-probes.tar.gz` (probes, tools, mutant and fix overlays; the binaries are deleted)
 - `DONE` is touched
 - the main tree is clean
+
+## Round 5 (commit `16d86f6b1`, snapshot 6)
+
+The same `reviewer`, resumed.
+
+**Verdict: NOT READY.** Round 4's three fixes work: every R4 probe now matches Node, and none of round 3's or 4's probes got worse. But one more shape of round 3's change still crashes:
+- **R5-F1 (Medium, regression of `024674187`):** deciding looseness by the constraint misses a generic element access whose constraint, or whose mapped type, isn't itself an array, but whose instance is one. The results are SIGSEGV, and a RangeError where base and snapshot 4 matched Node.
+
+I tried a fix as a `go build -overlay` build of snapshot 6 (`mut/F4`). It makes all six affected probes match Node, plus the pre-existing `e19`. It changes no program's C in the emit-c sweep (1,470 programs) and no result across 607 related run tests.
+
+Every finding probe was rerun on Node, base, snapshot 4, snapshot 5 and snapshot 6 (`tools/rerun_findings.sh`, saved as `rerun-findings.out`). All subprocesses ran in their own process groups, `g02` was excluded, and no `p` binaries are left running.
+
+## R5-F1 (Medium, verified, regression of `024674187`)
+**Where:**
+- `instanceFreeType` (`pts/lower/generics.go`): `isGenericType` replaces a type only when it is instantiable, or a union or intersection with such a member.
+- A homomorphic mapped type such as `{ [I in keyof T]: string }` is an object type, so it stays as it is and isn't an array.
+- A constraint like `ArrayLike<string>` is an interface, so isn't an array either.
+- The decision says "not an element read", but the `string[]` instance is one. The C for `e01` reads `pts_value_as_object(x)` unchecked, where snapshot 4 had `pts_value_defined(x, "string")`.
+
+| Probe (`p/…`) | Shape | Node | base | snapshot 4 | snapshot 5 | snapshot 6 |
+|---|---|---|---|---|---|---|
+| `e/e01_mapped_over_tuple_param` | `xs: { [I in keyof T]: string }`, `T extends unknown[]`, `x = xs[3]` | TypeError | 139 | matches Node | 139 | **139** |
+| `e2/e18_mapped_readonly_elems` | `xs: { readonly [I in keyof T]: T[I] }`, `T extends string[]` | TypeError | 139 | matches Node | 139 | **139** |
+| `e2/e17_mapped_tested` | `e01`'s tested `const x = xs[3]` | `none` | matches Node | matches Node | RangeError | **RangeError** |
+| `e3/e20_arraylike_constraint` | `T extends ArrayLike<string>`, instance `string[]` | TypeError | 139 | matches Node | 139 | **139** |
+| `e3/e22_arraylike_tested` | `e20`'s tested form | `none` | matches Node | matches Node | RangeError | **RangeError** |
+| `e2/e19_mapped_module_var` | `e01` plus a module variable | TypeError | 139 | 139 | 139 | 139 (pre-existing) |
+
+These controls match Node on snapshots 4–6:
+- `e3/e21` (`T extends { [i: number]: string }`)
+- `e3/e24` (`{ [k: string]: string }`)
+- `e2/e16` (a mapped type over a Record)
+
+**Suggested fix (verified as overlay `mut/F4`):** two parts.
+- The mapped-type part on its own (`mut/F3`, `generics.go` only) fixes `e01`, `e16`–`e19`. It makes `e20` and `e22`, the ArrayLike cases, no better, and leaves the 607 related run tests unchanged.
+- The second part covers element accesses whose constraint is an interface like `ArrayLike`: no type transform can make that an array.
+
+In `instanceFreeType`, after the constraint step:
+```go
+if t.ObjectFlags()&checker.ObjectFlagsMapped != 0 {
+	t = l.checker.GetApparentType(t) // a homomorphic mapped type over an array-constrained T: an array
+}
+```
+In `isElementRead`, while deciding:
+```go
+if l.decidingLooseness > 0 && node.Kind == ast.KindElementAccessExpression {
+	if t := l.checker.GetTypeAtLocation(node.Expression()); isGenericType(t) || t.ObjectFlags()&checker.ObjectFlagsMapped != 0 {
+		return true // an element in some instance (`xs[3]` of a T extends ArrayLike<string>)
+	}
+}
+```
+
+The second part over-approximates: a generic tuple instance's local becomes loose, which costs a check but no change in behaviour.
+
+Results with F4:
+- All six regression probes above, plus `e16`, `e19`, `e21`, `e24`, `e14` and `e07`, match Node.
+- 607 related run tests (`loose|pattern|assignment|rest_tupl|logical|element_reads|destructuring_default|generic|parallel_sort|narrow|mapped`) give the same results as on snapshot 6.
+- The emit-c sweep from snapshot 6 to F4 over 1,470 programs: 0 differ.
+
+## What holds up
+- **R4-F1:** `b22`, `b30`–`b32`, `b37`, `b39`, `b41` match Node. So do `b34` and `b40`, which were pre-existing.
+- **R4-F2:** the three `a01` `satisfies` probes match Node.
+- **R4-F3:** a loose local as a shorthand default is now in the test, and the parent's rebuilt N7 throws there.
+- **Constraint edge cases** (`p/e/`): all match Node on snapshot 6 except `e02`, an honest PTS1001 on every build. Covered:
+
+  | Probe | Constraint |
+  |---|---|
+  | `e03` | `keyof T & string` |
+  | `e04` | a template literal type and `Uppercase<T>` |
+  | `e05` | an F-bounded constraint |
+  | `e06` | `NonNullable<T>` |
+  | `e07` | `any[]` and `readonly any[]` |
+  | `e08` | `T[K]` with `K extends keyof T` |
+  | `e09` | `T \| U` (it crashed on snapshot 5) |
+  | `e10` | a generic method in a generic class |
+  | `e11` | a recursive constraint |
+  | `e12` | mutually constrained parameters |
+  | `e13`, `e14` | `typeof` and `Array.isArray` branches, both directions |
+  | `e15` | a conditional type with `infer` (D-085's checked RangeError through `as`, unchanged) |
+
+- **`GetBaseConstraintOfType`:** it returns nil for "no constraint" and for circular constraints (`checker.go:27303`), and the code keeps the type then. No probe crashed the compiler.
+- **Replays:** 101 round-4 and 102 round-3 probes. None is worse than snapshot 5; 12 are better (all the R4 probes).
+- **emit-c sweep, snapshot 5 to 6 (1,470 programs):** only the two new tests changed. A third program, `corpus/functional/transducers.pts`, differed once; three re-emits with each build gave identical C, so that is C85's known nondeterminism.
+- **Matrix sample:** 430 cases, identical to snapshot 5.
+- **Fuzzing:**
+  - The earlier 530 programs: only the 10 known differences (`cyc21_038`, D-140; nine generator programs with tsc errors).
+  - `gen5`, 360 generic and logical programs, including `satisfies` and `typeof` contexts: 0 crashes.
+  - The 59 runtime differences all contain a loose local on the right of `||`/`&&`. That is the pre-existing D-090 TypeError at the write (round 4's `r01`). With that operand rewritten, all 59 match Node.
+- **Cost on large generic programs** (500 / 2,000 / 4,000 module variables written from generic functions):
+
+  | Build | 500 | 2,000 | 4,000 |
+  |---|---|---|---|
+  | snapshot 4 | 0.74 s | 2.1 s | 5.1 s |
+  | snapshot 6 | 0.76 s | 2.5 s | 4.4 s |
+
+  The outputs match Node.
+- **Tests:** `loose_writes_generic_narrowed_locals` and `element_reads_under_satisfies_declared_unions` match Node and exit 139 on snapshot 5. `parameter_defaults_generic_elements`, the trimmed module-variables test and the extended shorthand test match Node.
+
+Everything is in `/tmp/h12/review5/`:
+- archive: `h12-review5-probes.tar.gz` (probes, tools, the F3/F4 overlays; the binaries are deleted)
+- `DONE` is touched
+- the main tree is clean

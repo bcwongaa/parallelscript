@@ -121,6 +121,14 @@ func (c *Checker) PtsInstantiateType(t *Type, sources []*Type, targets []*Type) 
 	return c.instantiateType(t, newTypeMapper(sources, targets))
 }
 
+// PtsCouldContainTypeVariables reports whether t may mention a type parameter (a type
+// parameter itself, an indexed access, a mapped type over one, a generic object type): a
+// type whose instances may differ, so an answer every instance shares can't come from it
+// alone (D-222's loose locals).
+func (c *Checker) PtsCouldContainTypeVariables(t *Type) bool {
+	return c.couldContainTypeVariables(t)
+}
+
 // PtsIntersectionType returns the intersection of types as tsc forms it, never where tsc
 // reduces it to never (disjoint primitives or literals): whether a value of an instance's
 // declared type can have the type tsc narrows it to (D-195).

@@ -536,9 +536,16 @@ func (l *lowerer) patternSourceType(pattern *ast.Node) *checker.Type {
 }
 
 // isElementRead reports whether node reads an element of an array, a string or a
-// hash-map object, which JS gives undefined for when it isn't there.
+// hash-map object, which JS gives undefined for when it isn't there. While isLoose decides,
+// an element access of a value whose type may mention a type parameter is one, as it may be
+// in some instance (`xs[3]` of an `xs: T` for a `T extends ArrayLike<string>`, or of a
+// mapped type over T: no constraint says array; review round 5, R5-F1); a local made loose
+// where no instance needs it costs a check.
 func (l *lowerer) isElementRead(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
+	if l.decidingLooseness > 0 && node.Kind == ast.KindElementAccessExpression && l.checker.PtsCouldContainTypeVariables(l.checker.GetTypeAtLocation(node.Expression())) {
+		return true
+	}
 	return l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)
 }
 

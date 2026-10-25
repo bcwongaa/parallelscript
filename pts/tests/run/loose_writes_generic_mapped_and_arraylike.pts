@@ -1,0 +1,69 @@
+// An element read of a value whose type mentions a type parameter but whose constraint is no
+// array (a homomorphic mapped type over a `T extends unknown[]`, `{ [I in keyof T]: string }`;
+// a `T extends ArrayLike<string>`) is one in an array instance: while looseness is decided,
+// for every instance at once (D-222), such an element access counts as an element read, so
+// the local it is written to, or that is tested, is loose. Round 3's constraint-based form
+// said no: SIGSEGV, or D-085's RangeError for a tested initializer that the base read as
+// undefined (review round 5, R5-F1, a regression of round 3's fix).
+function attempt(label: string, f: () => number): void {
+  try {
+    console.log(f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function viaMapped<T extends unknown[]>(xs: { [I in keyof T]: string }): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  return x.length;
+}
+attempt("mapped", () => viaMapped<number[]>(["a"]));
+function viaReadonlyMapped<T extends string[]>(xs: { readonly [I in keyof T]: T[I] }): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  return x.length;
+}
+attempt("readonly mapped", () => viaReadonlyMapped<string[]>(["a"]));
+function testedMapped<T extends unknown[]>(xs: { [I in keyof T]: string }): string {
+  const x = xs[3];
+  if (x === undefined) return "none";
+  return x.toUpperCase();
+}
+console.log(testedMapped<number[]>(["a"]));
+function viaArrayLike<T extends ArrayLike<string>>(xs: T): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  return x.length;
+}
+attempt("ArrayLike", () => viaArrayLike(["a"]));
+function testedArrayLike<T extends ArrayLike<string>>(xs: T): string {
+  const x = xs[3];
+  if (x === undefined) return "none";
+  return x.toUpperCase();
+}
+console.log(testedArrayLike(["a"]));
+let written: string | undefined = "m";
+function viaModuleVariable<T extends unknown[]>(xs: { [I in keyof T]: string }): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  written = x;
+  return x.length;
+}
+attempt("module variable", () => viaModuleVariable<number[]>(["a"]));
+console.log(written === undefined);
+function present<T extends ArrayLike<string>>(xs: T): number {
+  let x: string | undefined = "x";
+  x = xs[0];
+  return x.length;
+}
+console.log(present(["abc"]));
+
+// expect:
+// mapped threw TypeError
+// readonly mapped threw TypeError
+// none
+// ArrayLike threw TypeError
+// none
+// module variable threw TypeError
+// true
+// 3
