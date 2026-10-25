@@ -1,0 +1,136 @@
+// serve's tls option (H33b), for TestHTTPSServerOptions: each case prints what serve
+// throws, at once and before it listens, or the protocol of the server it makes and
+// whether its url is right. The test makes the certificates and keys and names them by
+// environment variables: CERT_FILE and KEY_FILE (P-256), OTHER_KEY_FILE (another key),
+// ENCRYPTED_KEY_FILE and LEGACY_KEY_FILE (KEY_FILE's key encrypted with PASSPHRASE, as
+// PKCS#8 and as legacy PEM), RSA_CERT_FILE, ED25519_CERT_FILE, REVERSED_CHAIN_FILE (an
+// intermediate, then CERT_FILE's certificate) and DIRECTORY; FREE_PORT is a port nothing
+// listens on, which every case that fails asks for. A file that can't be read throws what
+// readFileSync throws. Afterwards the process has the files it had and the port is free.
+import { serve, Server, type ServeOptions, type TLSOptions } from "pts:http";
+import { readdirSync, readFileSync } from "pts:fs";
+
+// The environment variable called name, which the test sets.
+function given(name: string): string {
+  const value = process.env[name];
+  if (value === undefined) {
+    throw new Error(`${name} is not set`);
+  }
+  return value;
+}
+
+const free = Number(given("FREE_PORT"));
+const certFile = given("CERT_FILE");
+const keyFile = given("KEY_FILE");
+const cert = readFileSync(certFile, "utf8");
+const key = readFileSync(keyFile, "utf8");
+const passphrase = given("PASSPHRASE");
+const encrypted = readFileSync(given("ENCRYPTED_KEY_FILE"), "utf8");
+const legacy = readFileSync(given("LEGACY_KEY_FILE"), "utf8");
+
+function hello(): Response {
+  return new Response("hello");
+}
+
+function openFiles(): number {
+  return readdirSync("/proc/self/fd").length;
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Options for a server on 127.0.0.1 at port (the free one unless given) with tls.
+function withTLS(tls: TLSOptions | undefined, port: number = free, reusePort: boolean = false): ServeOptions {
+  return { port, hostname: "127.0.0.1", reusePort, tls, fetch: hello };
+}
+
+// The error's class and message, mbedTLS's description and number elided, and a system
+// error's code, errno, syscall and path.
+function describe(e: unknown): string {
+  const error = e as NodeJS.ErrnoException;
+  const message = error.message.replace(/^(serve's tls (?:cert|key): ).*\(mbedTLS -0x.*$/, "$1… (mbedTLS -0x…)");
+  let text = `${error.name}${e instanceof TypeError ? " (a TypeError)" : ""}: ${message}`;
+  if (error.code !== undefined) {
+    text += ` | ${error.code} ${error.errno} ${error.syscall} ${error.path}`;
+  }
+  return text;
+}
+
+function sameAsReadFileSync(error: NodeJS.ErrnoException, path: string): boolean {
+  try {
+    readFileSync(path, "utf8");
+    return false;
+  } catch (e) {
+    const read = e as NodeJS.ErrnoException;
+    return read.name === error.name && read.message === error.message && read.code === error.code && read.errno === error.errno &&
+      read.syscall === error.syscall && read.path === error.path;
+  }
+}
+
+// Prints what serve(options) throws (and, for a file it can't read, whether readFileSync
+// throws the same), or the protocol of the server it makes and whether its url is right.
+function attempt(label: string, options: ServeOptions, file?: string): void {
+  let server: Server;
+  try {
+    server = serve(options);
+  } catch (e) {
+    const same = file === undefined ? "" : ` | as readFileSync: ${sameAsReadFileSync(e as NodeJS.ErrnoException, file)}`;
+    console.log(`${label}: ${describe(e)}${same}`.replace(`:${busy.port}`, ":PORT"));
+    return;
+  }
+  const host = server.hostname === "0.0.0.0" ? "localhost" : server.hostname;
+  console.log(`${label}: ${server.protocol} ${server.url === `${server.protocol}://${host}:${server.port}/`}`);
+  server.stop();
+}
+
+// Every loop starts and listens once, keeping the descriptor libuv reserves for running out
+// of them, so that the files count from here.
+const warm = serve({ port: 0, hostname: "127.0.0.1", reusePort: true, fetch: hello });
+await pause(50);
+warm.stop();
+await pause(50);
+const files = openFiles();
+const busy = serve({ port: 0, hostname: "127.0.0.1", fetch: hello });
+
+attempt("nothing", withTLS({}));
+attempt("a key alone", withTLS({ key }));
+attempt("a certificate alone", withTLS({ cert }));
+attempt("a certificate file alone", withTLS({ certFile }));
+attempt("cert and certFile", withTLS({ cert, certFile, key }));
+attempt("key and keyFile", withTLS({ cert, key, keyFile }));
+attempt("certFile missing", withTLS({ certFile: "missing.pem", keyFile }), "missing.pem");
+attempt("keyFile missing", withTLS({ certFile, keyFile: "missing-key.pem" }), "missing-key.pem");
+attempt("certFile missing, on every loop", withTLS({ certFile: "missing.pem", keyFile }, free, true), "missing.pem");
+attempt("certFile a directory", withTLS({ certFile: given("DIRECTORY"), keyFile }), given("DIRECTORY"));
+attempt("cert not PEM", withTLS({ cert: "not a certificate", key }));
+attempt("cert a key", withTLS({ cert: key, key }));
+attempt("cert an Ed25519 certificate", withTLS({ certFile: given("ED25519_CERT_FILE"), key }));
+attempt("key not PEM", withTLS({ cert, key: "not a key" }));
+attempt("key a certificate", withTLS({ cert, key: cert }));
+attempt("encrypted key, no passphrase", withTLS({ cert, key: encrypted }));
+attempt("encrypted key, wrong passphrase", withTLS({ cert, key: encrypted, passphrase: "wrong" }));
+attempt("legacy encrypted key, no passphrase", withTLS({ cert, key: legacy }));
+attempt("legacy encrypted key, wrong passphrase", withTLS({ cert, key: legacy, passphrase: "wrong" }));
+attempt("another key", withTLS({ cert, keyFile: given("OTHER_KEY_FILE") }));
+attempt("an RSA certificate, a P-256 key", withTLS({ certFile: given("RSA_CERT_FILE"), key }));
+attempt("the intermediate first", withTLS({ certFile: given("REVERSED_CHAIN_FILE"), key }));
+attempt("a missing file at a port in use", withTLS({ certFile: "missing.pem", keyFile }, busy.port), "missing.pem");
+attempt("a port in use", withTLS({ cert, key }, busy.port));
+
+attempt("certFile and keyFile", withTLS({ certFile, keyFile }, 0));
+attempt("cert and key", withTLS({ cert, key }, 0));
+attempt("undefined beside what is given", withTLS({ cert: undefined, certFile, key, keyFile: undefined }, 0));
+attempt("a passphrase for a key that isn't encrypted", withTLS({ cert, key, passphrase: "unused" }, 0));
+attempt("encrypted key and its passphrase", withTLS({ cert, key: encrypted, passphrase }, 0));
+attempt("legacy encrypted key and its passphrase", withTLS({ cert, key: legacy, passphrase }, 0));
+attempt("on every loop", withTLS({ certFile, keyFile }, 0, true));
+attempt("tls undefined", withTLS(undefined, 0));
+attempt("on every address", { port: 0, hostname: "0.0.0.0", tls: { cert, key }, fetch: hello });
+
+busy.stop();
+await pause(50);
+console.log("files as before:", openFiles() === files || `${files} before, ${openFiles()} after`);
+const after = serve({ port: free, hostname: "127.0.0.1", fetch: hello }); // throws if a case left the port bound
+console.log("the port is free:", after.port === free);
+after.stop();

@@ -1104,7 +1104,24 @@ It prints `true 0` (`docs/examples/guide_http_every_loop.pts`).
 
 A handler that waits a long time can watch `request.signal`, which aborts if the client leaves before the answer; the server closes that connection at once either way. `server.stop()` lets requests in flight finish; `server.stop(true)` closes their connections too, as Bun's does. On the development machine, with the load generator on the same machine, hello world runs at about 57,000 requests a second on one loop and 85,000 on four, against 21,000 for Node and 69,000 for Go ([BENCHMARKS.md](BENCHMARKS.md#m62b-http-servers)).
 
-Bodies are text, read whole (up to 64 MB): the server has no TLS (HTTPS), no streaming and no WebSocket yet. [examples/api-server](../examples/api-server/main.pts) is a whole JSON API built on `serve`: shared state behind a `Mutex`, atomic counters, `request.signal`, and JSON errors through `serve`'s `error` option.
+With `tls`, the server speaks HTTPS (TLS 1.2 and 1.3): give it the certificate and its private key as files, as Bun's `certFile` and `keyFile`, or as their PEM text (`cert`, `key`, read with `readFileSync` or from the environment), and `passphrase` for an encrypted key. The certificate file holds the server's certificate followed by the intermediates it sends, as Let's Encrypt's `fullchain.pem` does:
+
+```ts
+import { serve, Response } from "pts:http";
+
+const server = serve({
+  port: 8443,
+  tls: { certFile: "fullchain.pem", keyFile: "privkey.pem" },
+  fetch(request) {
+    return new Response(`hello from ${request.url}`); // https://localhost:8443/…
+  },
+});
+console.log(server.url); // https://localhost:8443/
+```
+
+A certificate or key that can't be read or doesn't fit throws when `serve` is called, before it listens. For a development server, make a certificate authority of your own (`mkcert`, or `openssl`), and `fetch` trusts it with `NODE_EXTRA_CA_CERTS=ca.pem`. Every loop with `reusePort: true` serves HTTPS too, each with its own copy of the key, so handshakes run in parallel. A client must speak HTTP/1.1 over TLS (ALPN `http/1.1`); client certificates, several certificates by server name and session resumption aren't supported yet.
+
+Bodies are text, read whole (up to 64 MB): the server has no streaming and no WebSocket yet. [examples/api-server](../examples/api-server/main.pts) is a whole JSON API built on `serve`: shared state behind a `Mutex`, atomic counters, `request.signal`, and JSON errors through `serve`'s `error` option.
 
 ### `fetch`
 

@@ -16,17 +16,27 @@
  * bytes, the connection reads and processes nothing more until the queue drains, so a
  * client that doesn't read can't make the server queue response after response.
  *
- * libuv's handles and the bytes read and written are malloc'd: they hold no collected
- * pointers. A server is uncollectable (never freed: a program makes few), so the collector
- * sees its callbacks; a connection's Request is in an uncollectable cell of its own.
+ * An https server (D-224) does the same inside TLS: each connection's session (tls.c) takes
+ * the bytes that come, goes on with the handshake and then decrypts the requests into the
+ * connection's buffer, and encrypts what the server writes. Each listener has its own
+ * identity (the certificate chain and key), made by pts_http_listen, so that loops don't
+ * share a key's state. A response that closes the connection, and stop()'s closing of an
+ * idle one, end with close_notify.
+ *
+ * libuv's handles, the bytes read and written and TLS's sessions and identities are
+ * malloc'd: they hold no collected pointers. A server is uncollectable (never freed: a
+ * program makes few), so the collector sees its callbacks; a connection's Request is in an
+ * uncollectable cell of its own.
  */
 #include "pts.h"
 
 #include "http_internal.h"
 #include "scheduler_internal.h"
+#include "tls_internal.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,7 +64,8 @@ typedef struct listener {
   uv_tcp_t *tcp; /* NULL until the loop listens, and once it stops */
   struct server *server;
   struct connection *connections;
-  int fd; /* the bound socket, until the loop takes it over */
+  pts_tls_identity *identity; /* an https server's certificate and key for this loop's connections; NULL for http */
+  int fd;                     /* the bound socket, until the loop takes it over */
   uint16_t loop;
 } listener;
 
@@ -80,6 +91,7 @@ typedef struct connection {
   char *in;                       /* bytes read and not yet taken by a request */
   size_t in_len, in_cap;
   connection_roots *roots; /* uncollectable */
+  pts_tls *tls;            /* an https connection's session; NULL for http */
   uint32_t slot;
   bool busy;        /* a request is with the program, or its last response is being written */
   bool processing;  /* inside process(): an answer given meanwhile leaves the next request to its loop */
@@ -88,6 +100,7 @@ typedef struct connection {
   bool http10;      /* the request being answered is HTTP/1.0, which keeps alive only if asked */
   bool head;        /* the request being answered is a HEAD */
   bool continued;   /* 100 Continue was sent for the request being read */
+  bool secured;     /* an https connection's handshake is complete */
   bool closing;
 } connection;
 
@@ -165,6 +178,9 @@ static connection *connection_of(double id) {
 static void on_closed(uv_handle_t *handle) {
   connection *c = (connection *)handle;
   GC_FREE(c->roots);
+  if (c->tls != NULL) {
+    pts_tls_free(c->tls);
+  }
   free(c->in);
   free(c);
 }
@@ -189,15 +205,19 @@ static void close_connection(connection *c) {
 typedef struct write_request {
   uv_write_t req;
   connection *connection;
+  char *bytes; /* malloc'd, the request's */
   bool close_after;
-  char bytes[];
 } write_request;
 
 static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
+static void on_alloc_sealed(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
 static void process(connection *c);
 
 static size_t queued(connection *c) { return uv_stream_get_write_queue_size((uv_stream_t *)&c->tcp); }
+
+/* Reads what the client sends: an https connection's bytes go to its session first. */
+static void start_reading(connection *c) { uv_read_start((uv_stream_t *)&c->tcp, c->tls != NULL ? on_alloc_sealed : on_alloc, on_read); }
 
 static void on_written(uv_write_t *req, int status) {
   write_request *w = (write_request *)req;
@@ -206,27 +226,63 @@ static void on_written(uv_write_t *req, int status) {
     close_connection(c);
   } else if (!c->closing && c->draining && queued(c) <= MAX_QUEUED / 2) {
     c->draining = false; /* the client is reading again: on with the requests it sent */
-    uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
+    start_reading(c);
     process(c);
     pts_run_microtasks();
   }
+  free(w->bytes);
   free(w);
 }
 
-/* Writes the bytes of head and then of body and, if close_after, closes the connection once they are out. */
-static void send_parts(connection *c, const char *head, size_t head_len, const char *body, size_t body_len, bool close_after) {
-  write_request *w = checked(malloc(sizeof *w + head_len + body_len));
-  memcpy(w->bytes, head, head_len);
-  if (body_len > 0) {
-    memcpy(w->bytes + head_len, body, body_len);
-  }
+/* Writes len bytes (malloc'd, now the write's) and, if close_after, closes the connection once they are out. */
+static void write_out(connection *c, char *bytes, size_t len, bool close_after) {
+  write_request *w = checked(malloc(sizeof *w));
   w->connection = c;
+  w->bytes = bytes;
   w->close_after = close_after;
-  uv_buf_t buf = uv_buf_init(w->bytes, (unsigned)(head_len + body_len));
+  uv_buf_t buf = uv_buf_init(bytes, (unsigned)len);
   if (uv_write(&w->req, (uv_stream_t *)&c->tcp, &buf, 1, on_written) < 0) {
+    free(bytes);
     free(w);
     close_connection(c);
   }
+}
+
+/* Sends what an https connection's session has for the client and, if close_after, closes the connection after it. */
+static void send_sealed(connection *c, bool close_after) {
+  char *bytes;
+  size_t len;
+  if (pts_tls_take_output(c->tls, &bytes, &len)) {
+    write_out(c, bytes, len, close_after);
+  } else if (close_after) {
+    close_connection(c);
+  }
+}
+
+/* Encrypts len bytes for an https connection's client, then close_notify if close_after: false if the session has failed. */
+static bool seal(connection *c, const char *bytes, size_t len, bool close_after) {
+  return (len == 0 || pts_tls_write(c->tls, bytes, len) == PTS_TLS_DONE) && (!close_after || pts_tls_close(c->tls) == PTS_TLS_DONE);
+}
+
+/*
+ * Writes the bytes of head and then of body (encrypted on an https connection) and, if
+ * close_after, closes the connection once they are out.
+ */
+static void send_parts(connection *c, const char *head, size_t head_len, const char *body, size_t body_len, bool close_after) {
+  if (c->tls != NULL) {
+    if (!seal(c, head, head_len, false) || !seal(c, body, body_len, close_after)) {
+      close_connection(c);
+      return;
+    }
+    send_sealed(c, close_after);
+    return;
+  }
+  char *bytes = checked(malloc(head_len + body_len));
+  memcpy(bytes, head, head_len);
+  if (body_len > 0) {
+    memcpy(bytes + head_len, body, body_len);
+  }
+  write_out(c, bytes, head_len + body_len, close_after);
 }
 
 static void send_bytes(connection *c, const char *text, size_t len, bool close_after) { send_parts(c, text, len, NULL, 0, close_after); }
@@ -578,33 +634,99 @@ static void process(connection *c) {
   c->processing = false;
 }
 
-static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
-  (void)suggested;
-  connection *c = (connection *)handle;
+/* Makes room for at least READ_SIZE more bytes in the connection's buffer. */
+static void reserve(connection *c) {
   if (c->in_cap - c->in_len < READ_SIZE) {
     c->in_cap = c->in_len + READ_SIZE;
     c->in = checked(realloc(c->in, c->in_cap));
   }
+}
+
+static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
+  (void)suggested;
+  connection *c = (connection *)handle;
+  reserve(c);
   *buf = uv_buf_init(c->in + c->in_len, READ_SIZE);
 }
 
-static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-  (void)buf;
-  connection *c = (connection *)stream;
-  if (nread < 0) { /* the client closed, or an error */
-    if (c->roots->request != PTS_VALUE_ABSENT) {
-      disconnected(c);
-      pts_run_microtasks();
-    } else {
-      close_connection(c);
-    }
+/* An https connection's bytes as they come, before its session decrypts them: libuv hands the buffer to on_read at once. */
+static void on_alloc_sealed(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
+  (void)handle, (void)suggested;
+  static _Thread_local char sealed[READ_SIZE];
+  *buf = uv_buf_init(sealed, READ_SIZE);
+}
+
+/* The client closed the connection or it failed: closed, and a request the program has is aborted. */
+static void lost(connection *c) {
+  if (c->roots->request != PTS_VALUE_ABSENT) {
+    disconnected(c);
+    pts_run_microtasks();
+  } else {
+    close_connection(c);
+  }
+}
+
+/*
+ * Gives an https connection's session len bytes from the client: goes on with the
+ * handshake, then decrypts the requests into the connection's buffer, and sends what the
+ * session has for the client meanwhile (the handshake's messages). False if the session
+ * has ended: the client's close_notify, or a failure.
+ */
+static bool unseal(connection *c, const char *bytes, size_t len) {
+  pts_tls_received(c->tls, bytes, len);
+  pts_tls_status status = PTS_TLS_DONE;
+  if (!c->secured) {
+    status = pts_tls_handshake(c->tls);
+    c->secured = status == PTS_TLS_DONE;
+  }
+  reserve(c); /* process() reads the buffer, decrypted requests or not */
+  while (status == PTS_TLS_DONE) {
+    size_t got = 0;
+    status = pts_tls_read(c->tls, c->in + c->in_len, c->in_cap - c->in_len, &got);
+    c->in_len += got;
+    reserve(c);
+  }
+  if (status != PTS_TLS_WANT) {
+    return false;
+  }
+  send_sealed(c, false);
+  return true;
+}
+
+/*
+ * An https connection's session has ended, after the requests that came before its end:
+ * as a plain connection's end, the connection closes and a request the program has is
+ * aborted; if there is none, after the session's alert.
+ */
+static void end_sealed(connection *c) {
+  if (c->roots->request != PTS_VALUE_ABSENT) {
+    lost(c);
     return;
   }
-  c->in_len += (size_t)nread;
+  c->busy = true, c->draining = false; /* nothing more is read or processed */
+  uv_read_stop((uv_stream_t *)&c->tcp);
+  send_sealed(c, true);
+}
+
+static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+  connection *c = (connection *)stream;
+  if (nread < 0) { /* the client closed, or an error */
+    lost(c);
+    return;
+  }
+  bool ended = false;
+  if (c->tls != NULL) {
+    ended = !unseal(c, buf->base, (size_t)nread);
+  } else {
+    c->in_len += (size_t)nread;
+  }
   if (c->busy && c->in_len > MAX_HEAD) {
     uv_read_stop(stream); /* pipelined requests wait in the kernel until this one is answered */
   }
   process(c);
+  if (ended && !c->closing) {
+    end_sealed(c);
+  }
 }
 
 static void on_connection(uv_stream_t *stream, int status) {
@@ -627,7 +749,15 @@ static void on_connection(uv_stream_t *stream, int status) {
     l->connections->prev = c;
   }
   l->connections = c;
-  uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
+  if (l->identity != NULL) {
+    pts_value failure;
+    c->tls = pts_tls_server(l->identity, &failure);
+    if (c->tls == NULL) {
+      close_connection(c); /* mbedTLS couldn't make the session (out of memory): the client sees the connection close */
+      return;
+    }
+  }
+  start_reading(c);
 }
 
 /* ---------------------------------------------------------------- responses */
@@ -755,7 +885,7 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
     uv_read_stop((uv_stream_t *)&c->tcp);
     return;
   }
-  uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read); /* reading stopped if a pipelined request filled the buffer */
+  start_reading(c); /* reading stopped if a pipelined request filled the buffer */
   process(c);
 }
 
@@ -764,6 +894,21 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
 static void init_servers(void) { uv_mutex_init(&servers_lock); }
 
 static void on_listener_closed(uv_handle_t *handle) { free(handle); }
+
+/*
+ * Closes a connection that has no request: an https one after close_notify if the client
+ * can take it at once, so that one that doesn't read can't hold the program open.
+ */
+static void close_idle(connection *c) {
+  char *bytes;
+  size_t len;
+  if (c->tls != NULL && c->secured && queued(c) == 0 && pts_tls_close(c->tls) == PTS_TLS_DONE && pts_tls_take_output(c->tls, &bytes, &len)) {
+    uv_buf_t buf = uv_buf_init(bytes, (unsigned)len);
+    uv_try_write((uv_stream_t *)&c->tcp, &buf, 1);
+    free(bytes);
+  }
+  close_connection(c);
+}
 
 /* The address to listen on: an IPv4 or IPv6 address ("localhost" is 127.0.0.1) and the port. */
 static struct sockaddr_storage address_of(pts_string *hostname, double port) {
@@ -839,7 +984,7 @@ static void stop_listening(void *data) {
   for (connection *c = l->connections, *next; c != NULL; c = next) {
     next = c->next;
     if (!c->busy) {
-      close_connection(c);
+      close_idle(c);
     } else if (close_active && c->roots->request != PTS_VALUE_ABSENT) {
       disconnected(c);
     } else {
@@ -873,7 +1018,102 @@ static int bind_listeners(server *s, struct sockaddr_storage *address, bool reus
   return 0;
 }
 
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_closure *on_request, pts_closure *on_disconnect) {
+/* serve's tls option as http.pts passes it: the certificate's kind ("cert" or "certFile") and value, the key's, then the passphrase if given. */
+enum { TLS_CERT_KIND, TLS_CERT, TLS_KEY_KIND, TLS_KEY, TLS_PASSPHRASE };
+
+static pts_string *tls_part(pts_array *tls, int part) { return pts_value_as_string(pts_array_element(tls, part)); }
+
+/*
+ * The file at path, whole and NUL-terminated for mbedTLS, its length with the NUL in *len;
+ * or NULL, with *failure Node's error, as readFileSync's, if it can't be read.
+ */
+static char *read_whole(pts_string *path, size_t *len, pts_value *failure) {
+  char *name = checked(malloc(path->byte_len + 1));
+  memcpy(name, path->bytes, path->byte_len);
+  name[path->byte_len] = '\0';
+  int fd = open(name, O_RDONLY | O_CLOEXEC), error = -errno;
+  free(name);
+  if (fd < 0) {
+    *failure = pts_uv_error_new(error, "open", path, NULL);
+    return NULL;
+  }
+  size_t used = 0, capacity = 16 * 1024;
+  char *bytes = checked(malloc(capacity));
+  for (;;) {
+    if (used + 1 == capacity) {
+      capacity *= 2;
+      bytes = checked(realloc(bytes, capacity));
+    }
+    ssize_t n = read(fd, bytes + used, capacity - used - 1);
+    if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n < 0) {
+      *failure = pts_uv_error_new(-errno, "read", NULL, NULL);
+      close(fd);
+      pts_tls_forget(bytes, used);
+      return NULL;
+    }
+    if (n == 0) {
+      break;
+    }
+    used += (size_t)n;
+  }
+  close(fd);
+  bytes[used] = '\0';
+  *len = used + 1;
+  return bytes;
+}
+
+/*
+ * A PEM option's text (value, or the file it names if kind is "certFile" or "keyFile"),
+ * NUL-terminated, malloc'd, its length with the NUL in *len; or NULL, with *failure why.
+ */
+static char *pem_of(pts_string *kind, pts_string *value, size_t *len, pts_value *failure) {
+  if (kind->byte_len > 4 && memcmp(kind->bytes + kind->byte_len - 4, "File", 4) == 0) {
+    return read_whole(value, len, failure);
+  }
+  char *text = checked(malloc(value->byte_len + 1));
+  memcpy(text, value->bytes, value->byte_len);
+  text[value->byte_len] = '\0';
+  *len = value->byte_len + 1;
+  return text;
+}
+
+static void free_identities(server *s) {
+  for (uint32_t i = 0; i < s->listener_count; i++) {
+    if (s->listeners[i].identity != NULL) {
+      pts_tls_identity_free(s->listeners[i].identity);
+    }
+  }
+}
+
+/*
+ * Gives each listener of an https server an identity of its own from serve's tls option,
+ * or frees the server and throws serve's Error: a file that can't be read, a certificate
+ * or key mbedTLS can't take.
+ */
+static void make_identities(server *s, pts_array *tls) {
+  size_t cert_len = 0, key_len = 0;
+  pts_value failure = PTS_VALUE_ABSENT;
+  char *cert = pem_of(tls_part(tls, TLS_CERT_KIND), tls_part(tls, TLS_CERT), &cert_len, &failure);
+  char *key = cert != NULL ? pem_of(tls_part(tls, TLS_KEY_KIND), tls_part(tls, TLS_KEY), &key_len, &failure) : NULL;
+  const pts_string *passphrase = pts_array_length_of(tls) > TLS_PASSPHRASE ? tls_part(tls, TLS_PASSPHRASE) : NULL;
+  for (uint32_t i = 0; i < s->listener_count && key != NULL && failure == PTS_VALUE_ABSENT; i++) {
+    s->listeners[i].identity = pts_tls_identity_new(cert, cert_len, key, key_len, passphrase, &failure);
+  }
+  free(cert);
+  if (key != NULL) {
+    pts_tls_forget(key, key_len);
+  }
+  if (failure != PTS_VALUE_ABSENT) {
+    free_identities(s);
+    GC_FREE(s);
+    pts_throw(failure);
+  }
+}
+
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_array *tls, pts_closure *on_request, pts_closure *on_disconnect) {
   uv_once(&servers_once, init_servers);
   pts_uv_loop(); /* throws on a thread without a loop */
   struct sockaddr_storage address = address_of(hostname, port);
@@ -886,8 +1126,12 @@ double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_c
     s->listeners[i].server = s;
     s->listeners[i].loop = (uint16_t)((pts_own_loop() + i) % (every_loop ? count : 1u << LOOP_BITS));
   }
+  if (pts_array_length_of(tls) > 0) {
+    make_identities(s, tls);
+  }
   int error = bind_listeners(s, &address, every_loop);
   if (error != 0) {
+    free_identities(s);
     GC_FREE(s);
     char host[INET6_ADDRSTRLEN] = "";
     uv_ip_name((const struct sockaddr *)&address, host, sizeof host);
@@ -899,6 +1143,7 @@ double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_c
     for (uint32_t i = 0; i < count; i++) {
       close(s->listeners[i].fd);
     }
+    free_identities(s);
     GC_FREE(s);
     pts_throw_new(&pts_type_builtin_RangeError, "Too many HTTP servers");
   }

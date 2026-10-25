@@ -495,7 +495,7 @@ John Smith
 
 ### HTTP and `fetch`
 
-`pts:http` serves HTTP/1.1 with the Fetch standard's `Request` and `Response`, in the style of Bun's `serve`. With `reusePort: true`, every event loop accepts connections, so requests are handled on every core. `fetch` is global, as in Node, with `AbortController` for cancelling requests.
+`pts:http` serves HTTP/1.1 with the Fetch standard's `Request` and `Response`, in the style of Bun's `serve`, and HTTPS with `tls: { certFile, keyFile }` (or the PEM text as `cert` and `key`). With `reusePort: true`, every event loop accepts connections, so requests are handled on every core. `fetch` is global, as in Node, speaks `http://` and `https://` (the server's certificate always verified), and takes an `AbortController`'s signal for cancelling requests.
 
 ```ts
 import { serve, Response } from "pts:http";
@@ -617,7 +617,7 @@ Generic function-value instances are pruned only when bounded immutable-source a
 
 Not built yet:
 
-- HTTPS for `pts:http`'s server (`fetch` speaks `https://`), and streamed request and response bodies.
+- Streamed request and response bodies, HTTP/2 and WebSocket for `pts:http`.
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
 - npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
@@ -669,4 +669,4 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 - [docs/FORK.md](docs/FORK.md): the edits to upstream code.
 - [docs/UPSTREAM_README.md](docs/UPSTREAM_README.md): typescript-go's own README.
 
-The repository keeps upstream's Apache-2.0 [LICENSE](LICENSE) and [NOTICE.txt](NOTICE.txt). A built program links the vendored C libraries statically, so a binary you distribute carries their notices: bdwgc's MIT-style licence (`pts/third_party/bdwgc/README.QUICK`), libuv's MIT, PCRE2's BSD (`COPYING`), Ryu's Apache-2.0 or Boost, libbacktrace's BSD, and, in programs that use `fetch`, mbedTLS's Apache-2.0 (each in its `LICENSE` file).
+The repository keeps upstream's Apache-2.0 [LICENSE](LICENSE) and [NOTICE.txt](NOTICE.txt). A built program links the vendored C libraries statically, so a binary you distribute carries their notices: bdwgc's MIT-style licence (`pts/third_party/bdwgc/README.QUICK`), libuv's MIT, PCRE2's BSD (`COPYING`), Ryu's Apache-2.0 or Boost, libbacktrace's BSD, and, in programs that use `fetch` or `serve`, mbedTLS's Apache-2.0 (each in its `LICENSE` file).

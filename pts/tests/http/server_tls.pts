@@ -1,0 +1,75 @@
+// The HTTPS servers TestHTTPSServer talks to (H33b), one for each form of serve's tls
+// option, their certificates and keys made by the test and named by environment
+// variables: main (certFile and keyFile: a chain with an intermediate, a PKCS#8 P-256
+// key), rsa (cert and key as PEM text: a PKCS#1 RSA key), p384 (certFile and key: a SEC1
+// P-384 key), encrypted (cert and keyFile: an encrypted PKCS#8 key and its passphrase) and
+// legacy (a legacy encrypted PEM RSA key and its passphrase). It prints `listening` and
+// each server's name=port, then each server's name, protocol and whether its url is
+// right; GET /stop stops them all, so the program ends.
+import { serve, Server, type TLSOptions } from "pts:http";
+
+// The environment variable called name, which the test sets.
+function given(name: string): string {
+  const value = process.env[name];
+  if (value === undefined) {
+    throw new Error(`${name} is not set`);
+  }
+  return value;
+}
+
+const options: [string, TLSOptions][] = [
+  ["main", { certFile: given("MAIN_CERT_FILE"), keyFile: given("MAIN_KEY_FILE") }],
+  ["rsa", { cert: given("RSA_CERT"), key: given("RSA_KEY") }],
+  ["p384", { certFile: given("P384_CERT_FILE"), key: given("P384_KEY") }],
+  ["encrypted", { cert: given("ENCRYPTED_CERT"), keyFile: given("ENCRYPTED_KEY_FILE"), passphrase: given("PASSPHRASE") }],
+  ["legacy", { certFile: given("LEGACY_CERT_FILE"), keyFile: given("LEGACY_KEY_FILE"), passphrase: given("PASSPHRASE") }],
+];
+
+// 6 MB whose every 16 bytes differ from the last, for GET /big.
+const big = Array.from({ length: 384 * 1024 }, (_, i) => `${i}`.padStart(15, ".") + "\n").join("");
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const servers: Server[] = [];
+
+async function handle(request: Request, server: Server): Promise<Response> {
+  const target = request.url.slice(request.url.indexOf("/", "https://".length));
+  switch (target.split("?")[0]) {
+    case "/hello":
+      return new Response("hello");
+    case "/echo":
+      return new Response(await request.text(), { headers: { "content-type": request.headers.get("content-type") ?? "text/plain" } });
+    case "/url":
+      return new Response(request.url);
+    case "/server":
+      return new Response(`${server.protocol} ${server.url}`);
+    case "/status": {
+      const headers = new Headers([["x-test", "a"], ["set-cookie", "one=1"]]);
+      headers.append("set-cookie", "two=2");
+      headers.append("x-test", "b");
+      return new Response(null, { status: 201, statusText: "Made", headers });
+    }
+    case "/later":
+      await sleep(20);
+      return new Response("later");
+    case "/big":
+      return new Response(big);
+    case "/stop":
+      for (const each of servers) {
+        each.stop();
+      }
+      return new Response("bye");
+  }
+  return new Response("no such page", { status: 404 });
+}
+
+for (const [, tls] of options) {
+  servers.push(serve({ port: 0, hostname: "127.0.0.1", tls, fetch: handle }));
+}
+console.log(["listening", ...options.map(([name], i) => `${name}=${servers[i].port}`)].join(" "));
+for (let i = 0; i < servers.length; i++) {
+  const server = servers[i];
+  console.log(options[i][0], server.protocol, server.url === `https://127.0.0.1:${server.port}/`);
+}

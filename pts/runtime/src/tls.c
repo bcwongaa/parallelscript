@@ -1,8 +1,8 @@
 /*
- * TLS for fetch's https requests (D-223), with mbedTLS. A session keeps the bytes that
- * came from the peer until mbedTLS reads them and the bytes mbedTLS writes until
- * fetch.c sends them, so mbedTLS never touches a socket and each step runs on the
- * request's loop, as the rest of the request does.
+ * TLS for fetch's https requests (D-223) and pts:http's https servers (D-224), with
+ * mbedTLS. A session keeps the bytes that came from the peer until mbedTLS reads them and
+ * the bytes mbedTLS writes until fetch.c or http.c sends them, so mbedTLS never touches a
+ * socket and each step runs on the loop of the request or connection, as the rest of it does.
  *
  * The server's certificate is always verified: its chain against the trust store by
  * mbedTLS, and its names against the URL's host by on_verify, as Node's
@@ -12,7 +12,11 @@
  * configuration are made once, at the first request; after that every loop's sessions
  * only read them.
  *
- * Sessions are malloc'd and hold no collected pointers.
+ * A server presents an identity: its certificate chain and key, with a configuration of
+ * their own for each loop that accepts its connections, so that loops don't share a key's
+ * state (an RSA key's lock would serialize their handshakes).
+ *
+ * Sessions and identities are malloc'd and hold no collected pointers.
  */
 #include "tls_internal.h"
 
@@ -27,6 +31,7 @@
 #include <mbedtls/asn1.h>
 #include <mbedtls/error.h>
 #include <mbedtls/oid.h>
+#include <mbedtls/platform_util.h>
 #include <mbedtls/psa_util.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
@@ -66,6 +71,7 @@ struct pts_tls {
   bool leaf_key_weak;   /* the server's own RSA key is shorter than mbedTLS takes */
   bool constrained;     /* a CA of the chain has name constraints, which aren't supported */
   bool names_checked;   /* on_verify checked the certificate's names */
+  bool server;          /* the session is a server's, which verifies nothing */
   char *mismatch;       /* Node's reason the certificate doesn't name the host, if it doesn't */
   size_t mismatch_len;
   size_t host_len;
@@ -99,11 +105,16 @@ static const char *ALPN[] = {"http/1.1", NULL};
 
 static struct {
   int error;            /* mbedTLS's error if the configuration couldn't be made */
-  psa_status_t psa;     /* PSA's if its subsystem didn't start */
   mbedtls_x509_crt roots;
   mbedtls_ssl_config config;
 } client_setup;
 static uv_once_t client_once = UV_ONCE_INIT;
+
+/* PSA's subsystem, which TLS 1.3 and the random generator need: started once, for clients and servers alike. */
+static psa_status_t psa_status;
+static uv_once_t psa_once = UV_ONCE_INIT;
+
+static void start_psa(void) { psa_status = psa_crypto_init(); }
 
 /* Adds the certificates in each of the colon-separated directories to roots. */
 static void load_directories(mbedtls_x509_crt *roots, const char *directories) {
@@ -156,8 +167,7 @@ static void load_roots(mbedtls_x509_crt *roots) {
 static void make_client_setup(void) {
   mbedtls_x509_crt_init(&client_setup.roots);
   mbedtls_ssl_config_init(&client_setup.config);
-  client_setup.psa = psa_crypto_init();
-  if (client_setup.psa != PSA_SUCCESS) {
+  if (psa_status != PSA_SUCCESS) {
     return;
   }
   load_roots(&client_setup.roots);
@@ -178,13 +188,27 @@ static pts_value error_of(const char *message) {
   return pts_value_from_object(pts_error_new(&pts_type_builtin_Error, pts_string_from_cstr(message)));
 }
 
-/* An Error with mbedTLS's description of error and its number: "SSL - An invalid SSL record was received (mbedTLS -0x7200)". */
-static pts_value described(int error) {
-  char text[256];
-  mbedtls_strerror(error, text, sizeof text);
-  size_t len = strlen(text);
+/* An Error with prefix, mbedTLS's description of error and its number: "SSL - An invalid SSL record was received (mbedTLS -0x7200)". */
+static pts_value described_after(const char *prefix, int error) {
+  char text[320];
+  size_t len = (size_t)snprintf(text, sizeof text, "%s", prefix);
+  mbedtls_strerror(error, text + len, sizeof text - len);
+  len = strlen(text);
   snprintf(text + len, sizeof text - len, " (mbedTLS -0x%04X)", (unsigned)-error);
   return error_of(text);
+}
+
+static pts_value described(int error) { return described_after("", error); }
+
+/* Why PSA's subsystem didn't start, if it didn't: an Error, or PTS_VALUE_ABSENT. */
+static pts_value psa_failure(void) {
+  uv_once(&psa_once, start_psa);
+  if (psa_status == PSA_SUCCESS) {
+    return PTS_VALUE_ABSENT;
+  }
+  char message[64];
+  snprintf(message, sizeof message, "TLS can't start: PSA crypto failed (%d)", (int)psa_status);
+  return error_of(message);
 }
 
 /*
@@ -716,13 +740,11 @@ static size_t parse_address(const char *host, uint8_t *address) {
 }
 
 pts_tls *pts_tls_client(const char *host, pts_value *failure) {
-  uv_once(&client_once, make_client_setup);
-  if (client_setup.psa != PSA_SUCCESS) {
-    char message[64];
-    snprintf(message, sizeof message, "TLS can't start: PSA crypto failed (%d)", (int)client_setup.psa);
-    *failure = error_of(message);
+  *failure = psa_failure();
+  if (*failure != PTS_VALUE_ABSENT) {
     return NULL;
   }
+  uv_once(&client_once, make_client_setup);
   if (client_setup.error != 0) {
     *failure = described(client_setup.error);
     return NULL;
@@ -748,6 +770,95 @@ pts_tls *pts_tls_client(const char *host, pts_value *failure) {
   mbedtls_ssl_set_verify(&tls->ssl, on_verify, tls);
   return tls;
 }
+
+/* ---------------------------------------------------------------- servers (D-224) */
+
+struct pts_tls_identity {
+  mbedtls_ssl_config config;
+  mbedtls_x509_crt chain;
+  mbedtls_pk_context key;
+};
+
+void pts_tls_identity_free(pts_tls_identity *identity) {
+  mbedtls_ssl_config_free(&identity->config);
+  mbedtls_x509_crt_free(&identity->chain);
+  mbedtls_pk_free(&identity->key);
+  free(identity);
+}
+
+void pts_tls_forget(char *bytes, size_t len) {
+  mbedtls_platform_zeroize(bytes, len);
+  free(bytes);
+}
+
+/*
+ * Why mbedTLS can't take the certificate chain and key, as serve's Error: PTS_VALUE_ABSENT
+ * if it can. A chain of several certificates of which some don't parse is refused too.
+ */
+static pts_value identity_failure(pts_tls_identity *identity, const char *cert, size_t cert_len, const char *key, size_t key_len,
+                                  const pts_string *passphrase) {
+  int error = mbedtls_x509_crt_parse(&identity->chain, (const unsigned char *)cert, cert_len);
+  if (error > 0) {
+    return error_of("serve's tls cert: a certificate in it can't be parsed");
+  }
+  if (error != 0) {
+    return described_after("serve's tls cert: ", error);
+  }
+  error = mbedtls_pk_parse_key(&identity->key, (const unsigned char *)key, key_len, passphrase != NULL ? (const unsigned char *)passphrase->bytes : NULL,
+                               passphrase != NULL ? passphrase->byte_len : 0, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE);
+  if (error != 0) {
+    return described_after("serve's tls key: ", error);
+  }
+  if (mbedtls_pk_check_pair(&identity->chain.pk, &identity->key, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE) != 0) {
+    return error_of("serve's tls key doesn't match the certificate");
+  }
+  mbedtls_ssl_config *config = &identity->config;
+  error = mbedtls_ssl_config_defaults(config, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+  if (error == 0) {
+    error = mbedtls_ssl_conf_alpn_protocols(config, ALPN);
+  }
+  if (error == 0) {
+    error = mbedtls_ssl_conf_own_cert(config, &identity->chain, &identity->key);
+  }
+  if (error != 0) {
+    return described_after("serve's tls: ", error);
+  }
+  mbedtls_ssl_conf_rng(config, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE);
+  return PTS_VALUE_ABSENT;
+}
+
+pts_tls_identity *pts_tls_identity_new(const char *cert, size_t cert_len, const char *key, size_t key_len, const pts_string *passphrase, pts_value *failure) {
+  *failure = psa_failure();
+  if (*failure != PTS_VALUE_ABSENT) {
+    return NULL;
+  }
+  pts_tls_identity *identity = checked(malloc(sizeof *identity));
+  mbedtls_ssl_config_init(&identity->config);
+  mbedtls_x509_crt_init(&identity->chain);
+  mbedtls_pk_init(&identity->key);
+  *failure = identity_failure(identity, cert, cert_len, key, key_len, passphrase);
+  if (*failure != PTS_VALUE_ABSENT) {
+    pts_tls_identity_free(identity);
+    return NULL;
+  }
+  return identity;
+}
+
+pts_tls *pts_tls_server(pts_tls_identity *identity, pts_value *failure) {
+  pts_tls *tls = checked(calloc(1, sizeof *tls + 1));
+  tls->server = true;
+  mbedtls_ssl_init(&tls->ssl);
+  int error = mbedtls_ssl_setup(&tls->ssl, &identity->config);
+  if (error != 0) {
+    *failure = described(error);
+    pts_tls_free(tls);
+    return NULL;
+  }
+  mbedtls_ssl_set_bio(&tls->ssl, tls, send_out, receive_in, NULL);
+  return tls;
+}
+
+/* ---------------------------------------------------------------- steps */
 
 void pts_tls_free(pts_tls *tls) {
   mbedtls_ssl_free(&tls->ssl);
@@ -799,7 +910,7 @@ static pts_tls_status status_of(pts_tls *tls, int result) {
 
 pts_tls_status pts_tls_handshake(pts_tls *tls) {
   pts_tls_status status = status_of(tls, mbedtls_ssl_handshake(&tls->ssl));
-  if (status == PTS_TLS_DONE && !tls->names_checked) {
+  if (status == PTS_TLS_DONE && !tls->server && !tls->names_checked) {
     tls->error = MBEDTLS_ERR_X509_FATAL_ERROR; /* never: every handshake verifies the server's certificate, through on_verify */
     return PTS_TLS_FAILED;
   }
@@ -818,6 +929,8 @@ pts_tls_status pts_tls_write(pts_tls *tls, const char *bytes, size_t len) {
   }
   return PTS_TLS_DONE;
 }
+
+pts_tls_status pts_tls_close(pts_tls *tls) { return status_of(tls, mbedtls_ssl_close_notify(&tls->ssl)); }
 
 pts_tls_status pts_tls_read(pts_tls *tls, char *out, size_t cap, size_t *got) {
   int result = mbedtls_ssl_read(&tls->ssl, (unsigned char *)out, cap);

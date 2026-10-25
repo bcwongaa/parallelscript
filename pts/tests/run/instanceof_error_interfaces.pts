@@ -1,0 +1,28 @@
+// skip: known issue (H29, C349): `instanceof` of a value typed as an interface that extends Error is false for the error's own class and for Error
+// A caught error held as an interface that extends Error (Node's NodeJS.ErrnoException, a
+// program's own) is still an instance of its class: `instanceof` tests the object, not
+// the static type. H33b's reproducer found pts giving false for both (pre-existing).
+interface Coded extends Error {
+  code?: string;
+}
+
+function fail(): never {
+  throw new TypeError("bad input");
+}
+
+try {
+  fail();
+} catch (e) {
+  const errno = e as NodeJS.ErrnoException;
+  const coded = e as Coded;
+  console.log(errno instanceof TypeError, coded instanceof TypeError, coded instanceof Error, e instanceof TypeError);
+}
+try {
+  JSON.parse("{");
+} catch (e) {
+  console.log((e as Coded) instanceof SyntaxError, (e as Coded) instanceof Error);
+}
+
+// expect:
+// true true true true
+// true true

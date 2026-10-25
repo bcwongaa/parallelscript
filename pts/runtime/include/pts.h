@@ -2058,10 +2058,14 @@ pts_value pts_match_groups(const pts_array *array);
  * (id, method, target, headers, body) => Request, for each request: headers are lowercase
  * names and values in turn. If the client leaves before the request is answered (or
  * stop(true) closes its connection), on_disconnect, a (request) => void, gets the Request
- * on_request returned (D-163). Returns the server's id; Error with Node's message
- * (`listen EADDRINUSE: …`) if it can't listen.
+ * on_request returned (D-163). tls is empty for http; for https (D-224) the certificate's
+ * kind ("cert" for PEM text, "certFile" for a path) and value, the key's ("key",
+ * "keyFile"), then the key's passphrase if there is one. Returns the server's id; Error
+ * with Node's message (`listen EADDRINUSE: …`) if it can't listen, or serve's if the
+ * certificate or key can't be read or taken.
  */
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, struct pts_closure *on_request, struct pts_closure *on_disconnect);
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_array *tls, struct pts_closure *on_request,
+                       struct pts_closure *on_disconnect);
 /* Answers request id (ignored if its connection has closed): headers are names and values in turn. */
 void pts_http_respond(double id, double status, pts_string *status_text, pts_array *headers, pts_string *body);
 /* The port server id listens on. */

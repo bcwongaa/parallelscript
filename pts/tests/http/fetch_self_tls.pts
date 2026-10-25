@@ -1,0 +1,106 @@
+// A program that serves HTTPS and fetches from its own servers (H33b), for
+// TestHTTPSServerFetchesItself, trusting their certificate through NODE_EXTRA_CA_CERTS:
+// main (with reusePort, so on every loop) and other (another origin) have the certificate
+// and key TLS_CERT_FILE and TLS_KEY_FILE name, for localhost alone; untrusted has the
+// self-signed one SELF_SIGNED_CERT_FILE and SELF_SIGNED_KEY_FILE name. It fetches from
+// the main loop, from `.par.map` callbacks and from `parallel` tasks, follows redirects
+// to another origin and to its own, posts a large body, has a handler fetch from its own
+// server, and fetches by an address the certificate doesn't name and from the untrusted
+// server, which fail as Node's fetch fails; then it stops its servers and ends.
+import { serve, Server } from "pts:http";
+import { range } from "pts:parallel";
+
+type Coded = Error & { code: string };
+
+const ports = new Map<string, number>();
+
+async function handle(request: Request, server: Server): Promise<Response> {
+  const path = request.url.slice(request.url.indexOf("/", "https://".length));
+  if (path.startsWith("/n/")) {
+    return new Response(`n ${path.slice("/n/".length)}`);
+  }
+  switch (path) {
+    case "/redirect":
+      return new Response(null, { status: 302, headers: { location: `https://localhost:${ports.get("other")}/echo` } });
+    case "/redirect-here":
+      return new Response(null, { status: 307, headers: { location: "/echo" } });
+    case "/echo":
+      return new Response(`${request.method} ${(await request.text()).length} authorization=${request.headers.get("authorization")}`);
+    case "/url":
+      return new Response(request.url);
+    case "/proxy": {
+      const response = await fetch(`https://localhost:${server.port}/n/proxied`);
+      return new Response(`proxied ${response.status} ${await response.text()}`);
+    }
+  }
+  return new Response("no such page", { status: 404 });
+}
+
+const env = process.env;
+const main = serve({ port: 0, hostname: "127.0.0.1", reusePort: true, tls: { certFile: env.TLS_CERT_FILE, keyFile: env.TLS_KEY_FILE }, fetch: handle });
+const other = serve({ port: 0, hostname: "127.0.0.1", tls: { certFile: env.TLS_CERT_FILE, keyFile: env.TLS_KEY_FILE }, fetch: handle });
+const untrusted = serve({ port: 0, hostname: "127.0.0.1", tls: { certFile: env.SELF_SIGNED_CERT_FILE, keyFile: env.SELF_SIGNED_KEY_FILE }, fetch: handle });
+ports.set("main", main.port);
+ports.set("other", other.port);
+const base = `https://localhost:${main.port}`;
+
+// href with each server's base URL written as its name, so that no port shows.
+function named(href: string): string {
+  return href.replace(`https://localhost:${main.port}/`, "<main>/").replace(`https://localhost:${other.port}/`, "<other>/");
+}
+
+function failure(e: unknown): string {
+  const error = e as Error;
+  const cause = error.cause as Coded | undefined;
+  return `${error.name}: ${error.message} | ${cause?.code} | ${cause?.message}`;
+}
+
+// Fetches /n/i from the main server: "ok" if the answer is right.
+async function get(i: number): Promise<string> {
+  try {
+    const response = await fetch(`${base}/n/${i}`);
+    const body = await response.text();
+    return body === `n ${i}` ? "ok" : `${i}: ${response.status} ${body}`;
+  } catch (e) {
+    return `${i}: ${failure(e)}`;
+  }
+}
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", ");
+}
+
+// Prints what f gives, or how it fails.
+async function attempt(label: string, f: () => Promise<string>): Promise<void> {
+  try {
+    console.log(label, await f());
+  } catch (e) {
+    console.log(label, failure(e));
+  }
+}
+
+async function described(response: Response): Promise<string> {
+  return `${response.status} ${response.redirected} ${named(response.url)} ${await response.text()}`;
+}
+
+console.log("protocols:", main.protocol, other.protocol, untrusted.protocol);
+console.log("from the main loop:", tally(await Promise.all(Array.from({ length: 32 }, (_, i) => get(i)))));
+console.log("from .par.map:", tally(await Promise.all(range(0, 32).par.map((i) => get(i)))));
+console.log("from parallel tasks:", tally(await Promise.all(Array.from({ length: 32 }, (_, i) => parallel get(i)))));
+await attempt("request.url:", async () => named(await (await fetch(`${base}/url`)).text()));
+await attempt("https to https, another origin:", async () => described(await fetch(`${base}/redirect`, { headers: { authorization: "Bearer secret" } })));
+await attempt("https to https, the same origin:", async () =>
+  described(await fetch(`${base}/redirect-here`, { method: "POST", body: "kept", headers: { authorization: "Bearer secret" } })));
+await attempt("1 MB posted:", async () => described(await fetch(`${base}/echo`, { method: "POST", body: "x".repeat(1024 * 1024) })));
+await attempt("a handler's fetch:", async () => described(await fetch(`${base}/proxy`)));
+await attempt("by an address the certificate doesn't name:", async () => described(await fetch(`https://127.0.0.1:${main.port}/n/0`)));
+await attempt("a self-signed server:", async () => described(await fetch(`https://localhost:${untrusted.port}/n/0`)));
+main.stop();
+other.stop();
+untrusted.stop();
+console.log("stopped");

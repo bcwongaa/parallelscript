@@ -1,0 +1,13 @@
+// serve's tls option takes only the options pts:http has (H33b): one of Bun's and Node's
+// others, such as ca, is a compile error, as any unknown property of an object literal is,
+// rather than being ignored; and a server's protocol is read-only.
+import { serve } from "pts:http";
+
+const server = serve({
+  port: 0,
+  tls: { certFile: "cert.pem", keyFile: "key.pem", ca: "ca.pem" },
+  fetch: () => new Response("hello"),
+});
+server.protocol = "http";
+// error: serve_tls_options.pts:8:52 - error TS2353: Object literal may only specify known properties, and 'ca' does not exist in type 'TLSOptions'.
+// error: serve_tls_options.pts:11:8 - error TS2540: Cannot assign to 'protocol' because it is a read-only property.
