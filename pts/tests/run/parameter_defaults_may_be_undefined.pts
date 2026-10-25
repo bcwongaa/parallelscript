@@ -1,0 +1,53 @@
+// A parameter's default may itself be undefined: an element read past the end
+// (`p: string | undefined = s.split(":")[1]`), a function's `T | undefined` result,
+// `undefined`, a conditional or an optional chain. The parameter then holds undefined, as
+// in JS. pts gave the parameter its type without undefined and converted the default to
+// it, so these failed to compile ("converting string | undefined to string is not
+// supported yet", C306; D-220 left a parameter's default out of the places undefined goes).
+function field(s: string, p: string | undefined = s.split(":")[1]): string {
+  return p === undefined ? "none" : p;
+}
+console.log("split", field("a:b"), field("a"), field("a", undefined), field("a", "given"));
+
+function at(xs: number[], i: number, v: number | undefined = xs[i]): string {
+  return v === undefined ? "missing" : String(v * 2);
+}
+console.log("element", at([1, 2], 1), at([1, 2], 5));
+
+function maybe(n: number): number | undefined {
+  return n > 0 ? n : undefined;
+}
+function result(n: number, p: number | undefined = maybe(n)): string {
+  return p === undefined ? "none" : String(p);
+}
+console.log("result", result(2), result(0), result(0, 5));
+
+function plain(a: number | undefined = undefined): string {
+  return a === undefined ? "undefined" : String(a);
+}
+console.log("undefined", plain(), plain(3));
+
+function pick(c: boolean, x: string | undefined = c ? "yes" : undefined): string {
+  return x ?? "none";
+}
+console.log("conditional", pick(true), pick(false), pick(false, "g"));
+
+class Parts {
+  parts = ["a"];
+  get(i: number, p: string | undefined = this.parts[i]): string {
+    return p ?? "none";
+  }
+}
+console.log("method", new Parts().get(0), new Parts().get(3));
+
+const arrow = (s: string, p: string | undefined = s.split("=")[1]): string => p ?? "none";
+console.log("arrow", arrow("k=v"), arrow("k"));
+
+// expect:
+// split b none none given
+// element 4 missing
+// result 2 none 5
+// undefined undefined 3
+// conditional yes none g
+// method a none
+// arrow v none

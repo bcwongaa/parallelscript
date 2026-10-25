@@ -1,0 +1,58 @@
+// Defaults over properties that are exactly undefined keep JS's order: each property is
+// read once, in source order (a getter typed undefined is still called), then its default
+// runs, before the next property is read; an assignment's target is evaluated before the
+// read; a default that changes the source is seen by later reads; a default that throws
+// stops the rest. pts failed to compile all of these (C12: "converting undefined to
+// number is not supported yet"); a fix that drops the read of an undefined part would skip
+// the getters.
+const log: string[] = [];
+function d<T>(tag: string, v: T): T {
+  log.push("default " + tag);
+  return v;
+}
+
+const src = {
+  get a() {
+    log.push("get a");
+    return undefined;
+  },
+  get b() {
+    log.push("get b");
+    return 2;
+  },
+};
+const { a = d("a", 1), b = d("b", 9) } = src;
+console.log("getters", a, b, log.splice(0).join(","));
+
+const { p = d("p", 1), q = d("q", 2), r = d("r", 3) } = { p: undefined, q: undefined, r: undefined };
+console.log("left to right", p, q, r, log.splice(0).join(","));
+
+const changed = { x: undefined, y: 2 };
+const { x = ((changed.y = 5), 1), y } = changed;
+console.log("source changed", x, y);
+
+const box = { v: 0 };
+function target() {
+  log.push("target");
+  return box;
+}
+({ a: target().v = d("v", 7) } = { a: undefined });
+console.log("target first", box.v, log.splice(0).join(","));
+
+function boom(): number {
+  log.push("boom");
+  throw new Error("boom");
+}
+try {
+  const { m = boom(), n = d("n", 2) } = { m: undefined, n: undefined };
+  console.log(m, n);
+} catch (e) {
+  console.log("thrown", (e as Error).message, log.splice(0).join(","));
+}
+
+// expect:
+// getters 1 2 get a,default a,get b
+// left to right 1 2 3 default p,default q,default r
+// source changed 1 5
+// target first 7 target,default v
+// thrown boom boom

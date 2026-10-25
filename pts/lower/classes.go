@@ -770,6 +770,9 @@ func (l *lowerer) inFunction(fn *ir.Func, lower func()) {
 	lower()
 	if len(prologue) > 0 && fn.Body != nil {
 		fn.Body.Stmts = append(prologue, fn.Body.Stmts...)
+		if fn.Generator && !fn.Async {
+			fn.Prologue = len(prologue) // bound at the call (N1)
+		}
 	}
 	l.function, l.targets, l.finallies = outer, outerTargets, outerFinallies
 	l.lowered = append(l.lowered, fn)

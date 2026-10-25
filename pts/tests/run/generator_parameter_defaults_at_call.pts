@@ -1,0 +1,42 @@
+// A generator binds its parameters when it is called, before the generator object is
+// returned: defaults run and patterns are destructured then (ECMA-262's
+// FunctionDeclarationInstantiation precedes the generator's start), so their effects come
+// before anything after the call, and a pattern that throws throws from the call. pts
+// binds them at the first next(), with the body (H12 reproducer; the parameter prologue is
+// part of the generator's frame body). Plain defaults, pattern defaults and methods alike.
+const log: string[] = [];
+function d(tag: string, n: number): number {
+  log.push("default " + tag);
+  return n;
+}
+
+function* plain(a = d("a", 1)) {
+  log.push("body");
+  yield a;
+}
+const it = plain();
+log.push("created");
+console.log("plain", [...it], log.splice(0).join(","));
+
+function* pattern({ b = d("b", 2) }: { b?: number }) {
+  log.push("body");
+  yield b;
+}
+const it2 = pattern({});
+log.push("created");
+console.log("pattern", [...it2], log.splice(0).join(","));
+
+class K {
+  *m([c = d("c", 3)]: (number | undefined)[]) {
+    log.push("body");
+    yield c;
+  }
+}
+const it3 = new K().m([]);
+log.push("created");
+console.log("method", [...it3], log.splice(0).join(","));
+
+// expect:
+// plain [ 1 ] default a,created,body
+// pattern [ 2 ] default b,created,body
+// method [ 3 ] default c,created,body

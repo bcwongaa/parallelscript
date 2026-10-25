@@ -1,0 +1,51 @@
+// A default of another type over an array of numbers or booleans widens the name, as
+// tsc types it (`const [a, b = "none"] = nums` makes b a `number | string`): the element
+// where it is there, else the default. pts converted the default to the element type and
+// failed to compile ("converting string to number is not supported yet", C307, H11a
+// review round 2): defaultPastTheEnd, the form for arrays without holes (D-085), took
+// the element type, not the name's. Declarations, assignments, a whole-default
+// parameter, `for…of` and a nested pattern's element alike.
+const nums: number[] = [1];
+const [a, b = "none"] = nums;
+console.log("string over number[]", a, b);
+
+const flags: boolean[] = [true];
+const [f = null, g = null] = flags;
+console.log("null over boolean[]", f, g);
+
+const [o = { k: 1 }] = [] as number[];
+console.log("object over number[]", o);
+
+const [u = undefined] = [] as number[];
+console.log("undefined over number[]", u);
+
+const pick = nums.length > 5;
+const [v = pick ? 0 : "s"] = [] as number[];
+console.log("union over number[]", v);
+
+let p = 0;
+let q: number | string = 0;
+[p, q = "none"] = nums;
+console.log("assignment", p, q);
+
+function whole([h, i = "none"] = nums): string {
+  return `${h} ${i}`;
+}
+console.log("parameter", whole(), whole([3, 4]));
+
+for (const [r, s = "none"] of [[1], [1, 2]]) console.log("for…of", r, s);
+
+const [[n = "n"]] = [[] as number[]];
+console.log("nested", n);
+
+// expect:
+// string over number[] 1 none
+// null over boolean[] true null
+// object over number[] { k: 1 }
+// undefined over number[] undefined
+// union over number[] s
+// assignment 1 none
+// parameter 1 none 3 4
+// for…of 1 none
+// for…of 1 2
+// nested n

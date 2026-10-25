@@ -1,0 +1,37 @@
+// A default over a property that is exactly undefined applies where the name or target
+// takes undefined too: an `any` or `unknown` default makes the name `any` or `unknown`,
+// and an assignment's target may be `any`. pts kept the undefined property there without
+// a word, so the default never ran and the program printed undefined (C12's silent half,
+// H12 reproducer; withDefault skipped parts typed exactly undefined).
+const log: string[] = [];
+function d<T>(tag: string, v: T): T {
+  log.push(tag);
+  return v;
+}
+const anyTen: any = 10;
+const unk: unknown = "u";
+
+const { a = anyTen } = { a: undefined };
+console.log("any default", a);
+
+const { u = unk } = { u: undefined };
+console.log("unknown default", u);
+
+const o: { x: any } = { x: -1 };
+({ a: o.x = d("o.x", 3) } = { a: undefined });
+console.log("any target", o.x);
+
+class Getter {
+  get g() {
+    log.push("get g");
+    return undefined;
+  }
+}
+const { g = d("g", anyTen) } = new Getter();
+console.log("getter", g, log.join(","));
+
+// expect:
+// any default 10
+// unknown default u
+// any target 3
+// getter 10 o.x,get g,g

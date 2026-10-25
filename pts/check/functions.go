@@ -1,6 +1,8 @@
 package check
 
 import (
+	"slices"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
@@ -211,7 +213,7 @@ func (c *pass) signature(declaration *ast.Node) *function {
 // optional), of the value a call passes.
 func (c *pass) parameterNumeric(symbol *ast.Symbol) (Numeric, bool) {
 	t := c.tc.GetTypeOfSymbol(symbol)
-	if declaration := symbol.ValueDeclaration; declaration != nil && declaration.Kind == ast.KindParameter && passedOrNot(declaration) {
+	if declaration := symbol.ValueDeclaration; declaration != nil && declaration.Kind == ast.KindParameter && passedOrNot(declaration) && !c.defaultHoldsUndefined(declaration) {
 		t = c.tc.RemoveMissingOrUndefinedType(t)
 	}
 	if !IsNumber(t) {
@@ -229,6 +231,22 @@ func (c *pass) parameterNumeric(symbol *ast.Symbol) (Numeric, bool) {
 func passedOrNot(declaration *ast.Node) bool {
 	param := declaration.AsParameterDeclaration()
 	return param.QuestionToken != nil || param.Initializer != nil && param.Type == nil
+}
+
+// defaultHoldsUndefined reports whether a parameter declaration's default has undefined
+// among its values (`v = m.get(k)`), so that tsc gives the parameter undefined in the body
+// too: it isn't a number there.
+func (c *pass) defaultHoldsUndefined(declaration *ast.Node) bool {
+	initializer := declaration.Initializer()
+	if initializer == nil {
+		return false
+	}
+	t := c.tc.GetTypeAtLocation(initializer)
+	const undefined = checker.TypeFlagsUndefined | checker.TypeFlagsVoid
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return member.Flags()&undefined != 0 })
+	}
+	return t.Flags()&undefined != 0
 }
 
 func (c *pass) returnsNumber(declaration *ast.Node) bool {

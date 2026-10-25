@@ -1,0 +1,63 @@
+// A default in an object pattern applies to a property that is exactly undefined (tsc
+// types it `undefined`, not a union): `const { value = 4 } = { value: undefined }` binds
+// 4, as in JS. pts kept the property itself, which is undefined, and failed to compile
+// ("converting undefined to number is not supported yet", C12, GPT review #5): withDefault
+// handled only parts whose type is a union with undefined. Declarations at module scope
+// and in functions, `void 0`, a declared `{ a: undefined }`, assignments, a parameter's
+// pattern under a whole default, `for…of` over a typed array, a class field typed
+// undefined, a generic instance and a nested pattern's default alike.
+const { value = 4 } = { value: undefined };
+console.log("literal", value);
+
+const { v0 = "seven" } = { v0: void 0 };
+console.log("void 0", v0);
+
+const declared: { a: undefined; b: number } = { a: undefined, b: 2 };
+const { a = 10, b = 20 } = declared;
+console.log("declared", a, b);
+
+function local(): number {
+  const { n = 5 } = { n: undefined };
+  return n;
+}
+console.log("function", local());
+
+let x = 0;
+({ x = 6 } = { x: undefined });
+console.log("assignment", x);
+
+function whole({ p = "dflt", q = 1 } = { p: undefined, q: 3 }): string {
+  return `${p} ${q}`;
+}
+console.log("whole default", whole(), whole({ p: undefined, q: 4 }));
+
+const rows: Array<{ k: undefined; w: number }> = [{ k: undefined, w: 1 }];
+for (const { k = "k", w } of rows) console.log("for…of", k, w);
+
+class Box {
+  item: undefined = undefined;
+  size = 3;
+}
+const { item = "empty", size } = new Box();
+console.log("class field", item, size);
+
+function pick<T extends { c?: number }>(o: T): number {
+  const { c = 8 } = o;
+  return c;
+}
+console.log("generic", pick({ c: undefined }), pick({ c: 2 }), pick({}));
+
+const { outer: { inner = "in" } = {} } = { outer: undefined };
+console.log("nested", inner);
+
+// expect:
+// literal 4
+// void 0 seven
+// declared 10 2
+// function 5
+// assignment 6
+// whole default dflt 3 dflt 4
+// for…of k 1
+// class field empty 3
+// generic 8 2 8
+// nested in

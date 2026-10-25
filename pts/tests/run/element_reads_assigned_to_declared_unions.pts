@@ -1,0 +1,85 @@
+// An element read assigned to a variable declared `T | undefined` reads undefined past the
+// end (D-015), and tsc narrows the variable to T by the assignment: the variable is loose
+// (D-090), so its reads as a T are checked (TypeError, as Node's member read of undefined
+// throws), as a declaration's initializer already made it (D-172). They were read as a T
+// unchecked: SIGSEGV (C327, pre-existing).
+const strs: string[] = [];
+const nums: number[] = [];
+const objs: { n: number }[] = [];
+const rec: Record<string, string> = {};
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+attempt("=", () => {
+  let x: string | undefined = "a";
+  x = strs[3];
+  console.log(x.length);
+});
+attempt("??=", () => {
+  let x: string | undefined;
+  x ??= strs[3];
+  console.log(x.length);
+});
+attempt("||=", () => {
+  let x: string | undefined = "";
+  x ||= strs[3];
+  console.log(x.length);
+});
+attempt("record", () => {
+  let x: string | undefined = "a";
+  x = rec["k"];
+  console.log(x.length);
+});
+attempt("string", () => {
+  let x: string | undefined = "a";
+  x = "ab"[5];
+  console.log(x.length);
+});
+attempt("loop", () => {
+  let x: string | undefined;
+  for (let i = 0; i < 2; i++) {
+    x = strs[i];
+    console.log(x.length);
+  }
+});
+attempt("parameter", () => {
+  function f(p: string | undefined): number {
+    p = strs[1];
+    return p.length;
+  }
+  console.log(f("z"));
+});
+attempt("object", () => {
+  let o: { n: number } | undefined;
+  o = objs[0];
+  console.log(o.n);
+});
+attempt("number", () => {
+  let n: number | undefined = 1;
+  n = nums[0];
+  console.log(n.toFixed(1));
+});
+attempt("tested", () => {
+  let x: string | undefined = "a";
+  x = strs[0];
+  console.log(x === undefined, typeof x);
+  x = ["q"][0];
+  console.log(x.length, x);
+});
+
+// expect:
+// = threw TypeError
+// ??= threw TypeError
+// ||= threw TypeError
+// record threw TypeError
+// string threw TypeError
+// loop threw TypeError
+// parameter threw TypeError
+// object threw TypeError
+// number threw TypeError
+// true undefined
+// 1 q

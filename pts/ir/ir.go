@@ -532,6 +532,12 @@ type Func struct {
 	// Generator: a call makes an AsyncGenerator object (a Value) without running Body,
 	// whose Yields marked Await are awaits and the others its yields.
 	AsyncGenerator bool
+	// Prologue, for a generator or an async generator, is the number of Body's first
+	// statements that bind its parameters (defaults and patterns): they run when it is
+	// called, before the generator object is made, as JS binds them (H12), so a default's
+	// effects come before the caller's next ones and a pattern's error is the call's. An
+	// async function runs Body from the call anyway, settling its promise with an error.
+	Prologue int
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).

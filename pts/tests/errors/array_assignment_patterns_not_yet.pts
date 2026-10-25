@@ -1,0 +1,16 @@
+// An array pattern on the left of an assignment destructures arrays and tuples only:
+// over an iterator, a set or a dynamic value it is not supported yet (H12 reproducer; a
+// declaration's or parameter's pattern steps through them, D-177). Pins the honest
+// PTS1001 until assignment patterns step through iterables too, targets evaluated before
+// each next() as ECMA-262's DestructuringAssignmentEvaluation says.
+function* gen(): Generator<number | undefined> { yield 1; }
+let a = 0, b = 0;
+[a = 5, b = 6] = gen();
+[a, b] = new Set([1, 2]);
+const src: any = [1, 2];
+[a, b] = src;
+console.log(a, b);
+
+// error: array_assignment_patterns_not_yet.pts:8:2 - error PTS1001: destructuring a value with an array pattern is not supported yet
+// error: array_assignment_patterns_not_yet.pts:9:2 - error PTS1001: destructuring a Set<number> with an array pattern is not supported yet
+// error: array_assignment_patterns_not_yet.pts:11:2 - error PTS1001: destructuring a value with an array pattern is not supported yet

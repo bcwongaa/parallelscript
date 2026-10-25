@@ -1,0 +1,49 @@
+// A generator binds its parameters at the call, before the generator object is returned
+// (N1, with generator_parameter_defaults_at_call.pts): a pattern over `any` that throws
+// throws from the call, a default reads the locals it captures then (a later change isn't
+// seen) and a closure in a default sees the bound value; an iterable pattern steps and
+// closes its iterator at the call; an async generator binds at the call too, and an async
+// function's pattern error rejects its promise. pts bound them at the first next().
+const log: string[] = [];
+const nothing: any = undefined;
+function d(tag: string, n: number): number { log.push("default " + tag); return n; }
+// a pattern that throws throws from the call
+function* needs({ a }: { a: number }) { log.push("body"); yield a; }
+function* needsAny({ a }: any) { log.push("body"); yield a; }
+try { const g = needsAny(nothing); log.push("created"); console.log([...g]); } catch (e) { console.log("threw at call", (e as Error).name); }
+console.log(log.splice(0).join(","));
+// a default capturing a local and a closure in a default
+function outer() {
+  let k = 10;
+  function* gen(x = k + d("x", 1), f = () => x * 2) { log.push("body"); k = 0; yield f(); yield x; }
+  const it = gen();
+  log.push("created");
+  k = 99;
+  return [...it];
+}
+console.log(outer(), log.splice(0).join(","));
+// iterable pattern parameter: next() at the call, return() closes it
+function* src() { try { log.push("next1"); yield 1; log.push("next2"); yield 2; } finally { log.push("closed"); } }
+function* first([a]: Iterable<number>) { log.push("body"); yield a; }
+const f = first(src());
+log.push("created");
+console.log([...f], log.splice(0).join(","));
+// async generator: defaults at the call
+async function* ag(a = d("ag", 5)) { log.push("body"); yield a; }
+const agi = ag();
+log.push("created");
+(async () => { for await (const v of agi) console.log("ag", v); console.log(log.splice(0).join(",")); })();
+// async function: defaults at the call, errors reject
+async function af({ z }: any) { return z; }
+af(nothing).catch((e) => console.log("af rejected", (e as Error).name));
+console.log("sync end");
+
+// expect:
+// threw at call TypeError
+//
+// [ 22, 11 ] default x,created,body
+// [ 1 ] next1,closed,created,body
+// sync end
+// af rejected TypeError
+// ag 5
+// default ag,created,body

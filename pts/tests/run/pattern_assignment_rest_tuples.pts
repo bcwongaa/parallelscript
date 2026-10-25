@@ -1,0 +1,24 @@
+// A destructuring assignment over a tuple with a rest element of another type (`[number,
+// ...string[]]`) stores each element into its target, with or without a default. pts holds
+// such a tuple as an array of all its elements' types, `(number | string)[]`, and failed
+// to compile the targets ("converting number | string to number is not supported yet",
+// H12 reproducer; declarations read the element as a dynamic value, checked, D-177).
+const r: [number, ...string[]] = [1, "x"];
+let h = 0;
+let s = "";
+[h, s] = r;
+console.log("targets", h, s);
+
+let i = "";
+let rest: string[] = [];
+[h, i = "d", ...rest] = [2] as [number, ...string[]];
+console.log("default and rest", h, i, rest);
+
+const box = { n: 0, t: "" };
+[box.n, box.t = "e"] = [3] as [number, ...string[]];
+console.log("members", box.n, box.t);
+
+// expect:
+// targets 1 x
+// default and rest 2 d []
+// members 3 e

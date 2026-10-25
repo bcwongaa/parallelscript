@@ -1,0 +1,57 @@
+// A loose local (an array pattern's name past the end, D-220) goes as the union it holds
+// where its place's type holds undefined: into a variable declared `T | undefined`, by its
+// initializer, an assignment or a conditional's branch. tsc then narrows the variable to
+// T, so the variable holds undefined where tsc says T: it is loose too, and its reads as a
+// T are checked (TypeError, as Node's member read of undefined throws). It was read as a T
+// unchecked: SIGSEGV (C326, a regression of D-220; before H11a the loose local was checked
+// at the declaration).
+const empty: string[] = [];
+const [missing] = empty;
+const full: string[] = ["abc"];
+const [there] = full;
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+attempt("declaration", () => {
+  const x: string | undefined = missing;
+  console.log(x.length);
+});
+attempt("assignment", () => {
+  let x: string | undefined = "init";
+  x = missing;
+  console.log(x.length);
+});
+attempt("conditional", () => {
+  const x: string | undefined = empty.length === 0 ? missing : "b";
+  console.log(x.length);
+});
+attempt("tested", () => {
+  const x: string | undefined = missing;
+  console.log(x === undefined ? "undefined" : x.length);
+});
+attempt("present", () => {
+  const x: string | undefined = there;
+  let y: string | undefined;
+  y = there;
+  console.log(x.length, y.toUpperCase());
+});
+attempt("parameter default", () => {
+  function f(p: string | undefined = missing): number {
+    return p.length;
+  }
+  console.log(f("ab"));
+  console.log(f());
+});
+
+// expect:
+// declaration threw TypeError
+// assignment threw TypeError
+// conditional threw TypeError
+// undefined
+// 3 ABC
+// 2
+// parameter default threw TypeError

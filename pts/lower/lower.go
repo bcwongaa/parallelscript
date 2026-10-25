@@ -417,6 +417,7 @@ type lowerer struct {
 	libObjectTypes       map[*ast.Symbol]bool               // the library's interfaces that are object types: ErrorOptions
 	errors               []diagnostic.Diagnostic
 	undefinedTested      map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
+	assignedValues       map[*ast.Symbol][]*ast.Node // what the program's assignments (`=`, `??=`, `||=`, `&&=`) store in each variable (collectUndefinedTests)
 	looseSymbols         map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
 	madeLiterals         map[*ast.Node]ir.Type       // the shape or hash-map type an object literal being lowered makes (literalFieldType)
 	intrinsics           map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
@@ -856,7 +857,7 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	var init ir.Expr
 	if initializer := node.Initializer(); initializer != nil {
 		read := l.expression
-		if l.isLoose(symbol) {
+		if l.isLoose(symbol) && l.isElementRead(initializer) {
 			read = l.valueExpression // the element, or undefined past the end (D-090)
 		}
 		if init = read(initializer); init == nil {
@@ -1287,9 +1288,12 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 		}
 		return []*ir.Local{local}
 	}
-	if node.Initializer() == nil { // `x?: T`: the call passes a T and whether it did; the body sees T | undefined
+	switch u, ok := t.(*ir.Union); {
+	case node.Initializer() == nil: // `x?: T`: the call passes a T and whether it did; the body sees T | undefined
 		local.Type = l.withUndefined(t)
-	} else if u, ok := t.(*ir.Union); ok && u.Has(ir.Undefined) { // an undefined argument means the default
+	case name.Kind == ast.KindIdentifier && l.isLoose(parameterSymbol(node)):
+		local.Type = l.withUndefined(t) // a default that may be undefined, which tsc types without (C306)
+	case ok && u.Has(ir.Undefined) && !defaultHoldsUndefined(l.typeAt(node.Initializer())): // an undefined argument means the default
 		local.Type = l.withoutUndefined(u)
 	}
 	binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_arg", t), given: l.newLocal(local.Name+"_given", ir.Given)}
@@ -1350,10 +1354,21 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	default:
 		t = l.typeOfSymbol(l.checker.GetSymbolAtLocation(param.Name()))
 	}
-	if passedOrNot(node) {
+	if passedOrNot(node) && (param.Initializer == nil || !defaultHoldsUndefined(l.typeAt(param.Initializer))) {
 		t = l.checker.RemoveMissingOrUndefinedType(t)
 	}
 	return l.irType(t, param.Name())
+}
+
+// defaultHoldsUndefined reports whether t, the type of a parameter's default, has undefined
+// among its values (`= undefined`, `= lookup(k)` of a `V | undefined`), so that tsc gives
+// the parameter undefined in the body too.
+func defaultHoldsUndefined(t *checker.Type) bool {
+	const undefined = checker.TypeFlagsUndefined | checker.TypeFlagsVoid
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return member.Flags()&undefined != 0 })
+	}
+	return t.Flags()&undefined != 0
 }
 
 // passedOrNot reports whether a parameter declaration (node) holds undefined only when

@@ -75,17 +75,21 @@ func (l *lowerer) withDefaultCopying(part ir.Expr, initializer *ast.Node, name *
 	if part.Type() == ir.Value && initializer != nil {
 		return l.dynamicWithDefault(part, initializer, name, rule)
 	}
+	if part.Type() == ir.Undefined && initializer != nil {
+		return l.defaultOfUndefined(part, initializer, name)
+	}
 	u, ok := part.Type().(*ir.Union)
 	if initializer == nil || !ok || !u.Has(ir.Undefined) {
 		return part
 	}
-	t := l.withoutUndefined(u)
-	if name.Kind == ast.KindIdentifier {
-		if t = l.bindingType(l.checker.GetSymbolAtLocation(name), name); t == nil {
-			return nil
-		}
+	t, ok := l.patternTargetType(name)
+	if !ok {
+		return nil
 	}
-	fallback := l.expression(initializer)
+	if t == nil {
+		t = l.withoutUndefined(u) // a nested pattern's part
+	}
+	fallback := l.patternDefault(initializer, t)
 	if fallback == nil {
 		return nil
 	}
@@ -99,6 +103,115 @@ func (l *lowerer) withDefaultCopying(part ir.Expr, initializer *ast.Node, name *
 		return nil
 	}
 	return &ir.Bind{Local: value, Value: part, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref, Only: ir.Undefined}, Then: fallback, Else: present}}
+}
+
+// defaultOfUndefined is what an element with a default binds from part, a value that is
+// always undefined (`const { value = 4 } = { value: undefined }`, a getter typed
+// undefined; C12): the default, after part is read where reading it may do something (a
+// getter's effects), as a value of the type of what the element binds or assigns, or for
+// a nested pattern of tsc's type for it. It was part itself: PTS1001 converting undefined
+// to the name's type, or undefined where the name takes it (any, unknown).
+func (l *lowerer) defaultOfUndefined(part ir.Expr, initializer *ast.Node, name *ast.Node) ir.Expr {
+	t, ok := l.patternTargetType(name)
+	if !ok {
+		return nil
+	}
+	if t == nil {
+		if t = l.irType(l.typeAt(name), name); t == nil {
+			return nil
+		}
+	}
+	fallback := l.patternDefault(initializer, t)
+	if fallback == nil {
+		return nil
+	}
+	if fallback = l.convert(fallback, t, initializer); fallback == nil {
+		return nil
+	}
+	if isPure(part) || isPureFieldRead(part) {
+		return fallback
+	}
+	return &ir.Sequence{X: part, Y: fallback}
+}
+
+// patternTargetType is the type of what an element of a pattern binds or assigns (name):
+// a binding's name's (bindingType), an assigned variable's local's, an assignment target's
+// (`o.x`, `cells[i]`); nil for a nested pattern, whose part keeps its own type. ok is false
+// if it has none (reported). The default is converted to it, so a default of another type
+// goes as the name's union (`{ a = "s" }` for a number a binds a `number | string`).
+func (l *lowerer) patternTargetType(name *ast.Node) (t ir.Type, ok bool) {
+	switch {
+	case isNestedPattern(name):
+		return nil, true
+	case name.Kind == ast.KindIdentifier && name.Parent.Kind != ast.KindBindingElement:
+		// an assigned variable: its local, of its declared type (bindingType gives the type the
+		// semantic pass narrowed it to at name: `let a: boolean | number; [a = 1] = flags`)
+		symbol := l.checker.GetSymbolAtLocation(name)
+		if name.Parent.Kind == ast.KindShorthandPropertyAssignment {
+			symbol = l.checker.GetShorthandAssignmentValueSymbol(name.Parent)
+		}
+		if local := l.locals[l.followAliases(symbol)]; local != nil {
+			return local.Type, true
+		}
+		t = l.bindingType(symbol, name)
+	case name.Kind == ast.KindIdentifier:
+		t = l.bindingType(l.checker.GetSymbolAtLocation(name), name)
+	default:
+		t = l.irType(l.typeAt(name), name)
+	}
+	return t, t != nil
+}
+
+// isNestedPattern reports whether node, what an element of a pattern binds or assigns, is
+// a pattern itself: a binding pattern, or an object or array literal on the left of a
+// destructuring assignment.
+func isNestedPattern(node *ast.Node) bool {
+	switch ast.SkipParentheses(node).Kind {
+	case ast.KindObjectBindingPattern, ast.KindArrayBindingPattern, ast.KindObjectLiteralExpression, ast.KindArrayLiteralExpression:
+		return true
+	}
+	return false
+}
+
+// patternDefault lowers the default (initializer) of a pattern's element whose value is of
+// type t: an array literal is made as t's tuple or array (`[[x = 7] = [undefined]] = t`),
+// not as the type tsc derives from a nested pattern, a tuple of its own (C307); an object
+// literal tsc made of such a type, whose members aren't t's (`for (const { a: { b = {} } =
+// {} } of rows)`), is copied as t, a new object no one else holds (N3); a value whose type
+// tsc's inference widened with undefined from the element's context (`d({ k: 5 })` for an
+// optional property, `T` inferred as `{ k: number } | undefined`) where t doesn't take
+// undefined is checked to be there (N4); anything else is lowered as it is.
+func (l *lowerer) patternDefault(initializer *ast.Node, t ir.Type) ir.Expr {
+	literal := ast.SkipParentheses(initializer)
+	if literal.Kind == ast.KindArrayLiteralExpression && !slices.ContainsFunc(literal.AsArrayLiteralExpression().Elements.Nodes, isSpreadElement) {
+		switch made := t.(type) {
+		case *ir.Class:
+			if made.Tuple && len(literal.AsArrayLiteralExpression().Elements.Nodes) <= len(made.Fields) {
+				return l.tupleLiteral(literal, made)
+			}
+		case *ir.Array:
+			return l.arrayLiteralOf(literal, made)
+		}
+	}
+	value := l.expression(initializer)
+	if value == nil {
+		return nil
+	}
+	if iface, ok := t.(*ir.Interface); ok && literal.Kind == ast.KindObjectLiteralExpression && value.Type() != t && unprovided(value.Type(), iface) != "" && !holdsOptionally(value.Type(), iface) {
+		return l.dynamicConversion(box(value), t, initializer)
+	}
+	if u, ok := value.Type().(*ir.Union); ok && u.Has(ir.Undefined) && t != nil && !ir.HoldsUndefined(t) {
+		return &ir.FromUnion{X: value, To: l.withoutUndefined(u), Defined: true}
+	}
+	return value
+}
+
+// isPureFieldRead reports whether x reads a field of a class or shape held in a local, which
+// does nothing else; a read through an interface (Class nil) may call an object's getter (a
+// literal with `get a()` is held as an interface).
+func isPureFieldRead(x ir.Expr) bool {
+	ref, ok := x.(*ir.FieldRef)
+	return ok && isPure(ref.X) && ref.Field.Class != nil && !ref.Field.Accessor
 }
 
 // propertyIn lowers `"p" in o` for a constant key p: whether o has p. A property o's type

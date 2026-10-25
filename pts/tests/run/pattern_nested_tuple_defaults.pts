@@ -1,0 +1,28 @@
+// A nested array pattern's default written as an array literal (`[[x = 7] = [undefined],
+// y] = t`) makes the tuple the element would be, which the nested pattern destructures.
+// pts made the literal as a tuple of the type tsc derives from the pattern, a class of its
+// own, and refused to convert it ("using a `[number | undefined]` as a `[number |
+// undefined]` is not supported yet", C307's nested tuple defaults, H11a review round 2's
+// t01_05). Declarations, an object pattern's element, a default of numbers and an
+// assignment alike.
+const t: [[number | undefined] | undefined, string] = [undefined, "s"];
+const [[x = 7] = [undefined], y] = t;
+console.log("tuple", x, y);
+
+const [[z] = [3]] = [undefined] as [[number] | undefined];
+console.log("numbers", z);
+
+const o: { p?: [number | undefined] } = {};
+const { p: [w = 8] = [undefined] } = o;
+console.log("object", w);
+
+let m = 0;
+let n = "";
+[[m = 9] = [undefined], n] = t;
+console.log("assignment", m, n);
+
+// expect:
+// tuple 7 s
+// numbers 3
+// object 8
+// assignment 9 s

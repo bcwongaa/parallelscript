@@ -1,0 +1,68 @@
+// Guards for H12 (pass before and after): a default applies to undefined only, never to
+// null, 0, "", false or NaN; union-undefined parts, holes, past-the-end elements and
+// `[undefined]` literals take it (D-054, D-220); defaults run left to right, after the
+// earlier parts are read and only where needed, and see the names before them.
+const log: string[] = [];
+function d<T>(tag: string, v: T): T {
+  log.push(tag);
+  return v;
+}
+
+const nulls: { a: number | null; b?: string | null } = { a: null, b: null };
+const { a = d("a", 1), b = d("b", "x") } = nulls;
+console.log("null object", a, b);
+
+const [n = d("n", 2)] = [null] as (number | null)[];
+const [m = d("m", 3), k = d("k", 4)] = [null, undefined] as [number | null, number | undefined];
+console.log("null array", n, m, k);
+
+const falsy: { z?: number; s?: string; f?: boolean; nan?: number } = { z: 0, s: "", f: false, nan: NaN };
+const { z = d("z", 9), s = d("s", "y"), f = d("f", true), nan = d("nan", 1) } = falsy;
+console.log("falsy", z, JSON.stringify(s), f, nan);
+
+const optional: { o?: number; p: number } = { p: 2 };
+const { o = d("o", 5), p } = optional;
+console.log("optional", o, p);
+
+const holes: (string | undefined)[] = ["h", undefined];
+const [h1 = "x", h2 = "y", h3 = "z"] = holes;
+console.log("holes", h1, h2, h3);
+
+const [l1 = 1] = [undefined];
+let l2 = 0;
+[l2 = 2] = [undefined];
+console.log("literals", l1, l2);
+
+class Getters {
+  get first(): number | undefined {
+    log.push("get first");
+    return undefined;
+  }
+  get second(): number | undefined {
+    log.push("get second");
+    return 2;
+  }
+}
+const { first = d("first", 1), second = d("second", 9) } = new Getters();
+console.log("getters", first, second);
+
+const { e1 = 1, e2 = e1 * 2, e3 = e1 + e2 } = {} as { e1?: number; e2?: number; e3?: number };
+console.log("earlier names", e1, e2, e3);
+
+function param({ q = d("q", 7), r }: { q?: number; r: number }): string {
+  return `${q} ${r}`;
+}
+console.log("parameter", param({ r: 1 }), param({ q: undefined, r: 2 }), param({ q: 0, r: 3 }));
+console.log("log", log.join(","));
+
+// expect:
+// null object null null
+// null array null null 4
+// falsy 0 "" false NaN
+// optional 5 2
+// holes h y z
+// literals 1 2
+// getters 1 2
+// earlier names 1 2 3
+// parameter 7 1 7 2 0 3
+// log k,o,get first,first,get second,q,q

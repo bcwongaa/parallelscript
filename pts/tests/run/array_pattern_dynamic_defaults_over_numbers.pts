@@ -1,0 +1,27 @@
+// An `any` or `unknown` default over an array of numbers or booleans makes the name `any`
+// or `unknown` (tsc's type), which holds the default as it is. pts converted the default
+// to the element type with a check, so the program threw "TypeError: Expected number,
+// got string" where JS binds the default (C307's family, H12 reproducer): the same
+// defaultPastTheEnd conversion as a default of another type.
+const nums: number[] = [1];
+const anyValue: any = "any";
+const unknownValue: unknown = "unknown";
+
+const [a, b = anyValue] = nums;
+console.log("any", a, b);
+
+const [c, d = unknownValue] = nums;
+console.log("unknown", c, d);
+
+const [e = anyValue] = [] as boolean[];
+console.log("any over boolean[]", e);
+
+const box: { x: unknown } = { x: 0 };
+[, box.x = unknownValue] = nums;
+console.log("unknown target", box.x);
+
+// expect:
+// any 1 any
+// unknown 1 unknown
+// any over boolean[] any
+// unknown target unknown

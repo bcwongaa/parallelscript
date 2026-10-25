@@ -154,6 +154,9 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 		}
 		e.line(1, "%s = %s;", member, value)
 	}
+	if f.Prologue > 0 {
+		e.parameterPrologue(f, frame)
+	}
 	switch {
 	case f.Async:
 		e.line(1, "return pts_async_start(&pts_frame->header);") // runs the body until its first await (D-112)
@@ -185,11 +188,27 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 	}
 	e.dispatch(1, nil)
 	e.line(1, "pts_frame->header.state = PTS_GENERATOR_RUNNING;")
-	e.scope(f.Body.Stmts, 1)
+	e.scope(f.Body.Stmts[f.Prologue:], 1)
 	if !endsWithReturn(f.Body.Stmts) {
 		e.finishGenerator(1, "PTS_VALUE_UNDEFINED")
 	}
 	e.line(0, "}")
+}
+
+// parameterPrologue writes, in a generator's starter, the statements that bind its
+// parameters (f.Prologue): defaults and patterns run at the call, on the frame's members,
+// before the generator object is made, as JS binds them; a throw leaves the call.
+func (e *emitter) parameterPrologue(f *ir.Func, frame *generatorFrame) {
+	e.frame = frame
+	defer func() { e.frame = nil }()
+	for local, member := range frame.members {
+		e.locals[local] = "pts_frame->" + member
+		e.usedNames[member] = true
+	}
+	if f.Closure {
+		e.capturePrologue(f)
+	}
+	e.scope(f.Body.Stmts[:f.Prologue], 1)
 }
 
 // dispatch writes the switch that jumps to a resume point: from the top of the step

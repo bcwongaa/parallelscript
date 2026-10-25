@@ -19,14 +19,21 @@ import (
 // (an optional property, a `T | undefined`, `unknown`), it goes as it is.
 
 // collectUndefinedTests records the symbols of the variables that files test for
-// undefined: compare with undefined or null, test for truth, `??`, `?.` or `typeof`.
+// undefined: compare with undefined or null, test for truth, `??`, `?.` or `typeof`; and
+// the values that assignments store in variables (writesMissing).
 func (l *lowerer) collectUndefinedTests(files []*ast.SourceFile) {
 	l.undefinedTested = map[*ast.Symbol]bool{}
+	l.assignedValues = map[*ast.Symbol][]*ast.Node{}
 	var visit ast.Visitor
 	visit = func(node *ast.Node) bool {
 		if isInstanceofTest(node) {
 			node.ForEachChild(visit)
 			return false // reads a loose local as its union, but doesn't make one (a dispatch over `shapes[i]`)
+		}
+		if target, value := assignedVariable(node); target != nil {
+			if symbol := l.checker.GetSymbolAtLocation(target); symbol != nil {
+				l.assignedValues[symbol] = append(l.assignedValues[symbol], value)
+			}
 		}
 		for _, tested := range testedOperands(node) {
 			if tested = ast.SkipParentheses(tested); tested.Kind == ast.KindIdentifier && l.isUndefinedTest(node, tested) {
@@ -41,6 +48,22 @@ func (l *lowerer) collectUndefinedTests(files []*ast.SourceFile) {
 	for _, file := range files {
 		file.AsNode().ForEachChild(visit)
 	}
+}
+
+// assignedVariable is the variable that node, an assignment (`x = v`, `x ??= v`, `x ||= v`,
+// `x &&= v`), stores in, and the value it stores; nil for any other node.
+func assignedVariable(node *ast.Node) (target *ast.Node, value *ast.Node) {
+	if node.Kind != ast.KindBinaryExpression {
+		return nil, nil
+	}
+	binary := node.AsBinaryExpression()
+	switch binary.OperatorToken.Kind {
+	case ast.KindEqualsToken, ast.KindQuestionQuestionEqualsToken, ast.KindBarBarEqualsToken, ast.KindAmpersandAmpersandEqualsToken:
+		if left := ast.SkipParentheses(binary.Left); left.Kind == ast.KindIdentifier {
+			return left, binary.Right
+		}
+	}
+	return nil, nil
 }
 
 // isTestedOperand reports whether an identifier is an operand that its context tests for
@@ -152,14 +175,47 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 	}
 	loose, known := l.looseSymbols[symbol]
 	if !known {
+		l.looseSymbols[symbol] = false // while a write of another loose local (writesMissing) asks back
 		// A local declared `T | undefined` holds undefined whether or not it is tested, but
-		// tsc narrows it to T by its initializer: its reads as a T are checked too (D-172).
-		declaredWithUndefined := mayHoldUndefined(l.typeOfSymbol(symbol))
+		// tsc narrows it to T by its initializer or by an assignment: its reads as a T are
+		// checked too (D-172, C326).
+		declared := l.typeOfSymbol(symbol)
+		declaredWithUndefined := mayHoldUndefined(declared)
 		tested := l.undefinedTested[symbol] || symbol.ValueDeclaration.Kind == ast.KindBindingElement || l.iteratesHoles(symbol.ValueDeclaration)
-		loose = (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration)
+		narrowsByWrites := declaredWithUndefined && declared.Flags()&checker.TypeFlagsAny == 0 // tsc keeps an any's type at an assignment
+		loose = (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration) || narrowsByWrites && l.writesMissing(symbol)
 		l.looseSymbols[symbol] = loose
 	}
 	return loose
+}
+
+// writesMissing reports whether a variable or parameter (symbol) is written a value that
+// may be undefined though tsc types it without (mayHoldMissing), which tsc then narrows the
+// variable to: by its initializer or default (`const x: string | undefined = a` for a
+// loose a, `p: string | undefined = s.split(":")[1]`) or by an assignment (`x = list[3]`).
+// A value tsc types with undefined (`c ? xs[i] : undefined`) leaves the variable's
+// undefined in tsc's type, so its reads are tested as tsc requires.
+func (l *lowerer) writesMissing(symbol *ast.Symbol) bool {
+	missing := func(value *ast.Node) bool { return l.mayHoldMissing(value) && !mayHoldUndefined(l.typeAt(value)) }
+	declaration := symbol.ValueDeclaration
+	if declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindParameter {
+		if initializer := declaration.Initializer(); initializer != nil && declaration.Name().Kind == ast.KindIdentifier && missing(initializer) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(l.assignedValues[symbol], missing)
+}
+
+// mayHoldMissing reports whether node, the value of a place whose type holds undefined, may
+// be undefined though tsc types it without: an element read (D-015), a loose local, which
+// goes there as the union it holds (D-220), or a conditional with such a branch.
+func (l *lowerer) mayHoldMissing(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind == ast.KindConditionalExpression {
+		conditional := node.AsConditionalExpression()
+		return l.mayHoldMissing(conditional.WhenTrue) || l.mayHoldMissing(conditional.WhenFalse)
+	}
+	return l.mayBeMissing(node)
 }
 
 // readsElement reports whether a variable declaration's initializer reads an element of
@@ -180,6 +236,9 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 			return l.iteratesHoles(declaration)
 		}
 		return l.isElementRead(initializer)
+	case ast.KindParameter:
+		initializer := declaration.Initializer()
+		return declaration.Name().Kind == ast.KindIdentifier && initializer != nil && l.isElementRead(initializer) // `p = s.split(":")[1]` (C306)
 	case ast.KindBindingElement:
 		pattern := declaration.Parent
 		element := declaration.AsBindingElement()
@@ -406,8 +465,8 @@ func isPlaceValue(node *ast.Node) bool {
 		node = node.Parent
 	}
 	switch parent := node.Parent; parent.Kind {
-	case ast.KindVariableDeclaration, ast.KindPropertyDeclaration, ast.KindPropertyAssignment:
-		return parent.Initializer() == node // not a parameter's default, which converts to the parameter's narrowed type (C306)
+	case ast.KindVariableDeclaration, ast.KindPropertyDeclaration, ast.KindPropertyAssignment, ast.KindParameter:
+		return parent.Initializer() == node // a parameter's default too, which a parameter of a type with undefined holds as it is (C306)
 	case ast.KindShorthandPropertyAssignment:
 		return parent.Name() == node
 	case ast.KindBinaryExpression:

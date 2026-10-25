@@ -30,3 +30,9 @@ here is done; each entry names the later task that owns it and must be listed ag
 - **Why deferred:** programs behave correctly (as Node, or D-070's checked TypeError for a write of another type); it is run time: 1M iterations of a write, a read and a method call through `const hot = new Box<any>(0)` run 140.8M instructions on the base and 761.8M with H10b (callgrind, 5.4×).
 - **Owner:** H27 (numeric and array code generation), with the probe `hot.pts` in `h10b-parent-probes.tar.gz` as the measurement.
 - **Evidence:** docs/agent/hardening-evidence/h10b.md.
+
+## H12
+- **What remains (D-222's cost):** an object pattern's element with a default over a hash-map object of numbers or booleans (`const { a = 0, b = 0 } = rec` for a `Record<string, number>`) reads the entry with `MapGet`, whose `number | undefined` union is boxed and tested, so that a missing key takes the default (C334); the base read it with `MapGetChecked` as a number and threw RangeError for a missing key.
+- **Why deferred:** programs behave correctly (as Node); it is run time: the probe's loop (two such elements, keys present) costs 97.0M instructions on the base and 119.4M with H12 (callgrind, 1.23×). A typed get-or-undefined (`pts_map_get` into the value's own type and a found flag, as `?? fallback` over a record reads it) would read the number without boxing.
+- **Owner:** H27 (numeric and array code generation), with `cost/record_default_present.pts` in `h12-parent-probes.tar.gz` as the measurement.
+- **Evidence:** docs/agent/hardening-evidence/h12.md, D-222's Costs.

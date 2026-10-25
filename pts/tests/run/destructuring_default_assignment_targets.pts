@@ -1,0 +1,29 @@
+// A destructuring assignment's default goes to its target as the target's type, which
+// may be wider than the property's or element's (`({ a: box.x = "none" } = src)` with
+// box.x a `number | string`). pts converted the default to the part's own type without
+// undefined, so a default of another type failed to compile ("converting string to
+// number is not supported yet") and an `any` default threw "TypeError: Expected string,
+// got number" (H12 reproducer): withDefault typed every target but a name as the part.
+const src: { a?: number } = {};
+const box: { x: number | string; y: any } = { x: 0, y: 0 };
+({ a: box.x = "none" } = src);
+console.log("member", box.x);
+
+const cells: Array<number | null> = [0];
+({ a: cells[0] = null } = src);
+console.log("element", cells[0]);
+
+const words: string[] = ["w"];
+const anyTen: any = 10;
+[, box.y = anyTen] = words;
+console.log("any default", box.y);
+
+const maybe: (string | undefined)[] = [undefined];
+[box.x = 5] = maybe;
+console.log("array element", box.x);
+
+// expect:
+// member none
+// element null
+// any default 10
+// array element 5

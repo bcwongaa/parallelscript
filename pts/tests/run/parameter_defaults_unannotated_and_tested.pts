@@ -1,0 +1,57 @@
+// A parameter's default that may be undefined: one that reads an element (C306: it was
+// PTS1001 `converting string | undefined to string`) makes the parameter a loose local
+// where its type holds undefined or the program tests it (D-090), and one whose type holds
+// undefined (`= undefined`, `= lookup(k)`) leaves the parameter undefined in the body, as
+// tsc types it (PTS1001 before); an undefined argument takes the default, as in JS.
+function lookup(key: string): string | undefined {
+  return key === "a" ? "A" : undefined;
+}
+function field(s: string, p: string | undefined = s.split(":")[1]): unknown {
+  return p;
+}
+console.log(field("a:b"), field("a"), field("a", "z"), field("a", undefined));
+function pick(s: string[], p: string | undefined = s[3]): string {
+  if (p === undefined) return "none";
+  return p.toUpperCase();
+}
+const nothing: string | undefined = lookup("z");
+console.log(pick(["a"]), pick(["a", "b", "c", "d"]), pick([], "x"), pick([], nothing));
+function doubled(xs: number[], n: number | undefined = xs[5]): string {
+  return n === undefined ? "missing" : (n * 2).toString();
+}
+console.log(doubled([1]), doubled([0, 1, 2, 3, 4, 5]), doubled([], 7));
+function third(s: string[], p = s[2]): string {
+  return p === undefined ? "u" : p;
+}
+console.log(third(["a"]), third(["a", "b", "c"]));
+function orNone(p: string | undefined = undefined): string {
+  return p ?? "none";
+}
+console.log(orNone(), orNone("a"), orNone(undefined), orNone(nothing));
+function found(key: string, v = lookup(key)): string {
+  return v ?? "?";
+}
+console.log(found("a"), found("b"), found("b", "given"));
+function typed(key: string, v: string | undefined = lookup(key)): string {
+  return v === undefined ? "u" : v.toLowerCase();
+}
+console.log(typed("a"), typed("b"), typed("b", "G"));
+class Counter {
+  next(step: number | undefined = undefined): string {
+    return step === undefined ? "u" : String(step + 1);
+  }
+}
+console.log(new Counter().next(), new Counter().next(1));
+const kind = (s: string | undefined = undefined): string => typeof s;
+console.log(kind(), kind("x"));
+
+// expect:
+// b undefined z undefined
+// none D X none
+// missing 10 14
+// u c
+// none a none none
+// A ? given
+// a u g
+// u 2
+// undefined string

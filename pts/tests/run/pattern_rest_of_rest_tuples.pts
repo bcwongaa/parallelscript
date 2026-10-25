@@ -1,0 +1,27 @@
+// A rest element over a tuple with a rest element of another type (`[number,
+// ...string[]]`) is a new array of the rest's type, with or without a default before it.
+// pts holds such a tuple as an array of all its elements' types, `(number | string)[]`,
+// and refused to use its slice as the rest's `string[]` ("using a (number | string)[] as
+// a string[] where it may be changed or kept is not supported yet", C307's "default
+// before a rest", H11a review round 2): the slice is new, so a copy can't be told apart.
+const r: [number, ...string[]] = [1];
+const [h, i = "d", ...rest] = r;
+console.log("default before rest", h, i, rest);
+
+const [h2, ...rest2] = [1, "x", "y"] as [number, ...string[]];
+console.log("rest alone", h2, rest2);
+
+const t: [number | undefined, ...string[]] = [undefined, "r1", "r2"];
+const [a = 5, ...more] = t;
+console.log("union head", a, more);
+
+function f([head, second = "s", ...tail]: [number, ...string[]]): string {
+  return `${head} ${second} ${tail.join("+")}`;
+}
+console.log("parameter", f([1]), f([1, "x", "y", "z"]));
+
+// expect:
+// default before rest 1 d []
+// rest alone 1 [ 'x', 'y' ]
+// union head 5 [ 'r1', 'r2' ]
+// parameter 1 s  1 x y+z

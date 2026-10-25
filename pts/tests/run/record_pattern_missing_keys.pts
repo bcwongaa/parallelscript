@@ -1,0 +1,31 @@
+// An object pattern over a hash-map object reads a missing key as undefined where its
+// entry type holds undefined, as a property read does (D-172), and a default replaces a
+// missing key whatever the entry type, as in JS. pts read every key through D-059's
+// checked read, so these threw "RangeError: Object has no property 'a'" (H12 reproducer):
+// propertyOf reads a record's entry with MapGetChecked.
+const counts: Record<string, number | undefined> = { b: 2 };
+const { a, b } = counts;
+console.log("maybe entries", a, b);
+
+const { a: a2 = 10 } = counts;
+console.log("maybe entry default", a2);
+
+const totals: Record<string, number> = { b: 2 };
+const { a: a3 = 20, b: b3 = 30 } = totals;
+console.log("entry default", a3, b3);
+
+let a4 = 0;
+({ a: a4 = 40 } = totals);
+console.log("assignment", a4);
+
+function f({ x = "x", y }: Record<string, string | undefined>): string {
+  return `${x} ${y}`;
+}
+console.log("parameter", f({}), f({ x: "1", y: "2" }));
+
+// expect:
+// maybe entries undefined 2
+// maybe entry default 10
+// entry default 20 2
+// assignment 40
+// parameter x undefined 1 2
