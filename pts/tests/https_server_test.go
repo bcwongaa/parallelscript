@@ -1238,10 +1238,66 @@ func TestHTTPSServerAnswersCloseNotify(t *testing.T) {
 		assert.NilError(t, conn.CloseWrite())
 		conn.endedWithCloseNotify(t)
 	}
+	for _, version := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
+		closesAndNotifiesAtOnce(t, address, &tls.Config{RootCAs: pool(root.cert), ServerName: "localhost", MinVersion: version, MaxVersion: version})
+	}
 	_, body := requestWith(t, httpsClient(pool(root.cert), nil, false), "GET", "https://"+address+"/stop", "")
 	assert.Equal(t, body, "bye")
 	awaitExit(t, server)
 	assert.Equal(t, server.stderr.String(), "")
+}
+
+// heldConn is a TCP connection whose writes, while held, wait in a buffer until released,
+// so that two TLS records reach the server in one segment.
+type heldConn struct {
+	net.Conn
+	holding bool
+	held    []byte
+}
+
+func (c *heldConn) Write(p []byte) (int, error) {
+	if c.holding {
+		c.held = append(c.held, p...)
+		return len(p), nil
+	}
+	return c.Conn.Write(p)
+}
+
+// closesAndNotifiesAtOnce sends a request whose answer closes the connection and the
+// client's close_notify in one segment, so that the server reads both at once: the answer
+// ends with one close_notify, not a second for the client's (H33b's review, R2-F1; checked
+// under TLS 1.2, whose records show their type).
+func closesAndNotifiesAtOnce(t *testing.T, address string, config *tls.Config) {
+	t.Helper()
+	tcp, err := net.DialTimeout("tcp", address, 5*time.Second)
+	assert.NilError(t, err)
+	held := &heldConn{Conn: tcp}
+	recording := &recordingConn{Conn: held}
+	secured := tls.Client(recording, config)
+	t.Cleanup(func() { _ = secured.Close() })
+	assert.NilError(t, secured.HandshakeContext(t.Context()))
+	conn := &tlsConn{Conn: secured, tcp: recording, reader: bufio.NewReader(secured)}
+	held.holding = true
+	conn.send(t, "GET /sized?3 HTTP/1.1\r\nHost: a\r\nConnection: close\r\n\r\n")
+	assert.NilError(t, conn.CloseWrite())
+	held.holding = false
+	assert.NilError(t, tcp.SetWriteDeadline(time.Time{})) // CloseWrite leaves the deadline at now
+	_, err = tcp.Write(held.held)
+	assert.NilError(t, err)
+	_, body := conn.response(t)
+	assert.Equal(t, body, "xxx")
+	conn.endedWithCloseNotify(t)
+	if config.MaxVersion == tls.VersionTLS12 { // TLS 1.3 hides a record's type
+		recording.mu.Lock()
+		defer recording.mu.Unlock()
+		alerts := 0
+		for _, r := range recording.records {
+			if r.contentType == 21 {
+				alerts++
+			}
+		}
+		assert.Equal(t, alerts, 1, "records: %+v", recording.records)
+	}
 }
 
 // TestHTTPSServerDecryptsItsKeyOnce runs encrypted_key_loops.pts on eight loops with an RSA

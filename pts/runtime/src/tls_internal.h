@@ -59,7 +59,7 @@ pts_tls_status pts_tls_handshake(pts_tls *tls);
 /* Encrypts len bytes for the peer, which pts_tls_take_output then gives. */
 pts_tls_status pts_tls_write(pts_tls *tls, const char *bytes, size_t len);
 
-/* Ends the session with close_notify, which pts_tls_take_output then gives. */
+/* Ends the session with close_notify, which pts_tls_take_output then gives; once, whoever asks again. */
 pts_tls_status pts_tls_close(pts_tls *tls);
 
 /* Decrypts what has come, up to cap bytes into out: DONE with *got of them (at least 1), or what stops it. */

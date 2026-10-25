@@ -72,6 +72,7 @@ struct pts_tls {
   bool constrained;     /* a CA of the chain has name constraints, which aren't supported */
   bool names_checked;   /* on_verify checked the certificate's names */
   bool server;          /* the session is a server's, which verifies nothing */
+  bool closed;          /* close_notify was written, which is sent once */
   char *mismatch;       /* Node's reason the certificate doesn't name the host, if it doesn't */
   size_t mismatch_len;
   size_t host_len;
@@ -946,7 +947,13 @@ pts_tls_status pts_tls_write(pts_tls *tls, const char *bytes, size_t len) {
   return PTS_TLS_DONE;
 }
 
-pts_tls_status pts_tls_close(pts_tls *tls) { return status_of(tls, mbedtls_ssl_close_notify(&tls->ssl)); }
+pts_tls_status pts_tls_close(pts_tls *tls) {
+  if (tls->closed) {
+    return PTS_TLS_DONE; /* mbedtls_ssl_close_notify would write a second one */
+  }
+  tls->closed = true;
+  return status_of(tls, mbedtls_ssl_close_notify(&tls->ssl));
+}
 
 pts_tls_status pts_tls_read(pts_tls *tls, char *out, size_t cap, size_t *got) {
   int result = mbedtls_ssl_read(&tls->ssl, (unsigned char *)out, cap);
