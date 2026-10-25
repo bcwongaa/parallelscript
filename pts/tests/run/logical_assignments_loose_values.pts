@@ -1,0 +1,31 @@
+// The right side of `||=`, `??=` and `&&=` is stored as `=`'s is: a loose local (an array
+// pattern's name past the end) goes there as the undefined it holds where the target's type
+// takes undefined, as in JS, and the target is then loose itself. It was D-090's TypeError
+// for `v2 ||= v1`, where v1 had become loose (review round 2, R2-F3), and for `??=`.
+const empty: string[] = [];
+const [missing] = empty;
+let v1: string | undefined = missing;
+let v2: string | undefined = missing;
+v2 ||= v1;
+console.log(v2);
+let v3: string | undefined;
+v3 ??= missing;
+console.log(v3);
+let v4: string | undefined = "";
+v4 ||= empty[2];
+console.log(v4);
+let v5: string | undefined = "x";
+v5 &&= missing;
+console.log(v5);
+try {
+  console.log(v5.length);
+} catch (e) {
+  console.log("threw", (e as Error).name);
+}
+
+// expect:
+// undefined
+// undefined
+// undefined
+// undefined
+// threw TypeError

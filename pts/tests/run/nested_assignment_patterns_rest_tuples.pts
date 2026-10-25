@@ -1,0 +1,62 @@
+// An array pattern anywhere inside a destructuring assignment's pattern (in an object
+// pattern's property, under a nested pattern's default, deeper) assigns undefined past the
+// end of a rest tuple, as JS does; a variable target declared `string | undefined` is then
+// loose and its reads as a string are checked (TypeError, as Node's member read of
+// undefined throws). Round 1's fix looked only at an array literal directly on the left of
+// `=`, and took a nested pattern's default for its source: SIGSEGV (review round 2, R2-F1).
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+attempt("in an object pattern", () => {
+  const o: { a: [number, ...string[]] } = { a: [1] };
+  let h = 0;
+  let s: string | undefined = "s";
+  ({ a: [h, s] } = o);
+  console.log(s.length);
+});
+attempt("under a default", () => {
+  const rows: [number, ...string[]][] = [[1]];
+  let h = 0;
+  let s: string | undefined = "s";
+  [[h, s] = [0, "d"]] = rows;
+  console.log(s.length);
+});
+attempt("deeper", () => {
+  const rows: { a: [number, ...string[]] }[] = [{ a: [1] }];
+  let h = 0;
+  let s: string | undefined = "s";
+  [{ a: [h, s] }] = rows;
+  console.log(s.length);
+});
+attempt("parenthesized", () => {
+  const o: { a: [number, ...string[]] } = { a: [1] };
+  let h = 0;
+  let s: string | undefined = "s";
+  ({ a: [h, (s)] } = o);
+  console.log(s.length);
+});
+function parameter(o: { a: [number, ...string[]] }, s: string | undefined): number {
+  let h = 0;
+  ({ a: [h, s] } = o);
+  return h + s.length;
+}
+attempt("parameter", () => console.log(parameter({ a: [1] }, "p")));
+console.log(parameter({ a: [1, "abc"] }, "p"));
+const values = [[1, "x"]] as [number, ...string[]][];
+let first = 0;
+let second: string | undefined;
+[[first, second] = [0, "d"]] = values;
+console.log(first, second.length);
+
+// expect:
+// in an object pattern threw TypeError
+// under a default threw TypeError
+// deeper threw TypeError
+// parenthesized threw TypeError
+// parameter threw TypeError
+// 4
+// 1 1

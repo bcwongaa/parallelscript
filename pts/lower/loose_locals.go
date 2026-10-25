@@ -20,7 +20,7 @@ import (
 
 // collectUndefinedTests records the symbols of the variables that files test for
 // undefined: compare with undefined or null, test for truth, `??`, `?.` or `typeof`; and
-// the values that assignments store in variables (writesMissing).
+// the values that assignments store in variables (writtenValues, patternWrites).
 func (l *lowerer) collectUndefinedTests(files []*ast.SourceFile) {
 	l.undefinedTested = map[*ast.Symbol]bool{}
 	l.assignedValues = map[*ast.Symbol][]*ast.Node{}
@@ -72,30 +72,71 @@ func assignedVariable(node *ast.Node) (target *ast.Node, value *ast.Node) {
 	return nil, nil
 }
 
-// arrayPatternTargets are the variables that node, a destructuring assignment to an array
-// literal (`[h, s] = r`, nested ones too), assigns elements of without a default: an
-// element's identifier; none for any other node.
+// arrayPatternTargets are the variables that node, a destructuring assignment that isn't
+// itself part of a pattern, assigns elements of arrays to without a default: an identifier
+// that is an element of an array literal anywhere in its pattern, nested in array
+// literals, in object literals' property values and under defaults (`({ a: [h, s] } =
+// o)`, `[[h, s] = d] = rows`; review round 2, R2-F1); none for any other node.
 func arrayPatternTargets(node *ast.Node) []*ast.Node {
-	if node.Kind != ast.KindBinaryExpression || node.AsBinaryExpression().OperatorToken.Kind != ast.KindEqualsToken {
+	if !isDestructuringAssignment(node) || isPatternElement(node) {
 		return nil
 	}
 	var targets []*ast.Node
 	var collect func(pattern *ast.Node)
 	collect = func(pattern *ast.Node) {
-		if pattern = ast.SkipParentheses(pattern); pattern.Kind != ast.KindArrayLiteralExpression {
-			return
-		}
-		for _, element := range pattern.AsArrayLiteralExpression().Elements.Nodes {
-			switch element = ast.SkipParentheses(element); element.Kind {
-			case ast.KindIdentifier:
-				targets = append(targets, element)
-			case ast.KindArrayLiteralExpression:
+		switch pattern = ast.SkipParentheses(pattern); pattern.Kind {
+		case ast.KindArrayLiteralExpression:
+			for _, element := range pattern.AsArrayLiteralExpression().Elements.Nodes {
+				if target := ast.SkipParentheses(element); target.Kind == ast.KindIdentifier {
+					targets = append(targets, target)
+					continue
+				}
 				collect(element)
+			}
+		case ast.KindObjectLiteralExpression:
+			for _, property := range pattern.AsObjectLiteralExpression().Properties.Nodes {
+				if property.Kind == ast.KindPropertyAssignment {
+					collect(property.Initializer())
+				}
+			}
+		case ast.KindBinaryExpression: // `target = default`, whose default replaces undefined, but not a nested pattern's elements'
+			if binary := pattern.AsBinaryExpression(); binary.OperatorToken.Kind == ast.KindEqualsToken {
+				if left := ast.SkipParentheses(binary.Left); left.Kind == ast.KindArrayLiteralExpression || left.Kind == ast.KindObjectLiteralExpression {
+					collect(left)
+				}
 			}
 		}
 	}
 	collect(node.AsBinaryExpression().Left)
 	return targets
+}
+
+// isDestructuringAssignment reports whether node is `=` with an array or object literal on
+// its left.
+func isDestructuringAssignment(node *ast.Node) bool {
+	if node.Kind != ast.KindBinaryExpression || node.AsBinaryExpression().OperatorToken.Kind != ast.KindEqualsToken {
+		return false
+	}
+	left := ast.SkipParentheses(node.AsBinaryExpression().Left)
+	return left.Kind == ast.KindArrayLiteralExpression || left.Kind == ast.KindObjectLiteralExpression
+}
+
+// isPatternElement reports whether node, an expression, is part of the pattern on the left
+// of a destructuring assignment (`[[h, s] = d] = rows`'s `[h, s] = d`), not a value.
+func isPatternElement(node *ast.Node) bool {
+	for parent := node.Parent; parent != nil; node, parent = parent, parent.Parent {
+		switch parent.Kind {
+		case ast.KindParenthesizedExpression, ast.KindArrayLiteralExpression, ast.KindObjectLiteralExpression, ast.KindPropertyAssignment, ast.KindSpreadElement, ast.KindSpreadAssignment:
+		case ast.KindBinaryExpression:
+			// the left of a destructuring assignment, or of a `target = default` in a pattern; its
+			// right (a default, or the value assigned) is a value
+			binary := parent.AsBinaryExpression()
+			return binary.OperatorToken.Kind == ast.KindEqualsToken && binary.Left == node
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // isTestedOperand reports whether an identifier is an operand that its context tests for
@@ -205,30 +246,98 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 	if symbol == nil || symbol.ValueDeclaration == nil {
 		return false
 	}
-	if loose, known := l.looseSymbols[symbol]; known {
-		return loose
+	loose, known := l.looseSymbols[symbol]
+	if !known {
+		l.decideLooseness(symbol)
+		loose = l.looseSymbols[symbol]
 	}
-	if depth, deciding := l.looseStack[symbol]; deciding {
-		l.looseLow = min(l.looseLow, depth) // a cycle of writes (`x = y; y = x`): not loose so far
-		return false
+	return loose
+}
+
+// decideLooseness decides whether root is a loose local, with every variable whose
+// looseness root's depends on through the values written to it (`x = y`: x is loose if y
+// is), as the least fixpoint over that graph of writes: a cycle (`x = y; y = x; y =
+// list[3]`) is decided as a whole, whichever variable is asked about first (review rounds
+// 1 and 2, R1-F2, R2-F2: deciding each variable by recursion took time exponential in a
+// dense graph's size).
+func (l *lowerer) decideLooseness(root *ast.Symbol) {
+	loose := map[*ast.Symbol]bool{}
+	dependents := map[*ast.Symbol][]*ast.Symbol{}
+	var decided, queue []*ast.Symbol
+	pending := []*ast.Symbol{root}
+	seen := map[*ast.Symbol]bool{root: true}
+	for len(pending) > 0 {
+		symbol := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		decided = append(decided, symbol)
+		own, sources := l.ownLooseness(symbol)
+		if own {
+			loose[symbol] = true
+			queue = append(queue, symbol)
+			continue
+		}
+		for _, source := range sources {
+			if known, ok := l.looseSymbols[source]; ok {
+				if known && !loose[symbol] {
+					loose[symbol] = true
+					queue = append(queue, symbol)
+				}
+				continue
+			}
+			dependents[source] = append(dependents[source], symbol)
+			if !seen[source] {
+				seen[source] = true
+				pending = append(pending, source)
+			}
+		}
 	}
-	depth, outerLow := len(l.looseStack), l.looseLow
-	l.looseStack[symbol], l.looseLow = depth, depth
-	// A local declared `T | undefined` holds undefined whether or not it is tested, but
-	// tsc narrows it to T by its initializer or by an assignment: its reads as a T are
-	// checked too (D-172, C326).
+	for len(queue) > 0 {
+		source := queue[0]
+		queue = queue[1:]
+		for _, symbol := range dependents[source] {
+			if !loose[symbol] {
+				loose[symbol] = true
+				queue = append(queue, symbol)
+			}
+		}
+	}
+	for _, symbol := range decided {
+		l.looseSymbols[symbol] = loose[symbol]
+	}
+}
+
+// ownLooseness reports whether a variable (symbol) is a loose local whatever the other
+// variables are, and else the variables whose looseness would make it one: those written
+// to it where it narrows by writes. A local declared `T | undefined` holds undefined
+// whether or not it is tested, but tsc narrows it to T by its initializer or by an
+// assignment: its reads as a T are checked too (D-172, C326).
+func (l *lowerer) ownLooseness(symbol *ast.Symbol) (bool, []*ast.Symbol) {
+	if symbol.ValueDeclaration == nil {
+		return false, nil
+	}
 	declaredWithUndefined := mayHoldUndefined(l.typeOfSymbol(symbol))
 	tested := l.undefinedTested[symbol] || symbol.ValueDeclaration.Kind == ast.KindBindingElement || l.iteratesHoles(symbol.ValueDeclaration)
-	loose := (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration) || l.narrowsByWrites(symbol) && l.writesMissing(symbol)
-	delete(l.looseStack, symbol)
-	if loose || l.looseLow >= depth {
-		// final: loose for good, or not loose with every variable it asked about decided (a
-		// cycle back to itself assumed it wasn't); else asked again once that one is decided
-		// (review round 1, R1-F2)
-		l.looseSymbols[symbol] = loose
+	if (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration) {
+		return true, nil
 	}
-	l.looseLow = min(outerLow, l.looseLow)
-	return loose
+	if !l.narrowsByWrites(symbol) {
+		return false, nil
+	}
+	if slices.ContainsFunc(l.patternWrites[symbol], l.patternElementMayBeMissing) {
+		return true, nil
+	}
+	var sources []*ast.Symbol
+	for _, value := range l.writtenValues(symbol) {
+		if mayHoldUndefined(l.checker.GetTypeAtLocation(value)) {
+			continue // tsc's own type leaves the undefined in, as narrowsByWrites
+		}
+		missing, loose := l.missingSources(value)
+		if missing {
+			return true, nil
+		}
+		sources = append(sources, loose...)
+	}
+	return false, sources
 }
 
 // narrowsByWrites reports whether tsc narrows a variable (symbol) to the type of what is
@@ -241,56 +350,62 @@ func (l *lowerer) narrowsByWrites(symbol *ast.Symbol) bool {
 	return mayHoldUndefined(declared) && declared.Flags()&checker.TypeFlagsAny == 0
 }
 
-// writesMissing reports whether a variable or parameter (symbol) is written a value that
-// may be undefined though tsc types it without (mayHoldMissing), which tsc then narrows the
-// variable to: by its initializer or default (`const x: string | undefined = a` for a
-// loose a, `p: string | undefined = s.split(":")[1]`) or by an assignment (`x = list[3]`).
-// A value tsc types with undefined (`c ? xs[i] : undefined`) leaves the variable's
-// undefined in tsc's type, so its reads are tested as tsc requires.
-func (l *lowerer) writesMissing(symbol *ast.Symbol) bool {
-	missing := func(value *ast.Node) bool {
-		return l.mayHoldMissing(value) && !mayHoldUndefined(l.checker.GetTypeAtLocation(value)) // tsc's own type, as narrowsByWrites
-	}
+// writtenValues are the values written to a variable or parameter (symbol): its
+// initializer or default (`const x: string | undefined = a`, `p: string | undefined =
+// s.split(":")[1]`) and what assignments store (`x = list[3]`, `x ??= v`).
+func (l *lowerer) writtenValues(symbol *ast.Symbol) []*ast.Node {
+	values := l.assignedValues[symbol]
 	declaration := symbol.ValueDeclaration
 	if declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindParameter {
-		if initializer := declaration.Initializer(); initializer != nil && declaration.Name().Kind == ast.KindIdentifier && missing(initializer) {
-			return true
+		if initializer := declaration.Initializer(); initializer != nil && declaration.Name().Kind == ast.KindIdentifier {
+			values = append([]*ast.Node{initializer}, values...)
 		}
 	}
-	return slices.ContainsFunc(l.assignedValues[symbol], missing) || slices.ContainsFunc(l.patternWrites[symbol], l.patternElementMayBeMissing)
+	return values
+}
+
+// missingSources reports whether value, written to a place whose type holds undefined,
+// may be undefined though tsc types it without: an element read (D-015), or a conditional
+// with one; and else the variables whose looseness would make it so, since a loose local
+// goes there as the union it holds (D-220).
+func (l *lowerer) missingSources(value *ast.Node) (bool, []*ast.Symbol) {
+	value = ast.SkipParentheses(value)
+	switch {
+	case value.Kind == ast.KindConditionalExpression:
+		conditional := value.AsConditionalExpression()
+		missing, sources := l.missingSources(conditional.WhenTrue)
+		otherMissing, others := l.missingSources(conditional.WhenFalse)
+		return missing || otherMissing, append(sources, others...)
+	case l.isElementRead(value):
+		return true, nil
+	case value.Kind == ast.KindIdentifier:
+		if symbol := l.target(value); symbol != nil && symbol.ValueDeclaration != nil {
+			return false, []*ast.Symbol{symbol}
+		}
+	}
+	return false, nil
 }
 
 // patternElementMayBeMissing reports whether element, an identifier that an array
 // assignment pattern assigns without a default, may be assigned an element past the end of
 // what the pattern destructures, which tsc types without undefined: the pattern's source
 // isn't a tuple, or is a rest tuple (`[h, s] = r` for an `[number, ...string[]]`), as a
-// binding element's name (readsElement); a nested pattern's, whatever its source.
+// binding element's name (readsElement); a nested pattern's, whatever its source (review
+// round 2, R2-F1: a nested pattern with a default isn't destructuring its default).
 func (l *lowerer) patternElementMayBeMissing(element *ast.Node) bool {
 	pattern := element.Parent
 	for pattern.Kind == ast.KindParenthesizedExpression {
 		pattern = pattern.Parent
 	}
-	parent := pattern.Parent
-	for parent.Kind == ast.KindParenthesizedExpression {
-		pattern, parent = parent, parent.Parent
+	assignment := pattern.Parent
+	for assignment.Kind == ast.KindParenthesizedExpression {
+		pattern, assignment = assignment, assignment.Parent
 	}
-	if parent.Kind != ast.KindBinaryExpression || parent.AsBinaryExpression().Left != pattern {
+	if assignment.Kind != ast.KindBinaryExpression || assignment.AsBinaryExpression().Left != pattern || isPatternElement(assignment) {
 		return true
 	}
-	t := l.checker.GetTypeAtLocation(parent.AsBinaryExpression().Right)
+	t := l.checker.GetTypeAtLocation(assignment.AsBinaryExpression().Right)
 	return !checker.IsTupleType(t) || isRestTuple(t)
-}
-
-// mayHoldMissing reports whether node, the value of a place whose type holds undefined, may
-// be undefined though tsc types it without: an element read (D-015), a loose local, which
-// goes there as the union it holds (D-220), or a conditional with such a branch.
-func (l *lowerer) mayHoldMissing(node *ast.Node) bool {
-	node = ast.SkipParentheses(node)
-	if node.Kind == ast.KindConditionalExpression {
-		conditional := node.AsConditionalExpression()
-		return l.mayHoldMissing(conditional.WhenTrue) || l.mayHoldMissing(conditional.WhenFalse)
-	}
-	return l.mayBeMissing(node)
 }
 
 // readsElement reports whether a variable declaration's initializer reads an element of
@@ -546,7 +661,11 @@ func isPlaceValue(node *ast.Node) bool {
 		return parent.Name() == node
 	case ast.KindBinaryExpression:
 		binary := parent.AsBinaryExpression()
-		return binary.OperatorToken.Kind == ast.KindEqualsToken && binary.Right == node
+		switch binary.OperatorToken.Kind {
+		case ast.KindEqualsToken, ast.KindBarBarEqualsToken, ast.KindQuestionQuestionEqualsToken, ast.KindAmpersandAmpersandEqualsToken:
+			return binary.Right == node // `v2 ||= v1` stores v1 as `=` does (review round 2, R2-F3)
+		}
+		return false
 	case ast.KindReturnStatement, ast.KindArrowFunction:
 		return true
 	case ast.KindYieldExpression:

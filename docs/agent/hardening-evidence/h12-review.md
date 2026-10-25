@@ -13,7 +13,7 @@ Some things hold up well:
 - The reproducer's matrix against snapshot 2 has 3,099 cases right and 148 PTS1001. No case that was right on the base is now wrong.
 - Many other areas check out (listed at the end).
 
-## Findings
+### Findings
 
 **R1-F1 (High, regression, verified): a rest-tuple assignment into a variable declared `T | undefined` crashes with SIGSEGV.**
 - Where: `pts/lower/destructuring.go:586`, the new branch for assignment targets of a rest tuple.
@@ -102,7 +102,7 @@ Some things hold up well:
 - There are no tests for R1-F1 to F6. `pattern_assignment_rest_tuples.pts` only covers full tuples into targets without undefined.
 - The comment on `ir.Func.Generator` in `pts/ir/ir.go` ("returns it without running Body") is out of date now that `Prologue` exists.
 
-## Checked and correct (snapshot 2 matches Node)
+### Checked and correct (snapshot 2 matches Node)
 - **Defaults on exact undefined:** class getters typed `undefined` or `void`, interface getters, tuples, callbacks, `for…of`; no default for null, 0, "", false or NaN.
 - **Evaluation order:** getters read once and before the default, defaults left to right, `next()` interleaved with defaults, the iterator closed when a default throws, target references evaluated first.
 - **Records:** missing, present-but-undefined and numeric-like keys; shorthand and property assignments.
@@ -113,7 +113,92 @@ Some things hold up well:
 - **No regressions:** `unknown` variables and hot loops with unannotated defaulted parameters emit identical C.
 - **Unchanged on both CLIs:** destructuring assignments over plain arrays, chained assignments, `as`, `!`, `satisfies` and literals all throw RangeError or TypeError, never SIGSEGV.
 
-## Files
+### Files
 - Probe archive: `/tmp/h12/review1/h12-review1-probes.tar.gz`
 - Rerun script and saved output: `/tmp/h12/review1/tools/rerun_findings.sh`, `/tmp/h12/review1/rerun-findings.out`
 - Comparison helpers: `/tmp/h12/review1/tools/both.sh`, `/tmp/h12/review1/tools/cmp.sh`, `/tmp/h12/review1/tools/expect_vs_node.py`
+
+## Round 2 (commit `0cdb97302`, snapshot 3)
+
+**Verdict: NOT READY.** All nine round-1 fixes work, but two new problems block it:
+- **R2-F1 (High):** the R1-F1 crash class still has five SIGSEGV shapes.
+- **R2-F2 (Medium):** the new cycle handling in `isLoose` takes exponential time, so some valid programs no longer compile in reasonable time.
+
+One Low remains. Every finding is verified with a probe run against Node, the base, snapshot 2 and snapshot 3.
+
+### The round-1 fixes
+- **Round-1 probes:** I replayed all 95 of my round-1 probes (`replay-r1.json`). Every probe that matched Node on snapshot 2 still matches on snapshot 3.
+  - These now match Node: `s27`, `s32`, `s20`, `s33`, `s35`, `g01`, `p01`, `p02`, `p03`, `p06`, `p07`, `n03`.
+  - These are back to the base's honest PTS1001 or RangeError: `o01`, `o04`, `o08`, `r01b`, `r05b`.
+  - `n02` now runs and gives u8's wrapping result, which is the intended behaviour for that type.
+- **Matrix:** the reproducer's 3,438 cases on snapshot 3 give 3,099 OK and 148 PTS1001, identical to snapshot 2. No case got worse than on snapshot 2 or the base (`matrix-snap3.jsonl`).
+- **emit-c sweep, snapshot 2 against 3 (1,461 programs):** only nine test programs changed.
+  - Changed: the generator tests (they gain the starter's stack check), the new round-1 tests, and `parameter_defaults_unannotated_and_tested` (the caller-side type goes back to `string` plus the given flag).
+  - No corpus program changed (`sweep23.json`).
+- **Cycles:** a fuzzer generated 200 programs where declared-union variables write each other, with missing values entering through element reads, loose bindings, parameters, rest tuples, closures, conditionals and `||=`.
+  - Snapshot 3 matches Node on every case except 20 from the second batch, which all fail the same way on snapshot 2. That is the `||=` gap filed as R2-F3, not the cycle logic.
+  - On the first batch, snapshot 2 crashed in 8 of 100, so the fuzzer does catch this class.
+- **Raw types in generic instances:** constrained type parameters, generic classes, and `unknown` or `any` instances compiled first all match Node (`s41`). Probes that try to make instances disagree are unreachable: tsc or PTS1001 rejects them.
+- **Starter stack check:** methods, async generators, mutual recursion and closures all give RangeError; a finite depth of 2,000 works (`g10`).
+- **Methods with every kind of default:** an optional property, `maybe()`, a number, an element read, `m.get` and a literal all match Node through interfaces (`m01`), overrides in both directions (`m02`), and loose or element-read arguments (`p20`).
+- **Literal default copies:** methods, arrow properties and plain fields still work (`o10`).
+- **Annotated defaults, unchanged on all three builds:** an annotated `string | undefined` or required `T | undefined` parameter implementing an interface is still PTS1001 (`m04`, `m05`, `p05`).
+
+### Findings
+
+**R2-F1 (High, verified): R1-F1 isn't fully fixed; five assignment-pattern shapes still crash with SIGSEGV.**
+
+Where: `pts/lower/loose_locals.go`, `arrayPatternTargets` and `patternElementMayBeMissing`.
+
+`arrayPatternTargets` only looks at an array literal that is directly the left side of `=`. So these targets are never collected:
+- an array pattern inside an object assignment pattern;
+- a nested array pattern that has its own default.
+
+In the second case, the inner `[h, s] = [0, "d"]` is treated as a top-level assignment whose source is the default. The default is a tuple, so `patternElementMayBeMissing` returns false, but the real source is the outer element, a short rest tuple.
+
+| Probe | Shape | Node | Base | Snapshot 2 | Snapshot 3 |
+|---|---|---|---|---|---|
+| `w01_obj_in_assign_array.pts` | `({ a: [h, s] } = o)`, `o.a: [number, ...string[]] = [1]`, `s: string \| undefined`, then `s.length` | `threw TypeError` | PTS1001 | 139 | 139 |
+| `w07_obj_nested_deeper.pts` | `[{ a: [h, s] }] = rows` | `threw TypeError` | PTS1001 | 139 | 139 |
+| `w08_shorthand_obj_rest.pts` | `({ a: [h, (s)] } = o)` | `threw TypeError` | PTS1001 | 139 | 139 |
+| `w11_param_object_array.pts` | `({ a: [h, s] } = o)` where `s` is a parameter | `threw TypeError` | PTS1001 | 139 | 139 |
+| `w06_nested_default_rest.pts` | `[[h, s] = [0, "d"]] = rows`, `rows: [number, ...string[]][] = [[1]]` | `threw TypeError` | PTS1001 | 139 | 139 |
+
+- The C for `w01` reads `pts_value_as_object(s)` unchecked after storing undefined.
+- These variants are fine: a parenthesized target `[h, (s)] = r`, a conditional source, a nested default typed as an array (`w09`), and member or element targets.
+- Suggested fix:
+  - Collect identifier targets of every array literal under a destructuring assignment's left side, including inside object-literal property values.
+  - Treat an array pattern as nested, so missing is true, whenever its `=` binary is itself an element or property value of an outer pattern, rather than taking that binary's right side as the source.
+
+**R2-F2 (Medium, regression against snapshot 2 and the base, verified): `isLoose` now takes exponential time on dense write graphs.**
+
+Where: `loose_locals.go`, `isLoose` with `looseStack`/`looseLow`. A provisional false is never cached, so every simple path through the write graph is explored again, once inside each decision and again at each later top-level query. The answers it gives are correct; only the cost is wrong.
+
+| Probe (emit-c only) | Snapshot 2 | Snapshot 3 |
+|---|---|---|
+| `dense10.pts` (10 `string \| undefined` variables, each written every other) | 0.45 s | 13.4 s |
+| `dense12.pts` | 0.63 s | over 120 s (timeout) |
+| `sparse40_3.pts` (40 variables, each written from 3 random others) | 0.47 s | over 120 s |
+| `c10_register_machine.pts` (13 optional registers, a `case` with `r_i = r_j` for every pair) | 0.38 s | over 120 s; separately timed over 300 s |
+
+- The base also compiles `dense12` and `sparse40_3` in about 0.5 s.
+- Scaling of the register machine on snapshot 3, measured while the matrix used three cores: 9 registers 2.7 s, 10 registers 24 s, 11 registers 277 s.
+- Suggested fix: when the root of a strongly connected component of writes finishes as false, cache false for every member of it (Tarjan). Alternatively, compute the loose set once as a worklist fixpoint over the write graph.
+
+**R2-F3 (Low, regression against the base's accidentally right result, verified): the right side of a logical assignment isn't treated as a place that takes undefined.**
+- Repro `l11_or_assign_loose_rhs.pts`: `v1` and `v2` are declared `string | undefined` and initialised from a loose binding, then `v2 ||= v1`.
+  - Node: `undefined`
+  - Base: `undefined` (it read `v1` unchecked and got lucky)
+  - Snapshots 2 and 3: `Uncaught TypeError` at that line
+- `v1` is newly loose, and `isPlaceValue` only treats the right side of `=` as a place value, not of `||=`, `??=` or `&&=`. So the read of `v1` is checked as a string.
+- `v3 ??= lb` already threw on all three builds.
+- This is D-090's TypeError where Node carries on with undefined, which R1-F8 now documents. Including logical-assignment right sides in `isPlaceValue`, when the target's type holds undefined, would match Node.
+
+### Test quality
+The seven new tests match Node and test what they claim. None covers R2-F1's object-enclosed or default-nested patterns, and none covers write graphs denser than two variables.
+
+### Files
+- Probe archive: `/tmp/h12/review2/h12-review2-probes.tar.gz`
+- Rerun script: `/tmp/h12/review2/tools/rerun_findings.sh` (output in `/tmp/h12/review2/rerun-findings.out`)
+- Supporting tools: `/tmp/h12/review2/tools/run3.py`, `/tmp/h12/review2/tools/gen_cycles.py`
+- Results: `/tmp/h12/review2/replay-r1.json`, `/tmp/h12/review2/matrix-snap3.jsonl`, `/tmp/h12/review2/sweep23.json`
