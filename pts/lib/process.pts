@@ -5,6 +5,7 @@ declare function pts_process_argv(): string[];
 declare function pts_process_environ(): string[];
 declare function pts_process_exec_path(): string;
 declare function pts_process_pid(): number;
+declare function pts_process_arch(): string;
 declare function pts_process_cwd(): string;
 declare function pts_process_exit(code: number): never;
 declare function pts_process_set_exit_code(code: number): void;
@@ -69,7 +70,7 @@ export class Process {
     readonly execPath: string = pts_process_exec_path();
     env: ProcessEnv = environment();
     readonly platform: string = "linux";
-    readonly arch: string = "x64";
+    readonly arch: string = pts_process_arch();
     readonly pid: number = pts_process_pid();
     readonly stdout: WriteStream = new WriteStream(1);
     readonly stderr: WriteStream = new WriteStream(2);

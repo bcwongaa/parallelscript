@@ -135,7 +135,7 @@ func TestMissingSourceFileIsReported(t *testing.T) {
 func TestMalformedCommandLinesPrintUsage(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{{}, {"frob"}, {"build"}, {"build", "a.pts", "b.pts"}, {"build", "a.pts", "-o"},
-		{"emit-c", "--fast", "a.pts"}, {"run"}, {"run", "-x", "a.pts"}} {
+		{"build", "a.pts", "--target"}, {"emit-c", "--target", "aarch64-linux", "a.pts"}, {"emit-c", "--fast", "a.pts"}, {"run"}, {"run", "-x", "a.pts"}} {
 		got := runIn(t, t.TempDir(), args...)
 		assert.Equal(t, got.code, exitUsage, "args %q", args)
 		assert.Assert(t, strings.Contains(got.stderr, "Usage: pts"), "args %q: %s", args, got.stderr)

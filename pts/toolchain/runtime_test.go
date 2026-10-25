@@ -2,13 +2,15 @@ package toolchain_test
 
 import (
 	"bytes"
+	"debug/elf"
 	"fmt"
+	"io"
 	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -186,10 +188,28 @@ func TestProgramDependsOnlyOnLibc(t *testing.T) {
 	exe := buildCSource(t, `#include "pts.h"
 int main(int argc, char **argv) { pts_runtime_init(argc, argv); return pts_runtime_exit(0); }
 `)
-	out, err := exec.CommandContext(t.Context(), "ldd", exe).Output()
+	file, err := elf.Open(exe)
 	assert.NilError(t, err)
-	allowed := regexp.MustCompile(`^\s*(linux-vdso\.so\.1|libc\.so\.6|/lib64/ld-linux-x86-64\.so\.2|libm\.so\.6)\b`)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		assert.Assert(t, allowed.MatchString(line), "unexpected dynamic dependency: %s", line)
+	defer file.Close()
+	needed, err := file.ImportedLibraries()
+	assert.NilError(t, err)
+	// glibc's libc, libm and dynamic loader, for x86-64 or for aarch64 (D-225)
+	for _, library := range needed {
+		assert.Assert(t, slices.Contains([]string{"libc.so.6", "libm.so.6", "ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1"}, library), "unexpected dynamic dependency: %s", library)
 	}
+	assert.Assert(t, slices.Contains([]string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"}, interpreter(t, file)), interpreter(t, file))
+}
+
+// interpreter is the dynamic loader an executable names (its PT_INTERP).
+func interpreter(t *testing.T, file *elf.File) string {
+	t.Helper()
+	for _, program := range file.Progs {
+		if program.Type == elf.PT_INTERP {
+			path, err := io.ReadAll(program.Open())
+			assert.NilError(t, err)
+			return strings.TrimRight(string(path), "\x00")
+		}
+	}
+	t.Fatal("the executable names no dynamic loader")
+	return ""
 }

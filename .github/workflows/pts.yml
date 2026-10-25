@@ -1,6 +1,8 @@
 # ParallelScript CI: builds pts and runs the PTS tests (with the Node differential
-# tests required), the upstream Go suites the fork touches, and the VS Code extension's
-# tests (its end-to-end suite in a headless VS Code), on every push.
+# tests required) on x86-64 Linux, with the cross-compiled aarch64 programs under qemu,
+# and natively on arm64 Linux with the stress programs repeated (D-225), the upstream Go
+# suites the fork touches, and the VS Code extension's tests (its end-to-end suite in a
+# headless VS Code), on every push.
 # Upstream's ci.yml only runs on demand in this repo (docs/FORK.md).
 name: PTS
 
@@ -33,6 +35,39 @@ jobs:
         with:
           node-version: 24
       - uses: ./.github/actions/setup-go
+      # The aarch64 C library, linker and qemu: the cross-compiling tests (D-225) run there.
+      - name: Install clang and the aarch64 cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static
+          clang --version
+          qemu-aarch64-static --version | head -1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/pts
+          key: pts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
+          restore-keys: pts-${{ runner.os }}-${{ runner.arch }}-
+      - run: make build
+      - name: PTS tests (differential and cross-compiling tests required)
+        run: PTS_REQUIRE_NODE=1 PTS_REQUIRE_CROSS=1 make test
+      - run: make test-upstream
+
+  # Arm's weaker memory ordering shows races that x86's hides, so the parallel and stress
+  # programs run natively there as well, the stress programs ten times each (D-225).
+  pts-arm64:
+    name: PTS tests (Linux arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - run: git submodule update --init --depth 1 pts/third_party
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+      - uses: ./.github/actions/setup-go
       - name: Install clang
         run: |
           sudo apt-get update
@@ -44,12 +79,13 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
             ~/.cache/pts
-          key: pts-${{ runner.os }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
-          restore-keys: pts-${{ runner.os }}-
+          key: pts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
+          restore-keys: pts-${{ runner.os }}-${{ runner.arch }}-
       - run: make build
       - name: PTS tests (differential tests required)
         run: PTS_REQUIRE_NODE=1 make test
-      - run: make test-upstream
+      - name: Stress tests, ten runs each
+        run: PTS_STRESS_REPEAT=10 make test-stress
 
   upstream-cli:
     name: Upstream CLI and LSP suites

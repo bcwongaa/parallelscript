@@ -2363,6 +2363,18 @@ _Noreturn void pts_throw_stack_overflow(void);
 static inline __attribute__((always_inline)) void pts_stack_check(void) {
   __asm__ volatile("cmpq %%fs:pts_stack_limit@tpoff, %%rsp\n\tjb pts_stack_overflow_stub" ::: "cc");
 }
+#elif defined(__aarch64__)
+/*
+ * sp itself, where __builtin_frame_address would give every function a frame record: the
+ * call that throws gets its frame on its own path, so a leaf path stays a leaf's (D-225).
+ */
+static inline __attribute__((always_inline)) void pts_stack_check(void) {
+  uintptr_t sp;
+  __asm__("mov %0, sp" : "=r"(sp));
+  if (__builtin_expect(sp < pts_stack_limit, 0)) {
+    pts_throw_stack_overflow();
+  }
+}
 #else
 static inline void pts_stack_check(void) {
   if (__builtin_expect((uintptr_t)__builtin_frame_address(0) < pts_stack_limit, 0)) {
@@ -2707,6 +2719,8 @@ struct pts_array *pts_process_argv(void);
 struct pts_array *pts_process_environ(void);
 pts_string *pts_process_exec_path(void);
 double pts_process_pid(void);
+/* Node's name for the processor the program was compiled for: "x64" or "arm64" (D-225). */
+pts_string *pts_process_arch(void);
 pts_string *pts_process_cwd(void);
 /* process.exit(code): flushes output and exits at once. */
 _Noreturn void pts_process_exit(double code);

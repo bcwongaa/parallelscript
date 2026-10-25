@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/driver"
 	"github.com/microsoft/typescript-go/pts/lsp"
+	"github.com/microsoft/typescript-go/pts/toolchain"
 )
 
 // version is ParallelScript's, the milestone it reached as the minor version.
@@ -53,6 +55,7 @@ Environment:
                     (default: the nearest one above pts or the working directory)
   PTS_CACHE_DIR     Where the built runtime is cached (default: ~/.cache/pts)
   PTS_CC, PTS_AR    The C compiler and archiver (default: clang and ar)
+  PTS_TARGET        The platform builds are for, as build's --target (default: this machine)
   PTS_DEBUG=1       Internal compiler errors show what a bug report needs: the compiler's
                     stack, or the C compiler's output
 
@@ -69,13 +72,18 @@ Compiles the program whose entry module is file.pts, with the modules it imports
 runs it. The arguments after the file go to the program (process.argv); pts exits with
 the program's exit code, or 128 plus the signal's number if a signal ended it.
 `,
-	"build": `Usage: pts build <file.pts> [-o <output>]
+	"build": `Usage: pts build <file.pts> [-o <output>] [--target <target>]
 
 Compiles the program whose entry module is file.pts, with the modules it imports, to a
 native executable that needs only libc and libm.
 
 Options:
   -o, --output <output>   The executable's path (default: the file's base name)
+  --target <target>       The platform it runs on: x86_64-linux or aarch64-linux (default:
+                          this machine, or PTS_TARGET's). Building for another machine
+                          needs its C library and linker, as its cross-compiling packages
+                          install them (Debian and Ubuntu: gcc-aarch64-linux-gnu and
+                          libc6-dev-arm64-cross for aarch64-linux)
 `,
 	"emit-c": `Usage: pts emit-c <file.pts> [-o <file.c>]
 
@@ -260,14 +268,24 @@ func (c *cli) path(p string) string {
 }
 
 func (c *cli) build(ctx context.Context, args []string) error {
-	source, output, err := parseFileAndOutput("build", args)
+	source, options, err := parseFileAndOptions("build", args, "--output", "--target")
 	if err != nil {
 		return err
 	}
+	var target toolchain.Target
+	switch name, ok := options["--target"]; {
+	case ok && name == "":
+		return &usageError{"build", "--target needs a value"}
+	case ok:
+		if target, err = toolchain.ParseTarget(name); err != nil {
+			return &usageError{"build", err.Error()}
+		}
+	}
+	output := options["--output"]
 	if output == "" {
 		output = strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))
 	}
-	return driver.Build(ctx, c.path(source), c.path(output))
+	return driver.BuildFor(ctx, c.path(source), c.path(output), target)
 }
 
 func (c *cli) emitC(ctx context.Context, args []string) error {
@@ -288,27 +306,40 @@ func (c *cli) emitC(ctx context.Context, args []string) error {
 
 // parseFileAndOutput reads "<file> [-o <output>]" with the option in any position.
 func parseFileAndOutput(command string, args []string) (source string, output string, err error) {
+	source, options, err := parseFileAndOptions(command, args, "--output")
+	return source, options["--output"], err
+}
+
+// parseFileAndOptions reads "<file>" and the options names lists (-o being --output), each
+// with a value ("--name value" or "--name=value"), in any position, into options by name.
+func parseFileAndOptions(command string, args []string, names ...string) (source string, options map[string]string, err error) {
+	options = map[string]string{}
 	var files []string
 	for i := 0; i < len(args); i++ {
-		switch arg := args[i]; {
-		case arg == "-o" || arg == "--output":
+		arg := args[i]
+		name, value, hasValue := strings.Cut(arg, "=")
+		if name == "-o" {
+			name = "--output"
+		}
+		switch {
+		case slices.Contains(names, name) && hasValue:
+			options[name] = value
+		case slices.Contains(names, name):
 			if i+1 == len(args) {
-				return "", "", &usageError{command, arg + " needs a value"}
+				return "", nil, &usageError{command, arg + " needs a value"}
 			}
 			i++
-			output = args[i]
-		case strings.HasPrefix(arg, "-o="), strings.HasPrefix(arg, "--output="):
-			output = arg[strings.IndexByte(arg, '=')+1:]
+			options[name] = args[i]
 		case strings.HasPrefix(arg, "-") && arg != "-":
-			return "", "", &usageError{command, fmt.Sprintf("unknown option %q for %s", arg, command)}
+			return "", nil, &usageError{command, fmt.Sprintf("unknown option %q for %s", arg, command)}
 		default:
 			files = append(files, arg)
 		}
 	}
 	if len(files) != 1 {
-		return "", "", &usageError{command, command + " needs exactly one source file"}
+		return "", nil, &usageError{command, command + " needs exactly one source file"}
 	}
-	return files[0], output, nil
+	return files[0], options, nil
 }
 
 // runProgram builds the program into a temporary directory and runs it with the

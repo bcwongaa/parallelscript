@@ -74,6 +74,16 @@ pts_array *pts_process_environ(void) {
 
 double pts_process_pid(void) { return (double)getpid(); }
 
+pts_string *pts_process_arch(void) {
+#if defined(__aarch64__)
+  return pts_string_from_cstr("arm64");
+#elif defined(__x86_64__)
+  return pts_string_from_cstr("x64");
+#else
+#error "pts_process_arch: a processor ParallelScript doesn't target"
+#endif
+}
+
 pts_string *pts_process_cwd(void) {
   for (size_t size = 256;; size *= 2) {
     char *buffer = malloc(size);

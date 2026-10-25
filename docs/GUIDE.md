@@ -143,7 +143,7 @@ The four agree on every run and with any number of threads. On an 8-thread lapto
 
 **Can I call C libraries?** Not yet: there is no foreign function interface for programs. The standard library reaches the runtime's C through declarations that only it may write.
 
-**Which platforms?** x86-64 Linux. The executables need only libc and libm.
+**Which platforms?** x86-64 and arm64 (aarch64) Linux. The executables need only libc and libm. `pts build` builds for the machine it runs on, and `pts build app.pts --target aarch64-linux` (or `x86_64-linux`) for the other, once that machine's C library and linker are installed (on Debian and Ubuntu, `apt install gcc-aarch64-linux-gnu libc6-dev-arm64-cross`). Run the result there, or on this machine under qemu: `qemu-aarch64-static -L /usr/aarch64-linux-gnu ./app`. On arm64 the race-safety guarantee doesn't hold yet (H35b): a program whose threads race on new objects or module-scope bindings can crash there, where on x86-64 it may only see stale values (SPEC §2.2, §4.1). macOS isn't supported yet.
 
 ## What stays the same
 

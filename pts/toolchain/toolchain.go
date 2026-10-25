@@ -69,10 +69,17 @@ type Toolchain struct {
 	CacheDir string // built archives live in <CacheDir>/<name>-<key>/
 	CC       string
 	AR       string
+	Target   Target // what executables run on: the zero Target for this machine
 }
 
-// New finds the PTS home and cache dir. $PTS_CC and $PTS_AR override clang and ar.
+// New finds the PTS home and cache dir. $PTS_CC and $PTS_AR override clang and ar, and
+// $PTS_TARGET this machine as the target.
 func New() (*Toolchain, error) {
+	return NewFor(Target{})
+}
+
+// NewFor is New for target, which wins over $PTS_TARGET unless it is the zero Target.
+func NewFor(target Target) (*Toolchain, error) {
 	home, err := FindHome()
 	if err != nil {
 		return nil, err
@@ -81,7 +88,12 @@ func New() (*Toolchain, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Toolchain{Home: home, CacheDir: cacheDir, CC: envOr("PTS_CC", "clang"), AR: envOr("PTS_AR", "ar")}, nil
+	if target == (Target{}) {
+		if target, err = targetFromEnv(); err != nil {
+			return nil, err
+		}
+	}
+	return &Toolchain{Home: home, CacheDir: cacheDir, CC: envOr("PTS_CC", "clang"), AR: envOr("PTS_AR", "ar"), Target: target}, nil
 }
 
 func envOr(name string, fallback string) string {
@@ -119,9 +131,9 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 		{libbacktraceLibrary, vendoredFlags},
 	}
 	for _, b := range builds {
-		archive, err := t.ensureArchive(ctx, b.lib, b.flags, ccVersion)
+		archive, err := t.ensureArchive(ctx, b.lib, slices.Concat(t.targetFlags(), b.flags), ccVersion)
 		if err != nil {
-			return nil, err
+			return nil, t.crossFailure(err)
 		}
 		built.Archives = append(built.Archives, archive)
 	}
@@ -130,7 +142,7 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 
 // CompileProgram compiles C files and links them with the runtime into an executable.
 func (t *Toolchain) CompileProgram(ctx context.Context, rt *Runtime, cFiles []string, output string) error {
-	args := slices.Concat(rt.Profile.flags(), []string{"-std=c11", "-o", output})
+	args := slices.Concat(t.targetFlags(), rt.Profile.flags(), []string{"-std=c11", "-o", output})
 	for _, dir := range rt.IncludeDirs {
 		args = append(args, "-I", dir)
 	}
@@ -142,7 +154,7 @@ func (t *Toolchain) CompileProgram(ctx context.Context, rt *Runtime, cFiles []st
 // profile, without compiling or linking them (-fsyntax-only): it rejects what the compiler
 // rejects there. It needs only the runtime's headers, not its archives.
 func (t *Toolchain) CheckProgram(ctx context.Context, profile Profile, cFiles []string) error {
-	args := slices.Concat(profile.flags(), []string{"-std=c11", "-fsyntax-only", "-w"})
+	args := slices.Concat(t.targetFlags(), profile.flags(), []string{"-std=c11", "-fsyntax-only", "-w"})
 	for _, dir := range t.absolute(runtimeLibrary.includes) {
 		args = append(args, "-I", dir)
 	}

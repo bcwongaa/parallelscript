@@ -56,15 +56,20 @@ func EmitCNarrowedWith(ctx context.Context, entry string, specialization lower.S
 }
 
 // Build compiles the program whose entry module is the file at entry into a native
-// executable at output. Compile errors come back as a *diagnostic.Error, and a bug the
-// compiler ran into, C that the C compiler rejects or that doesn't link included, as a
-// *diagnostic.InternalError.
+// executable at output, for this machine or PTS_TARGET's. Compile errors come back as a
+// *diagnostic.Error, and a bug the compiler ran into, C that the C compiler rejects or
+// that doesn't link included, as a *diagnostic.InternalError.
 func Build(ctx context.Context, entry string, output string) error {
+	return BuildFor(ctx, entry, output, toolchain.Target{})
+}
+
+// BuildFor is Build for target, the zero Target being Build's.
+func BuildFor(ctx context.Context, entry string, output string, target toolchain.Target) error {
 	checked, err := load(ctx, entry)
 	if err != nil {
 		return err
 	}
-	_, err = checked.compileC(ctx, func(ctx context.Context, c string) error { return build(ctx, c, output) })
+	_, err = checked.compileC(ctx, func(ctx context.Context, c string) error { return build(ctx, c, output, target) })
 	return err
 }
 
@@ -212,9 +217,9 @@ func (p *checkedProgram) emitC(ctx context.Context, specialization lower.Special
 	return cgen.Emit(lowered), nil, nil
 }
 
-// build compiles a program's C into a native executable at output.
-func build(ctx context.Context, c string, output string) error {
-	tc, err := toolchain.New()
+// build compiles a program's C into a native executable at output, for target unless it is the zero Target.
+func build(ctx context.Context, c string, output string, target toolchain.Target) error {
+	tc, err := toolchain.NewFor(target)
 	if err != nil {
 		return err
 	}

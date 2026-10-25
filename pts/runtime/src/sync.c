@@ -32,6 +32,21 @@ int64_t pts_atomic_compare_exchange(pts_arraybuffer *cell, int64_t expected, int
 /* How many times a lock is tried before its thread sleeps: short critical sections end sooner than a sleep. */
 enum { SPINS = 100 };
 
+/*
+ * Tells the core that this thread spins on a lock: x86's PAUSE or arm's YIELD, hints that
+ * let the core's other hardware thread run. Most arm cores have none, and YIELD does about
+ * nothing there; the lock sleeps on its futex after SPINS tries either way.
+ */
+static inline void spin_pause(void) {
+#if defined(__x86_64__)
+  __builtin_ia32_pause();
+#elif defined(__aarch64__)
+  __asm__ volatile("yield");
+#else
+#error "spin_pause: a processor ParallelScript doesn't target"
+#endif
+}
+
 static void futex_wait(uint32_t *word, uint32_t value) { syscall(SYS_futex, word, FUTEX_WAIT_PRIVATE, value, NULL, NULL, 0); }
 
 static void futex_wake(uint32_t *word) { syscall(SYS_futex, word, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0); }
@@ -47,7 +62,7 @@ void pts_sync_lock(pts_arraybuffer *lock) {
     if (pts_sync_try_lock(lock)) {
       return;
     }
-    __builtin_ia32_pause();
+    spin_pause();
   }
   uint32_t seen = __atomic_exchange_n(word, 2, __ATOMIC_ACQUIRE);
   while (seen != 0) {

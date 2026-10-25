@@ -74,8 +74,8 @@ var ryuLibrary = library{
 
 // libbacktrace captures and symbolizes the stack frames of errors (D-069): unwinding with
 // libgcc's unwinder, reading the program's own DWARF, whose line tables map code to the
-// .pts lines of the generated C's #line directives. Its configure's output for x86-64
-// Linux is checked in next to it.
+// .pts lines of the generated C's #line directives. Its configure's output for glibc
+// Linux, the same on x86-64 and aarch64, is checked in next to it.
 var libbacktraceLibrary = library{
 	name: "backtrace",
 	dir:  "pts/third_party/libbacktrace",

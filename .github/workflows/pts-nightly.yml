@@ -1,6 +1,7 @@
 # ParallelScript nightly stress run: every program under pts/tests/stress/ (parallel
 # programs racing on the scheduler, the pool, the collector and shared data; the
-# race-safety invariant, D-L13) 100 times under each of its PTS_THREADS values.
+# race-safety invariant, D-L13) 100 times under each of its PTS_THREADS values, on x86-64
+# and on arm64 Linux, whose weaker memory ordering shows what x86's hides (D-225).
 name: PTS nightly stress
 
 on:
@@ -21,8 +22,12 @@ defaults:
 
 jobs:
   stress:
-    name: Stress tests
-    runs-on: ubuntu-24.04
+    name: Stress tests (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -40,7 +45,7 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
             ~/.cache/pts
-          key: pts-${{ runner.os }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
-          restore-keys: pts-${{ runner.os }}-
+          key: pts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
+          restore-keys: pts-${{ runner.os }}-${{ runner.arch }}-
       - name: Stress tests
         run: PTS_STRESS_REPEAT=${{ inputs.repeat || '100' }} make test-stress

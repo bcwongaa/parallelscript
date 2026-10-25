@@ -10,7 +10,7 @@ process.env.PTS_SET_HERE = "yes";
 console.log(process.env["PTS_SET_HERE"], "PTS_SET_HERE" in process.env);
 delete process.env.PTS_SET_HERE;
 console.log(process.env.PTS_SET_HERE, Object.keys(process.env).includes("TZ"));
-console.log(typeof process.pid, process.pid > 0, process.platform, process.arch);
+console.log(typeof process.pid, process.pid > 0, process.platform, ["x64", "arm64"].includes(process.arch));
 console.log(cwd() === process.cwd(), process.cwd().startsWith("/"), process.execPath.startsWith("/"));
 stdout.write("written ");
 console.log("then logged");
@@ -25,7 +25,7 @@ console.log(process.exitCode);
 // America/New_York undefined string
 // yes true
 // undefined true
-// number true linux x64
+// number true linux true
 // true true true
 // written then logged
 // two
