@@ -536,3 +536,61 @@ Everything is in `/tmp/h12/review5/`:
 - archive: `h12-review5-probes.tar.gz` (probes, tools, the F3/F4 overlays; the binaries are deleted)
 - `DONE` is touched
 - the main tree is clean
+
+## Round 6 (commit `a28d60dcd`, snapshot 7)
+
+The same `reviewer`, resumed.
+
+**Verdict: READY.** I found nothing actionable. The R5-F1 fix works. The wider rule makes nothing worse that I could find, in behaviour or in run time, and property reads don't have the same gap.
+
+All subprocesses ran in their own process groups, `g02` was excluded, and no `p` binaries are left running.
+
+## The fix
+- All six R5-F1 probes now match Node: `e01`, `e17`, `e18` (mapped types), `e20`, `e22` (`ArrayLike`) and the pre-existing `e19`. None did on snapshot 6.
+- The new test `loose_writes_generic_mapped_and_arraylike.pts` matches Node, exits 139 on snapshot 6, and passes on snapshot 7.
+
+## Could the wider rule make things worse?
+
+**Behaviour (`p/h/`, snapshots 6 and 7):**
+
+| Probe | What it checks | Result |
+|---|---|---|
+| `h05` | tuple instances made loose, with present elements of every kind (string, number, boolean, object, `+`, `>`, `!`) | matches Node |
+| `h03` | an element access by literal key on a generic class instance, in a loop | matches Node |
+| `h02` | R1-F8's numbers (`n = xs[5]; n + 1`) | D-090's TypeError against Node's NaN on both snapshots, for `ArrayLike<number>` and for `T extends number[]` alike; documented, unchanged |
+| `h06` | a mapped type giving numbers | now matches Node (snapshot 6 threw RangeError) |
+
+A local the rule makes loose where no instance needs it holds a defined value, so its checked reads never fire.
+
+**Run time:**
+- The emit-c sweep from snapshot 6 to 7 (1,471 programs, including the `.par` sort and reduce code) changed only the new test.
+- A generic `reduce` over `ArrayLike<number>` and over `T extends number[]` (`h04`) emits identical C on both snapshots.
+- The one place I saw extra code is a tuple instance's tested local, which is now boxed (`h01`, `h01b`). The timings are the same:
+  - `h01b`, 50M iterations, `PTS_THREADS=1`: snapshot 6 0.60 / 0.51 / 0.50 s, snapshot 7 0.60 / 0.45 / 0.42 s;
+  - `h01`, 200M iterations: snapshot 6 0.47 / 0.50 / 0.45 s, snapshot 7 0.45 / 0.46 / 0.48 s.
+- Compile time on 2,000 / 4,000 module variables written from generic functions: about 2.3 s and 4.3 s on both snapshots (within noise).
+
+## Property reads (`o.k`) on mapped or generic types (`p/f/`)
+There is no gap.
+- `o.zz` through a mapped type over a Record, `Readonly<T>`, `T`, `T & {}`, an index-signature constraint, or with a module variable (`f01`, `f02`, `f04`–`f06`): D-059's checked RangeError on base, snapshot 4, snapshot 6 and snapshot 7. A missing key is never stored as undefined, so nothing reads it unchecked.
+- The tested form `f03` matches Node on every build.
+
+So I found no case that needs F3's `GetApparentType` step.
+
+## Cheap checks rerun from rounds 4 and 5
+- **Replays:** 227 probes from rounds 3–5. 149 match Node on snapshot 6 and 155 on snapshot 7. None is worse; the six better ones are R5-F1's.
+- **Matrix sample:** 430 cases, identical to snapshot 6.
+- **Fuzzing:**
+  - The earlier 530 programs: only the 10 known differences (`cyc21_038`, D-140; nine generator programs with tsc errors).
+  - Rounds 4 and 5's 360 programs: the same counts as on snapshot 6. Every runtime difference contains a loose local on the right of `||`/`&&` (round 4's `r01`: a TypeError at the write on every build, safe).
+  - A new batch of 120 `ArrayLike` and mapped-type programs (`fuzz8`): 0 crashes. All 28 runtime differences are that same `r01` shape, and match Node once it is rewritten.
+
+## Leftover gaps, not new and not blocking
+- `r01`: a loose local as the right operand of `||` or `&&` gives a TypeError at the write where Node stores undefined.
+- `e02`: a conditional-type parameter is an honest PTS1001.
+- `k01`/`k02`: they meant to test a generic `for…of` over holes, but making the hole with `holey[2] = "c"` throws RangeError on every build, so they never reached the loop.
+
+Everything is in `/tmp/h12/review6/`:
+- archive: `h12-review6-probes.tar.gz` (probes, tools, results; `tools/rerun_findings.sh` reruns the behaviour and gap probes)
+- `DONE` is touched
+- the main tree is clean
