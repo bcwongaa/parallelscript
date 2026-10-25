@@ -1,0 +1,123 @@
+// fetch over TLS (H33) from many threads at once, against the servers of
+// TestFetchHTTPSEveryLoop, whose base URLs are the arguments as fetch_tls.pts takes them:
+// first an abort during the handshake, which closes the connection (Node's pool keeps it);
+// then 32 pairs of fetches at once on one loop, from `.par.map` callbacks and from
+// `parallel` tasks, each pair of a server whose certificate verifies and one whose
+// certificate doesn't, each answer checked; 64 fetches from `parallel` tasks aborted after
+// 0 to 4 ms, at any stage of their handshakes; then 1000 more, after which the process has
+// the files it had (one connection a request, all closed) and hasn't grown much.
+import { range } from "pts:parallel";
+import { readdirSync, readFileSync } from "pts:fs";
+
+type Coded = Error & { code: string };
+
+const bases = new Map<string, string>();
+for (const arg of process.argv.slice(2)) {
+  const equals = arg.indexOf("=");
+  bases.set(arg.slice(0, equals), arg.slice(equals + 1));
+}
+
+function url(name: string, path: string): string {
+  return `${bases.get(name)}${path}`;
+}
+
+function failure(e: unknown): string {
+  const error = e as Error;
+  return `${error.name}: ${error.message} | ${(error.cause as Coded | undefined)?.code}`;
+}
+
+// Fetches i from the server whose certificate verifies and from one whose doesn't: "ok" if both answer as they should.
+function pair(i: number): Promise<string> {
+  const good = fetch(url("localhost", `/n/${i}`)).then((response) => response.text(), failure);
+  const bad = fetch(url("untrusted", `/n/${i}`)).then(() => "fulfilled", failure);
+  return Promise.all([good, bad]).then((both) =>
+    both[0] === `n ${i}` && both[1] === "TypeError: fetch failed | UNABLE_TO_VERIFY_LEAF_SIGNATURE" ? "ok" : `${i}: ${both[0]} / ${both[1]}`,
+  );
+}
+
+// Fetches i, aborted after i % 5 ms (at once for 0): "ok" if it answers rightly or rejects with AbortError.
+function aborted(i: number): Promise<string> {
+  const controller = new AbortController();
+  const outcome = fetch(url("localhost", `/n/${i}`), { signal: controller.signal })
+    .then((response) => response.text())
+    .then(
+      (body) => (body === `n ${i}` ? "ok" : `${i}: ${body}`),
+      (e: Error) => (e.name === "AbortError" ? "ok" : `${i}: ${failure(e)}`),
+    );
+  if (i % 5 === 0) {
+    controller.abort();
+  } else {
+    setTimeout(() => controller.abort(), i % 5);
+  }
+  return outcome;
+}
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", ");
+}
+
+function openFiles(): number {
+  return readdirSync("/proc/self/fd").length;
+}
+
+function residentMB(): number {
+  const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync("/proc/self/status", "utf8"));
+  return m === null ? 0 : Number(m[1]) / 1024;
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// count fetches of the server that verifies, concurrency at a time; how many answered rightly.
+async function fetchAll(count: number, concurrency: number): Promise<number> {
+  let right = 0;
+  for (let done = 0; done < count; done += concurrency) {
+    const bodies = await Promise.all(Array.from({ length: concurrency }, (_, i) => fetch(url("localhost", `/n/${done + i}`)).then((r) => r.text())));
+    right += bodies.filter((body, i) => body === `n ${done + i}`).length;
+  }
+  return right;
+}
+
+// Asks the plain server for the state of the server path names until it is want, for up to 5 seconds; whether it got there.
+async function until(path: string, want: string): Promise<boolean> {
+  for (let i = 0; i < 100; i++) {
+    const response = await fetch(url("plain", path));
+    if ((await response.text()) === want) {
+      return true;
+    }
+    await pause(50);
+  }
+  return false;
+}
+
+{
+  // Unlike Node's, whose pool keeps a connection that is still handshaking (fetch_tls.pts).
+  const controller = new AbortController();
+  const outcome = fetch(url("holds", "/hello"), { signal: controller.signal }).then(
+    () => "fulfilled",
+    (e: Error) => e.name,
+  );
+  const held = await until("/holds", "hello");
+  controller.abort();
+  console.log("aborted during the handshake:", held, await outcome, "the connection closed:", await until("/holds", "left"));
+}
+console.log("on one loop:", tally(await Promise.all(Array.from({ length: 32 }, (_, i) => pair(i)))));
+console.log("from .par.map:", tally(await Promise.all(range(0, 32).par.map((i) => pair(i)))));
+console.log("from parallel tasks:", tally(await Promise.all(Array.from({ length: 32 }, (_, i) => parallel pair(i)))));
+console.log("aborted at random stages from parallel tasks:", tally(await Promise.all(Array.from({ length: 64 }, (_, i) => parallel aborted(i)))));
+
+await fetchAll(50, 25); // warm-up
+await pause(200);
+const files = openFiles();
+const resident = residentMB();
+console.log("requests:", await fetchAll(1000, 25)); // a connection's TLS state leaked would be over 40 kB
+await pause(200);
+console.log("files as before:", openFiles() === files || `${files} before, ${openFiles()} after`);
+const grown = residentMB() - resident;
+console.log("grew less than 40 MB:", grown < 40 || `${grown} MB`);

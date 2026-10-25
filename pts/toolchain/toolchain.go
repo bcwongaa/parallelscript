@@ -111,6 +111,7 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 		flags []string
 	}{
 		{runtimeLibrary, profile.flags()},
+		{mbedtlsLibrary, vendoredFlags},
 		{ryuLibrary, vendoredFlags},
 		{pcre2Library, vendoredFlags},
 		{libuvLibrary, vendoredFlags},

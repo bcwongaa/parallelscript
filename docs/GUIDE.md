@@ -156,7 +156,7 @@ Most TypeScript compiles unchanged. That includes:
 - `async` and `await`, promises (with `all`, `allSettled`, `race`, `any` and `withResolvers`), generators, async generators and `for await`;
 - `throw`, `try`, `catch` and `finally`, with `Error` and its subclasses, whose `stack` points at `.pts` lines, and `ReferenceError` for a variable or class used before its declaration has run;
 - `Map`, `Set`, `JSON`, `Math`, `RegExp`, typed arrays, basic `Date`, timers and `queueMicrotask`, and `Object.freeze`, after which writes throw `TypeError`, as in strict-mode JavaScript;
-- `fetch`, with `Request`, `Response`, `Headers` and `AbortController` as globals (plain `http://` for now; see [`fetch`](#fetch)).
+- `fetch`, with `Request`, `Response`, `Headers` and `AbortController` as globals, over `http://` and `https://` (see [`fetch`](#fetch)).
 
 Generic functions can be passed as values or returned by factories, retaining their captures. To limit generated code, the compiler follows immutable aliases, closed named parameters, returns of synchronous non-generic factories and static paths through inferred literal trees such as `held.inner[0].factory`, omitting only instances proved unreachable. Literal-container proofs check the entire tree and all whole-root aliases, including immutable object patterns and dense ordinary-array patterns whose every binding leaf selects a literal child container. For example, `const rows = [{ factory }]; const [child] = rows;` can preserve `child.factory`'s proven source. Tuple-shaped fresh arrays, omissions/defaults/rest and terminal-value bindings remain conservative, as does an intermediate container that escapes, mutates or has uncertain representation. Unknown sources, including values read back from `any` or uncertain containers, stay conservative. This optimization does not weaken run-time type checks or impose a new source-language restriction.
 
@@ -1104,7 +1104,7 @@ It prints `true 0` (`docs/examples/guide_http_every_loop.pts`).
 
 A handler that waits a long time can watch `request.signal`, which aborts if the client leaves before the answer; the server closes that connection at once either way. `server.stop()` lets requests in flight finish; `server.stop(true)` closes their connections too, as Bun's does. On the development machine, with the load generator on the same machine, hello world runs at about 57,000 requests a second on one loop and 85,000 on four, against 21,000 for Node and 69,000 for Go ([BENCHMARKS.md](BENCHMARKS.md#m62b-http-servers)).
 
-Bodies are text, read whole (up to 64 MB): there is no TLS, no streaming and no WebSocket yet. [examples/api-server](../examples/api-server/main.pts) is a whole JSON API built on `serve`: shared state behind a `Mutex`, atomic counters, `request.signal`, and JSON errors through `serve`'s `error` option.
+Bodies are text, read whole (up to 64 MB): the server has no TLS (HTTPS), no streaming and no WebSocket yet. [examples/api-server](../examples/api-server/main.pts) is a whole JSON API built on `serve`: shared state behind a `Mutex`, atomic counters, `request.signal`, and JSON errors through `serve`'s `error` option.
 
 ### `fetch`
 
@@ -1156,9 +1156,9 @@ try {
   console.log((e as Error).name, (e as Error).message);
 }
 
-// Failures reject with Node's TypeError, whose cause says why; https isn't supported yet.
+// Failures reject with Node's TypeError, whose cause says why.
 try {
-  await fetch("https://example.com/");
+  await fetch("ftp://example.com/");
 } catch (e) {
   console.log((e as Error).message, "|", ((e as Error).cause as Error).message);
 }
@@ -1172,11 +1172,11 @@ Output:
 201 application/json { item: 'tea', total: 10 }
 false 404 no such page
 AbortError This operation was aborted
-fetch failed | https: is not supported yet: fetch speaks plain HTTP
+fetch failed | unknown scheme
 ```
 
 - `fetch` works on any event loop, in a `parallel` task and in a `.par` callback, whose request runs on the loop that started the operation. A request in flight keeps the program running.
-- `https://` rejects, as above: there is no TLS yet.
+- `https://` works over TLS 1.2 and 1.3, and the server's certificate is always checked: its chain against the system's certificate authorities (the CA bundle in `/etc/ssl/certs/ca-certificates.crt` or wherever the distribution keeps it), and its names against the URL's host. A certificate that doesn't check out rejects with Node's cause and code (`unable to get local issuer certificate`, `certificate has expired`, `ERR_TLS_CERT_ALTNAME_INVALID`, …); there is no way to turn the check off. `NODE_EXTRA_CA_CERTS=ca.pem` adds certificate authorities, as in Node, which suits a development server with a certificate of its own; `SSL_CERT_FILE` and `SSL_CERT_DIR` replace the system's, as with OpenSSL.
 - Bodies are text. A request's `body` is a string, and a response's is read whole (up to 64 MB) and decoded as UTF-8 by `text()` or `json()`: there is no `arrayBuffer()` and no streaming.
 - Each request opens a connection of its own, without keep-alive.
 - There is no `URL` class yet, so the sample tests the request's URL with string methods.

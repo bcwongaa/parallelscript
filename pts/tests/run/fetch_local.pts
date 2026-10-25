@@ -1,8 +1,8 @@
 // fetch (D-160) against a pts:http server in the same program: methods, bodies, headers,
 // JSON, HEAD, 404, redirects (followed, manual, error, too many, 303 to GET), large and
 // Unicode bodies, several set-cookie fields, requests in parallel, a Request as input, and
-// the failures: a refused connection, an invalid URL, https, another scheme, a bad port, a
-// GET with a body. fetch, Request, Response and Headers are globals.
+// the failures: a refused connection (http and https), an invalid URL, another scheme, a
+// bad port, a GET with a body. fetch, Request, Response and Headers are globals.
 import { serve } from "pts:http";
 
 const server = serve({
@@ -103,16 +103,18 @@ const closed = serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response
 const closedPort = closed.port;
 closed.stop();
 await new Promise((resolve) => setTimeout(resolve, 20));
-await attempt("refused", async () => {
+// fetch(url) at the closed port, its failure's cause with the port, which varies, as PORT.
+async function refused(url: string): Promise<Response> {
   try {
-    return await fetch(`http://127.0.0.1:${closedPort}/`);
+    return await fetch(url);
   } catch (e) {
     const cause = (e as Error).cause as Error & { code: string; syscall: string };
     throw new TypeError(`${(e as Error).message}`, { cause: new Error(`${cause.message.replace(String(closedPort), "PORT")} ${cause.code} ${cause.syscall}`) });
   }
-});
+}
+await attempt("refused", () => refused(`http://127.0.0.1:${closedPort}/`));
 await attempt("invalid url", () => fetch("not a url"));
-await attempt("https", () => fetch("https://127.0.0.1:59999/"));
+await attempt("https refused", () => refused(`https://127.0.0.1:${closedPort}/`));
 await attempt("ftp", () => fetch("ftp://example.com/"));
 await attempt("bad port", () => fetch("http://127.0.0.1:6000/"));
 await attempt("get with body", () => fetch(`${base}/echo`, { body: "x" }));
@@ -151,7 +153,7 @@ server.stop();
 // request object patched
 // refused TypeError: fetch failed | cause: connect ECONNREFUSED 127.0.0.1:PORT ECONNREFUSED connect
 // invalid url TypeError: Failed to parse URL from not a url | cause: Invalid URL
-// https TypeError: fetch failed | cause: https: is not supported yet: fetch speaks plain HTTP
+// https refused TypeError: fetch failed | cause: connect ECONNREFUSED 127.0.0.1:PORT ECONNREFUSED connect
 // ftp TypeError: fetch failed | cause: unknown scheme
 // bad port TypeError: fetch failed | cause: bad port
 // get with body TypeError: Request with GET/HEAD method cannot have body. | cause: undefined

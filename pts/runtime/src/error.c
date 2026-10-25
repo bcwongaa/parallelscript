@@ -349,6 +349,13 @@ pts_value pts_system_error_new(int error, pts_string *message, const char *sysca
   return pts_value_from_object(system_error);
 }
 
+pts_value pts_coded_error_new(pts_string *message, const char *code) {
+  pts_system_error *error = pts_object_new(&pts_type_builtin_SystemError);
+  pts_error_init((pts_error *)error, message, true, NULL, false);
+  error->code = pts_value_from_string(pts_string_from_cstr(code));
+  return pts_value_from_object(error);
+}
+
 /* Node's uvException: "CODE: description, syscall 'path' -> 'dest'", without the parts the call hasn't. */
 pts_value pts_uv_error_new(int error, const char *syscall, pts_string *path, pts_string *dest) {
   trace message = {0};

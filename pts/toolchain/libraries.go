@@ -116,13 +116,34 @@ var pcre2Library = library{
 	keyFiles: []string{"pts/third_party/pcre2-config/config.h", "pts/third_party/pcre2-config/pcre2.h"},
 }
 
+// mbedTLS's TLS, X.509 and crypto libraries as one archive, for fetch's https (D-223):
+// its default configuration with pts_mbedtls_config.h's changes (threads, and no DTLS,
+// debug log, sockets or timers). Its release tags carry the generated sources, so its
+// framework submodule isn't needed.
+var mbedtlsLibrary = library{
+	name:     "mbedtls",
+	dir:      "pts/third_party/mbedtls",
+	glob:     "library/*.c",
+	includes: []string{"pts/third_party/mbedtls-config", "pts/third_party/mbedtls/include"},
+	defines:  []string{mbedtlsConfig},
+	keyFiles: []string{"pts/third_party/mbedtls/include/mbedtls/build_info.h", "pts/third_party/mbedtls-config/pts_mbedtls_config.h"},
+}
+
+// mbedtlsConfig makes mbedTLS read pts_mbedtls_config.h after its own configuration.
+const mbedtlsConfig = `MBEDTLS_USER_CONFIG_FILE="pts_mbedtls_config.h"`
+
 // runtimeLibrary is the ParallelScript runtime itself.
 var runtimeLibrary = library{
-	name:     "ptsrt",
-	dir:      "pts/runtime",
-	glob:     "src/*.c",
-	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu", "pts/third_party/libbacktrace", "pts/third_party/pcre2-config"},
+	name: "ptsrt",
+	dir:  "pts/runtime",
+	glob: "src/*.c",
+	includes: []string{
+		"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu",
+		"pts/third_party/libbacktrace", "pts/third_party/pcre2-config", "pts/third_party/mbedtls-config", "pts/third_party/mbedtls/include",
+	},
+	defines:  []string{mbedtlsConfig},
 	flags:    []string{"-std=c11", "-Wall", "-Wextra", "-Werror=implicit-function-declaration"},
+	keyFiles: []string{"pts/third_party/mbedtls/include/mbedtls/build_info.h", "pts/third_party/mbedtls-config/pts_mbedtls_config.h"},
 	keyDirs:  []string{"pts/runtime/include", "pts/runtime/src"},
 }
 

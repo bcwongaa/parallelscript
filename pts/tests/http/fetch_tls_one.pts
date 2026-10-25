@@ -1,0 +1,17 @@
+// One fetch, of the URL that is the first argument, for the trust-store tests of
+// https_test.go (H33): the response's status, or the error and its cause's code and message.
+
+type Coded = Error & { code: string };
+
+// Node 24 adds advice about its own --use-system-ca flag to two of OpenSSL's messages,
+// which ParallelScript, reading the system's CAs already, doesn't (D-223).
+const NODE_CA_HINT = "; if the root CA is installed locally, try running Node.js with --use-system-ca";
+
+try {
+  const response = await fetch(process.argv[2]);
+  console.log(response.status);
+} catch (e) {
+  const error = e as Error;
+  const cause = error.cause as Coded | undefined;
+  console.log(`${error.name}: ${error.message} | ${cause?.code} | ${cause?.message.replace(NODE_CA_HINT, "")}`);
+}

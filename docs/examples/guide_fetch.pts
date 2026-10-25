@@ -41,9 +41,9 @@ try {
   console.log((e as Error).name, (e as Error).message);
 }
 
-// Failures reject with Node's TypeError, whose cause says why; https isn't supported yet.
+// Failures reject with Node's TypeError, whose cause says why.
 try {
-  await fetch("https://example.com/");
+  await fetch("ftp://example.com/");
 } catch (e) {
   console.log((e as Error).message, "|", ((e as Error).cause as Error).message);
 }
@@ -54,4 +54,4 @@ server.stop();
 // 201 application/json { item: 'tea', total: 10 }
 // false 404 no such page
 // AbortError This operation was aborted
-// fetch failed | https: is not supported yet: fetch speaks plain HTTP
+// fetch failed | unknown scheme

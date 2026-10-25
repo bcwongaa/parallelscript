@@ -2069,15 +2069,15 @@ double pts_http_port(double id);
 /* Stops server id: no more connections; idle ones close, busy ones after their responses, or at once if close_active. */
 void pts_http_stop(double id, bool close_active);
 /*
- * fetch's request (D-160, D-162): method target HTTP/1.1 to host:port with the headers
- * (names and values in turn) and, if has_body, the body with its content-length, on this
- * loop (a pool thread's on its operation's loop). Returns the request's id; done, an
- * (ok, parts, failure) => void, gets [status, status text, body, name, value, …] as a
- * string[], or the cause of fetch's TypeError (undefined if the request was aborted), on
- * the request's loop, possibly before pts_http_fetch returns.
+ * fetch's request (D-160, D-162): method target HTTP/1.1 to host:port, over TLS if secure
+ * (D-223), with the headers (names and values in turn) and, if has_body, the body with
+ * its content-length, on this loop (a pool thread's on its operation's loop). Returns
+ * the request's id; done, an (ok, parts, failure) => void, gets [status, status text,
+ * body, name, value, …] as a string[], or the cause of fetch's TypeError (undefined if
+ * the request was aborted), on the request's loop, possibly before pts_http_fetch returns.
  */
-double pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body,
-                      struct pts_closure *done);
+double pts_http_fetch(pts_string *method, pts_string *host, double port, bool secure, pts_string *target, pts_array *headers, pts_string *body,
+                      bool has_body, struct pts_closure *done);
 /* Ends request id, if it hasn't ended, closing its connection; from any thread. */
 void pts_http_fetch_abort(double id);
 
@@ -2247,6 +2247,8 @@ typedef struct pts_system_error {
 extern const pts_type pts_type_builtin_SystemError;
 /* A system error with message and the call's details; error is libuv's (a negative errno). path and dest may be NULL. */
 pts_value pts_system_error_new(int error, pts_string *message, const char *syscall, pts_string *path, pts_string *dest);
+/* Node's error with a code and no system call: an Error of message whose code is code ("CERT_HAS_EXPIRED"). */
+pts_value pts_coded_error_new(pts_string *message, const char *code);
 /* Node's uvException: the system error "CODE: description, syscall 'path' -> 'dest'". */
 pts_value pts_uv_error_new(int error, const char *syscall, pts_string *path, pts_string *dest);
 _Noreturn void pts_throw_uv_error(int error, const char *syscall, pts_string *path, pts_string *dest);

@@ -2,8 +2,9 @@
 // standard's Request, Response and Headers: serve({ port, fetch }) listens and calls
 // fetch for each request, then sends the Response it returns (or a promise of one).
 // The connections, parsing and keep-alive are the runtime's (http.c). The global fetch
-// (D-160) is this module's: it makes requests over HTTP/1.1 (fetch.c), and fetch,
-// Request, Response and Headers are globals. An AbortSignal (D-162) aborts a fetch.
+// (D-160) is this module's: it makes requests over HTTP/1.1 (fetch.c), over TLS for
+// https (tls.c, D-223), and fetch, Request, Response and Headers are globals. An
+// AbortSignal (D-162) aborts a fetch.
 
 import { AbortController, AbortSignal, type EventListener } from "pts:internal/abort";
 
@@ -13,8 +14,8 @@ declare function pts_http_listen(port: number, hostname: string, everyLoop: bool
 declare function pts_http_respond(connection: number, status: number, statusText: string, headers: string[], body: string): void;
 declare function pts_http_port(server: number): number;
 declare function pts_http_stop(server: number, closeActive: boolean): void;
-declare function pts_http_fetch(method: string, host: string, port: number, target: string, headers: string[], body: string, hasBody: boolean,
-    done: (ok: boolean, parts: string[], failure: unknown) => void): number;
+declare function pts_http_fetch(method: string, host: string, port: number, secure: boolean, target: string, headers: string[], body: string,
+    hasBody: boolean, done: (ok: boolean, parts: string[], failure: unknown) => void): number;
 declare function pts_http_fetch_abort(request: number): void;
 declare function pts_sync_lock(lock: ArrayBuffer): void;
 declare function pts_sync_unlock(lock: ArrayBuffer): void;
@@ -534,7 +535,7 @@ function exchange(method: string, target: Target, fields: string[], body: string
         let ended = false;
         let request = -1;
         const onAbort: EventListener = () => pts_http_fetch_abort(request);
-        request = pts_http_fetch(method, target.host, target.port, target.path, fields, body, sendsBody, (ok, parts, failure) => {
+        request = pts_http_fetch(method, target.host, target.port, target.scheme === "https", target.path, fields, body, sendsBody, (ok, parts, failure) => {
             ended = true;
             signal?.removeEventListener("abort", onAbort);
             if (ok) {
@@ -552,10 +553,12 @@ function exchange(method: string, target: Target, fields: string[], body: string
     });
 }
 
-// Fetches a resource over HTTP/1.1 (D-O10): http:// URLs only, one connection per request,
-// redirects followed (up to 20) unless init.redirect says otherwise. The promise rejects
-// with a TypeError for a URL it can't parse, an unsupported scheme or a network failure,
-// and with the signal's reason if the request's signal aborts before the response is in.
+// Fetches a resource over HTTP/1.1 (D-O10): http:// and https:// URLs (TLS with the
+// server's certificate verified, D-223), one connection per request, redirects followed
+// (up to 20) unless init.redirect says otherwise. The promise rejects with a TypeError
+// for a URL it can't parse, an unsupported scheme or a network failure (a certificate
+// that doesn't verify among them), and with the signal's reason if the request's signal
+// aborts before the response is in.
 export async function fetch(input: string | Request, init?: RequestInit): Promise<Response> {
     const request = new Request(input, init);
     let target = parseUrl(request.url);
@@ -571,8 +574,8 @@ export async function fetch(input: string | Request, init?: RequestInit): Promis
     }
     const headers = new Headers(request.headers);
     for (let redirects = 0; ; redirects++) {
-        if (target.scheme !== "http") {
-            throw fetchFailed(new Error(target.scheme === "https" ? "https: is not supported yet: fetch speaks plain HTTP" : "unknown scheme"));
+        if (target.scheme !== "http" && target.scheme !== "https") {
+            throw fetchFailed(new Error("unknown scheme"));
         }
         if (BAD_PORTS.includes(target.port)) {
             throw fetchFailed(new Error("bad port"));
@@ -618,6 +621,13 @@ export async function fetch(input: string | Request, init?: RequestInit): Promis
         const next = parseUrl(resolveUrl(target, location));
         if (next === null) {
             throw fetchFailed(new TypeError("Invalid URL"));
+        }
+        if (next.scheme !== target.scheme || next.host !== target.host || next.port !== target.port) {
+            // Credentials don't go to another origin (the Fetch standard's step for
+            // Authorization; undici drops these three).
+            for (const name of ["authorization", "proxy-authorization", "cookie"]) {
+                headers.delete(name);
+            }
         }
         if ((status === 303 && method !== "GET" && method !== "HEAD") || ((status === 301 || status === 302) && method === "POST")) {
             method = "GET"; // a 303, or a 301 or 302 of a POST, is fetched with GET and no body

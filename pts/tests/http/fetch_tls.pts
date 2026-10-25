@@ -1,0 +1,211 @@
+// fetch over TLS (H33) against the Go servers of TestFetchHTTPSMatchesNode, whose base URLs
+// are the arguments, as name=url; Node runs it too, both trusting the test's CAs through
+// NODE_EXTRA_CA_CERTS. What the client offers and gets (SNI, ALPN, the TLS version) by DNS
+// name and by IP address; servers of TLS 1.2 or 1.3 only, of RSA keys or a P-384 CA, that
+// make the client retry its hello or ask for a client certificate; bodies posted, chunked,
+// of 20 MB, read until the connection closes and cut short, with or without close_notify,
+// or by a reset; redirects between http and https and between https servers, and what a
+// cross-origin one drops; every way a certificate fails to verify, with Node's codes and
+// messages (and Node's choice when several apply), and that no request reaches such a
+// server; Node's rules for host names, IP addresses and wildcards; failures of the
+// protocol rather than of the certificate (only that they fail, since Node's messages are
+// OpenSSL's), each server saying it read a ClientHello; and aborts during the handshake and
+// during the body, the latter closing the connection.
+
+type Coded = Error & { code: string };
+
+// Node 24 adds advice about its own --use-system-ca flag to two of OpenSSL's messages,
+// which ParallelScript, reading the system's CAs already, doesn't (D-223).
+const NODE_CA_HINT = "; if the root CA is installed locally, try running Node.js with --use-system-ca";
+
+const bases = new Map<string, string>();
+for (const arg of process.argv.slice(2)) {
+  const equals = arg.indexOf("=");
+  bases.set(arg.slice(0, equals), arg.slice(equals + 1));
+}
+
+// The URL of path on the server called name.
+function url(name: string, path: string): string {
+  const base = bases.get(name);
+  if (base === undefined) {
+    throw new Error(`no server called ${name}`);
+  }
+  return base + path;
+}
+
+// href with the server's base URL written as its name, so that no port shows.
+function named(href: string): string {
+  for (const [name, base] of bases) {
+    if (href.startsWith(base + "/")) {
+      return `<${name}>${href.slice(base.length)}`;
+    }
+  }
+  return href;
+}
+
+// Prints what f gives, or the error it rejects with and its cause's code and message.
+async function attempt(label: string, f: () => Promise<string>): Promise<void> {
+  try {
+    console.log(label, await f());
+  } catch (e) {
+    const error = e as Error;
+    const cause = error.cause as Coded | undefined;
+    console.log(label, `${error.name}: ${error.message} | ${cause?.code} | ${cause?.message.replace(NODE_CA_HINT, "")}`);
+  }
+}
+
+// Prints only that f rejects as fetch does, for failures whose cause Node words as OpenSSL does.
+async function attemptFailing(label: string, f: () => Promise<string>): Promise<void> {
+  try {
+    console.log(label, "fulfilled:", await f());
+  } catch (e) {
+    const error = e as Error;
+    console.log(label, `${error.name}: ${error.message} | the cause is an Error: ${error.cause instanceof Error}`);
+  }
+}
+
+// Prints what f gives, or the error's name and its cause's message, for a body cut short:
+// Node's text() rejects with "terminated" where pts's fetch, which reads the body whole
+// (D-160), rejects with "fetch failed", both TypeErrors whose causes say why.
+async function attemptBody(label: string, f: () => Promise<string>): Promise<void> {
+  try {
+    console.log(label, await f());
+  } catch (e) {
+    const error = e as Error;
+    console.log(label, `${error.name} | ${(error.cause as Error | undefined)?.message}`);
+  }
+}
+
+// The status, where the response came from and its body.
+async function show(href: string, init?: RequestInit): Promise<string> {
+  const response = await fetch(href, init);
+  return `${response.status} ${response.redirected ? "redirected " : ""}${named(response.url)} ${await response.text()}`;
+}
+
+function get(name: string, path: string = "/hello"): Promise<string> {
+  return show(url(name, path));
+}
+
+// A URL on the server called from that redirects with status to the URL to.
+function redirect(from: string, status: number, to: string): string {
+  return url(from, `/redirect?status=${status}&to=${encodeURIComponent(to)}`);
+}
+
+// The plain server's answer for the state of the server path names: "hello" once it has read a ClientHello.
+async function stateOf(path: string): Promise<string> {
+  const response = await fetch(url("plain", path));
+  return await response.text();
+}
+
+// Asks for the state of the server path names until it is want, for up to 5 seconds; whether it got there.
+async function until(path: string, want: string): Promise<boolean> {
+  for (let i = 0; i < 100; i++) {
+    if ((await stateOf(path)) === want) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+await attempt("get", () => get("localhost"));
+await attempt("by IPv4 address", () => get("127.0.0.1"));
+if (bases.has("[::1]")) {
+  await attempt("by IPv6 address", () => get("[::1]"));
+}
+await attempt("TLS 1.2 only", () => get("tls12"));
+await attempt("TLS 1.3 only", () => get("tls13"));
+await attempt("RSA", () => get("rsa"));
+await attempt("RSA, TLS 1.2", () => get("rsa-tls12"));
+await attempt("P-384 CA", () => get("p384"));
+await attempt("hello retry", () => get("hello-retry"));
+await attempt("client certificate asked for", () => get("asks-for-client-cert"));
+await attempt("post", () => show(url("localhost", "/echo"), { method: "POST", body: "body ✓", headers: { "content-type": "text/x-test" } }));
+await attempt("chunked", () => get("localhost", "/chunked"));
+await attempt("20 MB", async () => {
+  const response = await fetch(url("localhost", "/big"));
+  const body = await response.text();
+  return `${response.status} ${body.length} ${body.slice(-3)}`;
+});
+await attempt("until close", () => get("localhost", "/close"));
+await attempt("until close without close_notify", () => get("localhost", "/close-abruptly"));
+await attemptBody("truncated", () => get("localhost", "/truncated"));
+await attemptBody("truncated without close_notify", () => get("localhost", "/truncated-abruptly"));
+await attemptBody("reset during the body", () => get("localhost", "/reset"));
+
+await attempt("http to https", () => show(redirect("plain", 302, url("localhost", "/hello"))));
+await attempt("https to http", () => show(redirect("localhost", 302, url("plain", "/hello"))));
+await attempt("https to https", () => show(redirect("localhost", 301, url("intermediate-sent", "/hello"))));
+await attempt("307 post, http to https", () => show(redirect("plain", 307, url("localhost", "/echo")), { method: "POST", body: "kept" }));
+await attempt("303 post, https to http", () => show(redirect("localhost", 303, url("plain", "/echo")), { method: "POST", body: "dropped" }));
+const credentials: Record<string, string> = { authorization: "Bearer secret", cookie: "a=1", "x-kept": "yes" };
+await attempt("credentials, https to https on the same origin", () => show(redirect("localhost", 302, url("localhost", "/echo")), { headers: credentials }));
+await attempt("credentials, https to http", () => show(redirect("localhost", 302, url("plain", "/echo")), { headers: credentials }));
+await attempt("credentials, http to http on another port", () => show(redirect("plain", 302, url("plain-other", "/echo")), { headers: credentials }));
+await attempt("https to an untrusted server", () => show(redirect("localhost", 302, url("untrusted", "/hello"))));
+
+await attempt("untrusted CA", () => get("untrusted"));
+await attempt("untrusted CA, root sent", () => get("untrusted-root-sent"));
+await attempt("untrusted CA, intermediate sent", () => get("untrusted-intermediate-sent"));
+await attempt("self-signed", () => get("self-signed"));
+await attempt("expired", () => get("expired"));
+await attempt("not yet valid", () => get("not-yet-valid"));
+await attempt("wrong host", () => get("wrong-host"));
+await attempt("wrong host, by IP address", () => get("wrong-host-by-ip"));
+await attempt("untrusted CA and wrong host", () => get("untrusted-wrong-host"));
+await attempt("expired and wrong host", () => get("expired-wrong-host"));
+await attempt("expired and untrusted CA", () => get("expired-untrusted"));
+await attempt("expired and self-signed", () => get("self-signed-expired"));
+await attempt("intermediate expired", () => get("intermediate-expired"));
+await attempt("intermediate not sent", () => get("intermediate-not-sent"));
+await attempt("intermediate sent", () => get("intermediate-sent"));
+await attempt("issuer not a CA", () => get("issuer-not-ca"));
+await attempt("for clients only", () => get("client-auth-only"));
+await attempt("common name only", () => get("common-name-only"));
+await attempt("common name only, wrong", () => get("common-name-wrong"));
+await attempt("no names", () => get("no-names"));
+await attempt("IP addresses and a common name", () => get("ips-and-common-name"));
+await attempt("IP address as a DNS name", () => get("ip-as-dns-name"));
+if (bases.has("other-ip")) {
+  await attempt("by another IP address", () => get("other-ip"));
+}
+await attempt("only a wildcard, at localhost", () => get("only-wildcard"));
+if (bases.has("wildcard")) {
+  await attempt("wildcard", () => get("wildcard"));
+  await attempt("wildcard, two labels deep", () => get("wildcard-two-deep"));
+  await attempt("wildcard, the bare domain", () => get("wildcard-bare"));
+  await attempt("wildcard of a top-level domain", () => get("wildcard-tld"));
+  await attempt("wildcard, partial", () => get("wildcard-partial"));
+}
+console.log("requests that reached servers whose certificates don't verify:", await stateOf("/unverified"));
+
+await attemptFailing("plain HTTP server at https", () => get("plain-as-https"));
+await attempt("https server at http", () => get("localhost-as-http"));
+await attemptFailing("closed during the handshake", () => get("closes"));
+await attemptFailing("TLS 1.0 only", () => get("tls10"));
+await attemptFailing("client certificate required", () => get("requires-client-cert"));
+const failingServers = ["/plain-as-https", "/closes", "/tls10", "/requires-client-cert"];
+console.log("their servers read:", (await Promise.all(failingServers.map(stateOf))).join(", "));
+
+await attempt("abort during the handshake", async () => {
+  const controller = new AbortController();
+  const outcome = fetch(url("holds", "/hello"), { signal: controller.signal }).then(
+    () => "fulfilled",
+    (e: Error) => e.name,
+  );
+  const held = await until("/holds", "hello");
+  controller.abort();
+  return `held: ${held}, ${await outcome}`; // Node's pool keeps the connection; fetch_tls_parallel.pts checks it closes
+});
+await attempt("abort during the body", async () => {
+  const controller = new AbortController();
+  const outcome = fetch(url("localhost", "/stall"), { signal: controller.signal })
+    .then((response) => response.text())
+    .then(
+      () => "fulfilled",
+      (e: Error) => e.name,
+    );
+  const stalled = await until("/stalled", "sent");
+  controller.abort();
+  return `stalled: ${stalled}, ${await outcome}, the connection closed: ${await until("/stalled", "left")}`;
+});

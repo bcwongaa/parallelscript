@@ -1,8 +1,9 @@
 /*
  * fetch's HTTP/1.1 client (D-O10, D-160, D-162). Each request is one connection on the
  * calling loop (a pool thread's requests run on its operation's loop): it resolves the
- * host (uv_getaddrinfo), tries the addresses in order until one connects, writes the
- * request with `connection: close`, and reads the response: its head (skipping 1xx ones),
+ * host (uv_getaddrinfo), tries the addresses in order until one connects, makes a TLS
+ * session over it for https (tls.c, D-223) and verifies the server's certificate, writes
+ * the request with `connection: close`, and reads the response: its head (skipping 1xx ones),
  * then a body framed by Content-Length, by chunks, or by the connection's end. The
  * request's callback gets a string[] of the status, the status text, the body (decoded
  * as UTF-8, as text() does) and the header fields, names lowercased and values trimmed,
@@ -21,6 +22,7 @@
 
 #include "http_internal.h"
 #include "scheduler_internal.h"
+#include "tls_internal.h"
 
 #include <arpa/inet.h>
 #include <stdint.h>
@@ -53,6 +55,10 @@ typedef struct client {
   bool retrying;  /* the connection is closing to try the next address: on_closed_retry frees the client if the request has ended */
   bool done;      /* ended: callbacks still to come do nothing more */
   bool head_only; /* a HEAD request, whose response has no body */
+  bool secure;    /* an https request */
+  pts_tls *tls;   /* its TLS session, once connected */
+  bool handshaken; /* the session's handshake is done: the request has been written */
+  char *sealed;   /* what TLS reads from the connection, before it is decrypted into in */
   char *request;  /* the request's bytes */
   size_t request_len;
   char *host;
@@ -76,6 +82,10 @@ static void free_client(client *c) {
   if (c->addresses != NULL) {
     uv_freeaddrinfo(c->addresses);
   }
+  if (c->tls != NULL) {
+    pts_tls_free(c->tls);
+  }
+  free(c->sealed);
   free(c->request);
   free(c->host);
   free(c->in);
@@ -380,39 +390,124 @@ static void advance(client *c, bool at_end) {
   }
 }
 
-static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
-  (void)suggested;
-  client *c = handle->data;
+/* Makes room for at least READ_SIZE more bytes of the response. */
+static void reserve_in(client *c) {
   if (c->in_cap - c->in_len < READ_SIZE) {
     c->in_cap = (c->in_len + READ_SIZE) * 2;
     c->in = checked(realloc(c->in, c->in_cap));
   }
+}
+
+static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
+  (void)suggested;
+  client *c = handle->data;
+  if (c->secure) {
+    *buf = uv_buf_init(c->sealed, READ_SIZE);
+    return;
+  }
+  reserve_in(c);
   *buf = uv_buf_init(c->in + c->in_len, (unsigned)(c->in_cap - c->in_len));
 }
 
+/* After a write: a failure fails the request, unless it has ended (closing the connection cancels its writes). */
+static void after_write(client *c, int status) {
+  if (status < 0 && !c->done) {
+    fail_system(c, status, "write", NULL, "");
+    pts_run_microtasks();
+  }
+}
+
+static void on_written(uv_write_t *write, int status) { after_write(write->data, status); }
+
+/* A write of bytes the TLS session made, freed once written. */
+typedef struct sending {
+  uv_write_t write; /* data is the client */
+  char *bytes;
+} sending;
+
+static void on_sent(uv_write_t *write, int status) {
+  sending *s = (sending *)write;
+  client *c = write->data;
+  free(s->bytes);
+  free(s);
+  after_write(c, status);
+}
+
+/* Writes what the TLS session has for the server, if anything: 0, or libuv's error. */
+static int send_sealed(client *c) {
+  char *bytes;
+  size_t len;
+  if (!pts_tls_take_output(c->tls, &bytes, &len)) {
+    return 0;
+  }
+  sending *s = checked(malloc(sizeof *s));
+  s->write.data = c;
+  s->bytes = bytes;
+  uv_buf_t out = uv_buf_init(bytes, (unsigned)len);
+  int error = uv_write(&s->write, (uv_stream_t *)&c->tcp, &out, 1, on_sent);
+  if (error < 0) {
+    free(bytes);
+    free(s);
+  }
+  return error;
+}
+
+/*
+ * Goes on with an https request after more came from the server (or, at_end, the
+ * connection ended): the handshake, then the request, then the response as plain
+ * HTTP's goes on, as far as it came before the session closed or failed. Node's error
+ * if the connection ends before the handshake does.
+ */
+static void advance_secure(client *c, bool at_end) {
+  pts_tls_status status = PTS_TLS_DONE;
+  if (!c->handshaken) {
+    status = pts_tls_handshake(c->tls);
+    if (status == PTS_TLS_DONE) {
+      c->handshaken = true;
+      status = pts_tls_write(c->tls, c->request, c->request_len);
+    }
+  }
+  while (c->handshaken && status == PTS_TLS_DONE) {
+    reserve_in(c);
+    size_t got = 0;
+    status = pts_tls_read(c->tls, c->in + c->in_len, c->in_cap - c->in_len, &got);
+    c->in_len += got;
+  }
+  int error = send_sealed(c); /* the handshake's messages, the request, or an alert */
+  if (c->handshaken) {
+    advance(c, at_end || status == PTS_TLS_CLOSED);
+  }
+  if (c->done) {
+    return;
+  }
+  if (status == PTS_TLS_FAILED) {
+    finish(c, NULL, pts_tls_failure(c->tls));
+  } else if (error < 0) {
+    fail_system(c, error, "write", NULL, "");
+  } else if (!c->handshaken && (at_end || status == PTS_TLS_CLOSED)) {
+    finish(c, NULL, pts_coded_error_new(pts_string_from_cstr("Client network socket disconnected before secure TLS connection was established"), "ECONNRESET"));
+  }
+}
+
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-  (void)buf;
   client *c = stream->data;
   if (c->done) {
     return;
   }
-  if (nread > 0) {
+  if (nread > 0 && c->secure) {
+    pts_tls_received(c->tls, buf->base, (size_t)nread);
+    advance_secure(c, false);
+  } else if (nread > 0) {
     c->in_len += (size_t)nread;
     advance(c, false);
+  } else if (nread == UV_EOF && c->secure) {
+    advance_secure(c, true);
   } else if (nread == UV_EOF) {
     advance(c, true);
   } else if (nread < 0) {
     fail_system(c, (int)nread, "read", NULL, "");
   }
   pts_run_microtasks();
-}
-
-static void on_written(uv_write_t *write, int status) {
-  client *c = write->data;
-  if (status < 0 && !c->done) {
-    fail_system(c, status, "write", NULL, "");
-    pts_run_microtasks();
-  }
 }
 
 /* ---------------------------------------------------------------- connecting */
@@ -438,6 +533,30 @@ static void retry(client *c, int error) {
   uv_close((uv_handle_t *)&c->tcp, on_closed_retry);
 }
 
+/* Writes a plain request: 0, or libuv's error. */
+static int write_request(client *c) {
+  uv_buf_t out = uv_buf_init(c->request, (unsigned)c->request_len);
+  c->write.data = c;
+  return uv_write(&c->write, (uv_stream_t *)&c->tcp, &out, 1, on_written);
+}
+
+/* Starts an https request's TLS session, sending its first message: 0, libuv's error, or the request ends with TLS's failure. */
+static int start_secure(client *c) {
+  pts_value failure = PTS_VALUE_UNDEFINED;
+  c->tls = pts_tls_client(c->host, &failure);
+  if (c->tls == NULL) {
+    finish(c, NULL, failure);
+    return 0;
+  }
+  c->sealed = checked(malloc(READ_SIZE));
+  pts_tls_status status = pts_tls_handshake(c->tls); /* the ClientHello */
+  int error = send_sealed(c);
+  if (status == PTS_TLS_FAILED) {
+    finish(c, NULL, pts_tls_failure(c->tls));
+  }
+  return error;
+}
+
 static void on_connected(uv_connect_t *connect, int status) {
   client *c = connect->data;
   if (c->done) {
@@ -447,16 +566,14 @@ static void on_connected(uv_connect_t *connect, int status) {
     retry(c, status);
     return;
   }
-  uv_buf_t out = uv_buf_init(c->request, (unsigned)c->request_len);
-  c->write.data = c;
-  int error = uv_write(&c->write, (uv_stream_t *)&c->tcp, &out, 1, on_written);
-  if (error == 0) {
+  int error = c->secure ? start_secure(c) : write_request(c);
+  if (error == 0 && !c->done) {
     error = uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
   }
-  if (error < 0) {
+  if (error < 0 && !c->done) {
     fail_system(c, error, "write", NULL, "");
-    pts_run_microtasks();
   }
+  pts_run_microtasks();
 }
 
 /* Writes an address and port as Node's messages show them: 127.0.0.1:80, ::1:80. */
@@ -572,8 +689,8 @@ void pts_http_fetch_abort(double id) {
   }
 }
 
-double pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body,
-                      pts_closure *done) {
+double pts_http_fetch(pts_string *method, pts_string *host, double port, bool secure, pts_string *target, pts_array *headers, pts_string *body,
+                      bool has_body, pts_closure *done) {
   client *c = checked(calloc(1, sizeof *c));
   size_t cap = 0;
   add_string(&c->request, &c->request_len, &cap, method);
@@ -598,6 +715,7 @@ double pts_http_fetch(pts_string *method, pts_string *host, double port, pts_str
   c->head_only = pts_http_equals_ignoring_case(method->bytes, method->byte_len, "HEAD");
   c->host = checked(strndup(host->bytes, host->byte_len));
   c->port = (int)port;
+  c->secure = secure;
   c->roots = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *c->roots));
   c->roots->done = done;
   c->loop = pts_current_loop & ~PTS_LOOP_FOREIGN;

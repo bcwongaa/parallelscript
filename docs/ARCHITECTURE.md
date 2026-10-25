@@ -448,13 +448,14 @@ The remaining built-ins follow Node's and V8's algorithms, so that results match
 
 ### 4.16 HTTP: the server and `fetch`
 
-`pts:http` is split like the other library modules. `pts/lib/http.pts` has the API in ParallelScript: `serve`, `Server`, the Fetch standard's `Request`, `Response` and `Headers`, and `fetch`, which parses URLs, sets headers, follows redirects and makes Node's errors. `pts/lib/internal/abort.pts` has the abort classes. The connections, the parsing and the I/O are C on libuv's TCP: `http.c` is the server, `fetch.c` is the client, and `http_internal.h` holds the header parsing and chunked decoding that they share. Bodies are whole strings, decoded as UTF-8; there is no streaming and no TLS (`https://` rejects).
+`pts:http` is split like the other library modules. `pts/lib/http.pts` has the API in ParallelScript: `serve`, `Server`, the Fetch standard's `Request`, `Response` and `Headers`, and `fetch`, which parses URLs, sets headers, follows redirects and makes Node's errors. `pts/lib/internal/abort.pts` has the abort classes. The connections, the parsing and the I/O are C on libuv's TCP: `http.c` is the server, `fetch.c` is the client, `tls.c` its TLS sessions for `https://` (mbedTLS, D-223), and `http_internal.h` holds the header parsing and chunked decoding that they share. Bodies are whole strings, decoded as UTF-8; there is no streaming, and the server has no TLS yet.
 
 - **The server** (D-136). `pts_http_listen` listens on the loop that calls `serve`. A connection reads requests one at a time, and pipelined ones wait in its buffer, so responses keep their order. It parses the head (up to 64 KB, else 431) and the body (Content-Length or chunked, up to 64 MB, else 413), and answers `Expect: 100-continue` and malformed requests (400) itself. Then it calls the library's request callback with a connection id, the method, the target, the headers and the body. The library makes the `Request`, runs the program's `fetch` handler, and answers with `pts_http_respond(id, …)`. The framing headers (`content-length`, `connection`, `date`) are the server's.
 - **Connection ids.** An id is `(generation · 2⁸ + loop) · 2²⁰ + slot`, exact in a double. An answer for a connection that has closed, one of another loop's connections, or a forged id finds nothing and is dropped, so the program can't misuse ids to reach memory.
 - **Every loop** (D-137). With `reusePort: true`, `serve` starts the loops, and the calling thread binds a SO_REUSEPORT socket per loop, so bind errors still throw from `serve`. Each loop then takes over its socket by a CALL message, and the kernel spreads new connections over them. A connection stays on the loop that accepted it, and so do the promises, timers and tasks its handlers make. Handlers on different loops run in parallel and share module state as any parallel code does: memory-safe, but a counter needs `AtomicInt`. The guardrail doesn't extend to them (D-137, listed in `docs/agent/REVIEW_LATER.md`).
 - **Lifecycle** (D-163). A connection goes on reading while the program has its request, so a client that leaves is seen at once. The connection then closes, and the disconnect callback gets the `Request` back (kept in an uncollectable cell per connection) and aborts its `signal`. Once more than 1 MB of responses waits unwritten, a connection takes no more requests until half of that drains. `stop(closeActiveConnections)` sets an atomic flag once, then stops each loop's listener on that loop (by CALL messages), so it works from any loop or pool thread.
 - **The client** (D-160, D-162). `pts_http_fetch` makes one connection per request on the calling loop. It resolves the host with `uv_getaddrinfo`, tries the addresses in turn, writes the request with `connection: close`, and reads the whole response (framed by Content-Length, chunks or the connection's end; 1xx responses skipped; up to 64 MB). Then it calls the library's callback with the status, headers and body, or with the cause that `TypeError: fetch failed` reports. A `fetch` on a pool thread starts its request on its operation's loop.
+- **TLS** (D-223). For `https://` the client makes a TLS session once the connection is up (`tls.c`). mbedTLS never touches the socket: the session keeps the bytes that came from the server until mbedTLS reads them and the bytes it writes until `fetch.c` sends them, so the handshake, the encrypted request and the decrypted response run on the request's loop with the rest of the request. The server's certificate is always verified, its chain against the trust store and its names against the host (by mbedTLS, with SNI; an IP address gets no SNI, and `tls.c` checks it against the certificate's IP addresses). The trust store (the system's CA bundle, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS`) and the client configuration are made once, at the first `https://` request, and every loop's sessions then only read them; mbedTLS's PSA state (the random generator) is shared too, under its own locks (`MBEDTLS_THREADING_C`). A failed verification becomes Node's error (OpenSSL's code and text, or `ERR_TLS_CERT_ALTNAME_INVALID`), from what mbedTLS's verify callback saw of the chain. Sessions are `malloc`'d and hold no collected pointers.
 - **Aborting.** Each request has an id: a slot and generation in one table under a mutex, the only client state that threads share. `pts_http_fetch_abort(id)`, called from any thread when the request's `AbortSignal` aborts, ends the request on its loop (by a CALL message from elsewhere) and closes its connection. Only that loop frees the client: while libuv's resolver or a closing handle still holds it, that callback frees it.
 
 `examples/api-server` is a JSON API served on every loop, with shared state, `.par` in a handler and `request.signal` (D-166).
@@ -470,7 +471,9 @@ These are git submodules, pinned in `.gitmodules` and listed in `docs/FORK.md`. 
 | `ryu` | v2.0 | Shortest round-trip digits for number-to-string conversion (D-011) |
 | `libbacktrace` | commit 0b9b49c (it has no release tags) | Capturing and symbolizing error stacks (D-069) |
 | `pcre2` | pcre2-10.49 | RegExp: the 8-bit library with Unicode support, no JIT (D-132) |
+| `mbedtls` | v3.6.7 (LTS) | TLS 1.2 and 1.3 and X.509 certificate verification for `fetch`'s `https://` (D-223); Apache-2.0 |
 | `libbacktrace-config`, `pcre2-config` | checked in | The configure output those two libraries need, for x86-64 Linux |
+| `mbedtls-config` | checked in | `pts_mbedtls_config.h`, the changes to mbedTLS's default configuration (threads on; no DTLS, debug log, sockets or timers) |
 
 ## 6. Tests
 
@@ -547,7 +550,7 @@ The runtime's sources by area:
 | Generators and promises | `generator.c`, `promise.c` |
 | Loops, tasks and the pool | `loop.c`, `scheduler.c`, `pool.c` |
 | Library intrinsics | `process.c`, `fs.c`, `sync.c` |
-| HTTP server and `fetch` client | `http.c`, `fetch.c`, `http_internal.h` |
+| HTTP server and `fetch` client | `http.c`, `fetch.c`, `tls.c`, `http_internal.h`, `tls_internal.h` |
 
 ## 8. Adding a feature
 
@@ -566,5 +569,5 @@ Log the design in `docs/DECISIONS.md`, and add a section to SPEC §9 that names 
 The plan's milestones, M0 to M7, are done; M7 added the language server, the VS Code extension, hints on tsc's errors and `pts test` (D-168 … D-172).
 
 - **M8**, if the run is extended: escape analysis, integer inference, unboxed arrays, inline caches for `any`, an experiment with a precise collector, and the generator and async state machines moved into an IR pass (D-153).
-- **Known limits of `pts:http`** that later work may lift: no TLS, no streamed bodies, no WebSocket, and one connection per `fetch` request, with no keep-alive pool (D-136, D-160).
+- **Known limits of `pts:http`** that later work may lift: no TLS for the server (H33b), no streamed bodies, no WebSocket, and one connection per `fetch` request, with no keep-alive pool or TLS session resumption (D-136, D-160, D-223).
 - **Known limits of the tools:** `pts lsp` doesn't show the errors that only the lowering finds, most PTS1001s (D-168); `pts:test` has no subtests, `only`, mocks or snapshots, and `pts test` runs files one after another (D-171); the extension isn't published to the Marketplace (D-169).

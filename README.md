@@ -617,7 +617,7 @@ Generic function-value instances are pruned only when bounded immutable-source a
 
 Not built yet:
 
-- `https://` for `fetch` (no TLS yet), and streamed request and response bodies.
+- HTTPS for `pts:http`'s server (`fetch` speaks `https://`), and streamed request and response bodies.
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
 - npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
@@ -650,7 +650,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 | `pts/diagnostic/` | One error format for tsc's and ParallelScript's errors |
 | `pts/runtime/` | The C runtime: values, strings, objects, arrays, maps, promises, event loops and the scheduler, the fork-join pool, console, JSON, RegExp (`src/`, `include/pts.h`, C unit tests in `tests/`, Unicode table generators in `gen/`) |
 | `pts/lib/` | The prelude (`prelude.d.ts`) and the `pts:` modules, written in ParallelScript: `parallel.pts`, `sync.pts`, `fs.pts`, `path.pts`, `process.pts`, `http.pts`, `test.pts`, `assert.pts` |
-| `pts/third_party/` | Vendored C libraries as pinned submodules: bdwgc, libuv, PCRE2, Ryu, libbacktrace |
+| `pts/third_party/` | Vendored C libraries as pinned submodules: bdwgc, libuv, PCRE2, Ryu, libbacktrace, mbedTLS |
 | `pts/tests/` | `run/` (programs and their expected output), `errors/` (expected compile errors), `corpus/` (realistic programs compared with Node), `stress/` (parallel stress programs); see [pts/tests/README.md](pts/tests/README.md) |
 | `pts/bench/` | One directory per benchmark: `main.pts`, its Go twin `main.go` (where Go has one) and, where Node and Bun can't run `main.pts` as it is, a `main.ts` for them; `run.sh` checks that they all print the same and times them, keeping every run's time in `results/` |
 | `examples/` | Example programs (a file hasher, a mandelbrot renderer, a JSON API server, a log analyzer), each tested by `pts/tests/examples_test.go`; see [examples/README.md](examples/README.md) |
@@ -669,4 +669,4 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 - [docs/FORK.md](docs/FORK.md): the edits to upstream code.
 - [docs/UPSTREAM_README.md](docs/UPSTREAM_README.md): typescript-go's own README.
 
-The repository keeps upstream's Apache-2.0 [LICENSE](LICENSE) and [NOTICE.txt](NOTICE.txt).
+The repository keeps upstream's Apache-2.0 [LICENSE](LICENSE) and [NOTICE.txt](NOTICE.txt). A built program links the vendored C libraries statically, so a binary you distribute carries their notices: bdwgc's MIT-style licence (`pts/third_party/bdwgc/README.QUICK`), libuv's MIT, PCRE2's BSD (`COPYING`), Ryu's Apache-2.0 or Boost, libbacktrace's BSD, and, in programs that use `fetch`, mbedTLS's Apache-2.0 (each in its `LICENSE` file).
