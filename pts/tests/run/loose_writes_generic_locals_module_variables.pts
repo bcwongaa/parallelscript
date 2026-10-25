@@ -4,7 +4,8 @@
 // (`M = x`) asked about first, outside the instances, decided the local there, where `xs`
 // was a T and no array: not loose, and that answer was kept for the instances, whose read
 // of x as a string went unchecked (SIGSEGV), or whose tested `const x = xs[3]` threw
-// RangeError where it had read undefined (review round 3, R3-F2).
+// RangeError where it had read undefined (review round 3, R3-F2). A parameter's default is
+// in `parameter_defaults_generic_elements.pts`.
 let early: string | undefined = "m";
 function viaLocal<T extends string[]>(xs: T): number {
   let x: string | undefined = "x";
@@ -66,18 +67,6 @@ try {
   console.log("tested threw", (e as Error).name);
 }
 
-let fromDefault: string | undefined = "m";
-function defaulted<T extends string[]>(xs: T, p: string | undefined = xs[3]): number {
-  fromDefault = p;
-  return p.length;
-}
-try {
-  console.log(defaulted(["a"]));
-} catch (e) {
-  console.log("default threw", (e as Error).name);
-}
-console.log(fromDefault === undefined);
-
 // expect:
 // local threw TypeError
 // true
@@ -87,5 +76,3 @@ console.log(fromDefault === undefined);
 // true
 // none
 // tested threw TypeError
-// default threw TypeError
-// true

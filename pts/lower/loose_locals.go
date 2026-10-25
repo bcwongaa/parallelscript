@@ -385,8 +385,9 @@ func (l *lowerer) writtenValues(symbol *ast.Symbol) []*ast.Node {
 
 // missingSources reports whether value, written to a place whose type holds undefined,
 // may be undefined though tsc types it without: an element read (D-015), or a conditional,
-// `||`, `??`, `&&` or `,` that may give one, whose operands the lowering reads in the
-// whole's place (contextTakesUndefined; review round 3, R3-F1); and else the variables
+// `||`, `??`, `&&`, `,` or `satisfies` that may give one, whose operands the lowering reads
+// in the whole's place (contextTakesUndefined; review rounds 3 and 4, R3-F1, R4-F2); and
+// else the variables
 // whose looseness would make it so, since a loose local goes there as the union it holds
 // (D-220).
 func (l *lowerer) missingSources(value *ast.Node) (bool, []*ast.Symbol) {
@@ -395,6 +396,8 @@ func (l *lowerer) missingSources(value *ast.Node) (bool, []*ast.Symbol) {
 	case value.Kind == ast.KindConditionalExpression:
 		conditional := value.AsConditionalExpression()
 		return l.missingSourcesOfEither(conditional.WhenTrue, conditional.WhenFalse)
+	case value.Kind == ast.KindSatisfiesExpression:
+		return l.missingSources(value.Expression()) // `arr[3] satisfies string | undefined`, whose context is the satisfied type (review round 4, R4-F2)
 	case value.Kind == ast.KindBinaryExpression:
 		binary := value.AsBinaryExpression()
 		switch binary.OperatorToken.Kind {

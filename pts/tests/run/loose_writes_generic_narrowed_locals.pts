@@ -1,0 +1,86 @@
+// A generic function's element read whose object tsc narrows or declares as a union or
+// intersection with a type parameter (`T & string` after `typeof v === "string"`, `T &
+// string[]` after a predicate, a declared `T & string[]`, a `T | string[]`) reads an element
+// in every instance: looseness, decided with tsc's own types (D-222), takes such a type as its
+// constraint, as a bare type parameter's. Round 3's first form replaced only a bare type
+// parameter, so these locals weren't loose and their reads went unchecked: SIGSEGV, or D-085's
+// RangeError for a tested initializer that had read undefined (review round 4, R4-F1, a
+// regression of round 3's fix).
+function attempt(label: string, f: () => number): void {
+  try {
+    console.log(f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function isStrings(v: unknown): v is string[] {
+  return Array.isArray(v);
+}
+function isRecord(v: unknown): v is Record<string, string> {
+  return typeof v === "object" && v !== null;
+}
+function viaTypeof<T>(v: T): number {
+  let x: string | undefined = "x";
+  if (typeof v === "string") x = v[9];
+  return x.length;
+}
+attempt("typeof", () => viaTypeof("ab"));
+function testedTypeof<T>(v: T): string {
+  if (typeof v !== "string") return "not";
+  const c = v[9];
+  if (c === undefined) return "none";
+  return c.toUpperCase();
+}
+console.log(testedTypeof("ab"), testedTypeof(3));
+function viaPredicate<T>(v: T): number {
+  let x: string | undefined = "x";
+  if (isStrings(v)) x = v[3];
+  return x.length;
+}
+attempt("predicate", () => viaPredicate(["a"]));
+function viaUnion<T extends string[]>(xs: T | string[]): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  return x.length;
+}
+attempt("union", () => viaUnion(["a"]));
+function viaIntersection<T>(xs: T & string[]): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  return x.length;
+}
+attempt("intersection", () => viaIntersection(["a"]));
+function viaRecord<T>(v: T): number {
+  let x: string | undefined = "x";
+  if (isRecord(v)) x = v["zz"];
+  return x.length;
+}
+attempt("record", () => viaRecord({ a: "1" } as Record<string, string>));
+let written: string | undefined = "m";
+function viaModuleVariable<T>(v: T): number {
+  let x: string | undefined = "x";
+  if (typeof v === "string") {
+    x = v[9];
+    written = x;
+  }
+  return x.length;
+}
+attempt("module variable", () => viaModuleVariable("ab"));
+console.log(written === undefined);
+function viaOr<T>(v: T, e: string): number {
+  let x: string | undefined = "x";
+  if (typeof v === "string") x = e || v[9];
+  return x.length;
+}
+attempt("||", () => viaOr("ab", ""));
+
+// expect:
+// typeof threw TypeError
+// none not
+// predicate threw TypeError
+// union threw TypeError
+// intersection threw TypeError
+// record threw TypeError
+// module variable threw TypeError
+// true
+// || threw TypeError

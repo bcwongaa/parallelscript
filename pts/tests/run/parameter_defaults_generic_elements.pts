@@ -1,0 +1,24 @@
+// A generic function's parameter default that reads an element of an `xs: T` (`T extends
+// string[]`), for a parameter declared `string | undefined`, makes the parameter loose in
+// every instance (D-222): the element reads undefined past the end and the parameter's reads
+// as a string are checked. It was PTS1001 `converting string | undefined to string` where a
+// module variable, written the parameter and asked about first, decided it outside the
+// instances (review round 3, R3-F2; split from `loose_writes_generic_locals_module_variables.pts`
+// in round 4, so that test's other cases show their own failures).
+let fromDefault: string | undefined = "m";
+function defaulted<T extends string[]>(xs: T, p: string | undefined = xs[3]): number {
+  fromDefault = p;
+  return p.length;
+}
+try {
+  console.log(defaulted(["a"]));
+} catch (e) {
+  console.log("default threw", (e as Error).name);
+}
+console.log(fromDefault === undefined);
+console.log(defaulted(["a"], "given"));
+
+// expect:
+// default threw TypeError
+// true
+// 5

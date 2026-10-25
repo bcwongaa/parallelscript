@@ -321,3 +321,116 @@ Everything is in `/tmp/h12/review3b/`:
 - archive: `h12-review3-probes.tar.gz` (probes, tools, results, mutant overlays; the mutant binaries are deleted)
 - `DONE` is touched
 - the main tree is untouched
+
+## Round 4 (commit `024674187`, snapshot 5)
+
+The round-3 `reviewer`, resumed.
+
+**Verdict: NOT READY.** Round 3's three fixes work for the shapes they target, and no probe that matched Node on snapshot 4 got worse except one family:
+- **R4-F1 (High, regression of `024674187`):** looseness is now decided with types that ignore the instance, but only a bare type parameter or indexed access is replaced by its constraint. A type parameter inside an intersection or a union isn't, so those shapes crash again. Snapshot 4 matched Node on six of these probes because it decided inside the instance.
+- **R4-F2 (Medium, pre-existing):** `satisfies T | undefined` is one more operand position that `missingSources` doesn't look through.
+
+I tried a one-line fix for each as a `go build -overlay` build of snapshot 5. Both make every finding probe match Node, and the R4-F1 fix changes no result across 200 related run tests.
+
+All finding probes were rerun on Node, base, snapshot 4 and snapshot 5 (`tools/rerun_findings.sh`, saved as `rerun-findings.out`). No probe binaries are left running (`pgrep -x p` finds none). Every subprocess now runs in its own process group, killed on timeout, and `g02` is excluded.
+
+## Findings
+
+### R4-F1 (High, verified, regression of `024674187` against snapshot 4)
+**Where:** `instanceFreeType` (`pts/lower/generics.go`, new). It replaces only a type whose top-level flags are `TypeParameter` or `IndexedAccess`.
+
+**What happens:** some shapes give a type parameter inside an intersection or union:
+- `typeof v === "string"` gives `T & string`;
+- a type predicate gives `T & string[]`;
+- `T | string[]`, or a declared `T & string[]`.
+
+These stay generic, so `isStringTyped` / `isArrayType` / `isRecordExpression` say no and the local isn't loose. In the instance, the element read still stores undefined, and the read is unchecked: `pts_value_as_object(x)`, where snapshot 4 emitted `pts_value_defined(x, "string")`.
+
+| Probe (`p/b3/…`) | Shape | Node | base | snapshot 4 | snapshot 5 |
+|---|---|---|---|---|---|
+| `b30_typeof_string_alone` | `if (typeof v === "string") x = v[9]` for `v: T` | TypeError | 139 | matches Node | **139** |
+| `b31_typeof_tested_init` | tested `const c = v[9]` (D-172) | `none not` | matches Node | matches Node | **RangeError** |
+| `b32_predicate_array` | `v is string[]` predicate | TypeError | 139 | matches Node | **139** |
+| `b37_union_with_param` | `xs: T \| string[]` | TypeError | 139 | matches Node | **139** |
+| `b39_declared_intersection` | `xs: T & string[]` | TypeError | 139 | matches Node | **139** |
+| `b41_predicate_record` | predicate to `T & Record<string, string>` | TypeError | 139 | matches Node | **139** |
+| `b34` (b30 plus a module variable), `b40` (b30 with `e \|\| v[9]`) | | TypeError | 139 | 139 | 139 (not fixed) |
+
+**Suggested fix (verified as overlay `mut/F1`):** also take the base constraint of intersections and unions:
+```go
+if t.Flags()&(checker.TypeFlagsTypeParameter|checker.TypeFlagsIndexedAccess|checker.TypeFlagsIntersection|checker.TypeFlagsUnion) != 0 {
+```
+- All eight probes above then match Node.
+- 200 related run tests (`loose|pattern|assignment|rest_tupl|logical|element_reads|destructuring_default|generic_any_instance|parallel_sort|narrow`) give identical results on F1 and snapshot 5.
+- Add `b30`, `b31`, `b32`, `b37` to `loose_writes_generic_locals_module_variables.pts`.
+
+### R4-F2 (Medium, verified, pre-existing, in scope: C327's class)
+**Where:** `missingSources` (`loose_locals.go`) skips only parentheses.
+
+**What happens:** for `x = arr[3] satisfies string | undefined`:
+- tsc hands the satisfies type down as the operand's context, so the element read gives undefined;
+- the whole expression is typed `string`, so x is narrowed;
+- the read is unchecked.
+
+| Probe (`p/a/split/…`) | Shape | Node | base | snapshot 4 | snapshot 5 |
+|---|---|---|---|---|---|
+| `a01_satisfies_union_00` | `x = arr[3] satisfies string \| undefined` | TypeError | 139 | 139 | 139 |
+| `a01_satisfies_union_01` | `x = (e \|\| arr[3]) satisfies string \| undefined` | TypeError | 139 | 139 | 139 |
+| `a01_satisfies_union_03` | the same as an initializer | TypeError | 139 | 139 | 139 |
+
+**Suggested fix (verified as overlay `mut/F2`):** in `missingSources`, add `case value.Kind == ast.KindSatisfiesExpression: return l.missingSources(value.AsSatisfiesExpression().Expression)`. All four `a01` cases then match Node. `!`, `as T` and `await` stay safe (checked at the write).
+
+### R4-F3 (Low, test gap, verified by mutation)
+Mutant N7 removes `isPlaceValue`'s new shorthand-initializer case. It survives every test. Probe `p/d/split/d04_shorthand_element_loose_01.pts` (`({ p = lb } = o); p === undefined`) kills it: Node and snapshot 5 print `true`, N7 throws at the default. Add that probe's shape to `assignment_pattern_shorthand_element_defaults.pts`.
+
+### Notes (not findings)
+- **Numbers now throw:** `a05_numbers_objects_05` (`n = z || ns[3]; n + 1`) now gives D-090's TypeError where Node, base and snapshot 4 print `NaN`. This is R1-F8's documented rule, applied now that `||` makes the variable loose.
+- **Loose local on the right of `||` or `,`:** `p/r/split/r01_*` (`x = e || lb`, `x = (s, lb)`) throw at the write on every build where Node stores undefined. This is pre-existing D-090 behaviour and safe.
+- **Instance order (`c01_1`):** `g<string>` after `g<string | undefined>` now throws D-085's RangeError, as `g<string>` alone does on every build. Snapshot 4 threw a TypeError that depended on the order instances were lowered.
+
+## What I verified holds up
+- **R3-F1:** every round-3 shape (`x01`–`x25`, `pr02`–`pr05`, `d02_05`) matches Node. So do the delta probes:
+  - nested logicals (`a02_01`, `_02`, `_07`, `_09`)
+  - comma chains (`a03_03`–`_05`)
+  - logical-assignment and default values (`a04`)
+  - numbers (`a05_00`, `_01`)
+
+  The other shapes are honest PTS1001s (C341's class) or checked at the write.
+- **R3-F2:** these match Node: `g20`, `g24`, `g30`, `g32`, `g34`, and `b07`–`b09`, `b11`, `b12`, `b20`, `b21`, `b23`–`b26`, `b28`, `b35`, `b36`. The covered cases are generic class fields, indexed access, erased copies, readonly arrays, narrowing to `T & {}`, nested arrays, generic arrow consts, static and async generics, tuple instances, and a branded constraint.
+- **Leaks of `decidingLooseness`:**
+  - The `narrowingAnswers` cache is cleared at depth 0, and no `isLoose` caller sits inside a narrowing question.
+  - The emit-c sweep (snapshot 4 → 5, 1,467 programs) changed 7, exactly as you described:
+    - the 3 new tests;
+    - the generic-module test (snapshot 4 can't emit it: a PTS1001);
+    - 4 `.par` programs whose `pivot` is now a typed local.
+- **`declaredWithUndefined`:** `c01`–`c03` match Node or are unchanged, apart from the `c01_1` order note above.
+- **R3-F3:**
+  - Shorthand defaults (`d03`, `d04_*`) match Node, apart from `d04_04`: a plain `string` target, which keeps D-085's RangeError on every build.
+  - `d02`, `d05`, `d09`, `d10` now match Node (numbers, ints, functions, a class instance, any/unknown targets, generics, nested patterns).
+  - `d01` gets better: the literal default is now made as the declared type. Before, it threw `Cannot add property b`.
+  - Getter order (`d07`), union, array and tuple targets (`d08`) and left-to-right order (`d06`) are unchanged.
+  - An unannotated arrow default is tsc's TS7006 on every build, which confirms tsc gives a shorthand default no contextual type.
+- **Replays:** 103 round-3 probes and 132 round-1/2 probes (without `g02`). None is worse than snapshot 4; 28 are better.
+- **Fuzzing:** 530 earlier fuzz programs give the same results as on snapshot 4. The only differences from Node are `cyc21_038` (D-140) and nine programs my generator wrote with tsc errors.
+  - A new fuzzer, `gen5`: 160 generic/logical programs, 0 crashes. Its differences are honest PTS1001s, generator tsc errors and the pre-existing `r01` TypeError.
+- **Matrix sample:** 430 cases, identical to snapshot 4.
+- **Cost:** 3,000 and 6,000 variables compile in 1.8 and 3.0 s, against 1.5 and 3.2 s on snapshot 4.
+
+## Test quality
+- All three new tests and the changed dense test match Node and pass on snapshot 5. The three new tests fail on snapshot 4: a crash, a PTS1001, a RangeError.
+- Mutants built on snapshot 5:
+
+  | Mutant | Killed by |
+  |---|---|
+  | N1 (no constraint replacement), N2 (no instance-free `typeAt`) | `loose_writes_generic_locals_module_variables` |
+  | N3 (`&&` right side only), N4 (no `\|\|`/`??`/`,` case) | `element_reads_through_logical_operators_declared_unions` |
+  | N5 (no shorthand write), N6 (no shorthand context) | `assignment_pattern_shorthand_element_defaults` (N4 kills it too) |
+  | M1 (no propagation) | `loose_writes_dense_graph`, `loose_writes_cycles_and_instances` (139) |
+  | N7 (no shorthand place value) | **survives** (R4-F3) |
+
+- On snapshot 4 and N1, `loose_writes_generic_locals_module_variables` fails by its `defaulted` case's PTS1001 at compile time. Without that case, the other cases still crash (139) on both, so the test is effective. Splitting the default case out would make each case's failure visible.
+
+Everything is in `/tmp/h12/review4/`:
+- archive: `h12-review4-probes.tar.gz` (probes, tools, mutant and fix overlays; the binaries are deleted)
+- `DONE` is touched
+- the main tree is clean

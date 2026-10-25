@@ -1,0 +1,36 @@
+// An element read under `satisfies T | undefined` reads undefined past the end (the satisfied
+// type is its context), and tsc types the whole as T: the variable it is written to is loose,
+// so its reads as T are checked (TypeError, as Node's member read of undefined throws). They
+// were read unchecked: SIGSEGV (review round 4, R4-F2; pre-existing, C327's class).
+const strs: string[] = ["a"];
+const blank: string = "";
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+attempt("element", () => {
+  let x: string | undefined = "x";
+  x = strs[3] satisfies string | undefined;
+  console.log(x.length);
+});
+attempt("||", () => {
+  let x: string | undefined = "x";
+  x = (blank || strs[3]) satisfies string | undefined;
+  console.log(x.length);
+});
+attempt("initializer", () => {
+  const x: string | undefined = strs[3] satisfies string | undefined;
+  console.log(x.length);
+});
+let tested: string | undefined = "t";
+tested = strs[3] satisfies string | undefined;
+console.log(tested === undefined);
+
+// expect:
+// element threw TypeError
+// || threw TypeError
+// initializer threw TypeError
+// true

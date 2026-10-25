@@ -2,7 +2,8 @@
 // the value the pattern stores in p, as the renamed form's `q = arr[3]` is: an element read
 // there reads undefined past the end where p's declared type takes undefined, and p is then
 // loose, its reads as a string checked. It threw D-085's RangeError at the default (review
-// round 3, R3-F3; pre-existing).
+// round 3, R3-F3; pre-existing). A loose local there goes as the undefined it holds, as at the
+// right of `=` (review round 4, R4-F3: no test covered it).
 const arr: string[] = ["a"];
 const blank: string = "";
 const o: { p?: string } = {};
@@ -27,6 +28,11 @@ try {
 let s: string | undefined = "s";
 ({ s = arr[0] } = {} as { s?: string });
 console.log(s.length);
+const empty: string[] = [];
+const [missing] = empty;
+let t: string | undefined = "t";
+({ t = missing } = {} as { t?: string });
+console.log(t === undefined);
 
 // expect:
 // true
@@ -34,3 +40,4 @@ console.log(s.length);
 // true
 // || threw TypeError
 // 1
+// true

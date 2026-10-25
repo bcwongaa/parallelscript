@@ -560,16 +560,26 @@ func (l *lowerer) typeAt(node *ast.Node) *checker.Type {
 }
 
 // instanceFreeType is t, tsc's own type at a node, as every instance of the generic code
-// the node is in has it, for an answer every instance shares (isLoose): a type parameter, or
-// an indexed access of one, as its constraint (`xs` of a `T extends string[]` is an array in
-// every instance).
+// the node is in has it, for an answer every instance shares (isLoose): a generic type as
+// its constraint (`xs` of a `T extends string[]` is an array in every instance, and so is a
+// `T & string[]` or a `T | string[]`; review round 4, R4-F1).
 func (l *lowerer) instanceFreeType(t *checker.Type) *checker.Type {
-	if t.Flags()&(checker.TypeFlagsTypeParameter|checker.TypeFlagsIndexedAccess) != 0 {
+	if isGenericType(t) {
 		if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {
 			t = constraint
 		}
 	}
 	return l.normalized(t)
+}
+
+// isGenericType reports whether t is a type parameter, an indexed access, a conditional or
+// substitution type, or a union or intersection with one among its members (`T & string`
+// after `typeof v === "string"`).
+func isGenericType(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsInstantiableNonPrimitive != 0 {
+		return true
+	}
+	return t.Flags()&checker.TypeFlagsUnionOrIntersection != 0 && slices.ContainsFunc(t.Types(), isGenericType)
 }
 
 func (l *lowerer) typeOfSymbol(symbol *ast.Symbol) *checker.Type {
