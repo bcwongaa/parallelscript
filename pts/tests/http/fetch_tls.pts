@@ -6,8 +6,10 @@
 // of 20 MB, read until the connection closes and cut short, with or without close_notify,
 // or by a reset; redirects between http and https and between https servers, and what a
 // cross-origin one drops; every way a certificate fails to verify, with Node's codes and
-// messages (and Node's choice when several apply), and that no request reaches such a
-// server; Node's rules for host names, IP addresses and wildcards; failures of the
+// messages (and Node's choice when several apply: its chain, its purposes and its CAs',
+// keys and digests, signatures), and that no request reaches such a server; Node's rules
+// for host names, IP addresses, wildcards and common names of other string types, and its
+// escaping of a name in its message; failures of the
 // protocol rather than of the certificate (only that they fail, since Node's messages are
 // OpenSSL's), each server saying it read a ClientHello; and aborts during the handshake and
 // during the body, the latter closing the connection.
@@ -177,6 +179,19 @@ if (bases.has("wildcard")) {
   await attempt("wildcard of a top-level domain", () => get("wildcard-tld"));
   await attempt("wildcard, partial", () => get("wildcard-partial"));
 }
+await attempt("intermediate for clients only", () => get("intermediate-for-clients"));
+await attempt("intermediate for email only", () => get("intermediate-for-email"));
+await attempt("for any purpose only", () => get("any-purpose-only"));
+await attempt("untrusted CA, for clients only", () => get("untrusted-client-auth-only"));
+await attempt("signature broken, intermediate sent", () => get("broken-signature-intermediate"));
+await attempt("signature broken, by the root", () => get("broken-signature-root"));
+await attempt("path length exceeded", () => get("path-length-exceeded"));
+await attempt("RSA 1024 key", () => get("rsa1024"));
+await attempt("RSA 1024 intermediate", () => get("rsa1024-intermediate"));
+await attempt("SHA-1 signature", () => get("sha1"));
+await attempt("intermediate without keyCertSign", () => get("no-cert-sign"));
+await attempt("common name as a BMPString", () => get("bmp-common-name"));
+await attempt("a comma in a DNS name", () => get("comma-name"));
 console.log("requests that reached servers whose certificates don't verify:", await stateOf("/unverified"));
 
 await attemptFailing("plain HTTP server at https", () => get("plain-as-https"));

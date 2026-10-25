@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/microsoft/typescript-go/pts/driver"
 	"gotest.tools/v3/assert"
@@ -41,7 +43,7 @@ type authority struct {
 	key  crypto.Signer
 }
 
-// newKey makes a private key of kind: "p256", "p384" or "rsa" (2048 bits).
+// newKey makes a private key of kind: "p256", "p384", "rsa" (2048 bits) or "rsa1024".
 func newKey(t *testing.T, kind string) crypto.Signer {
 	t.Helper()
 	var key crypto.Signer
@@ -53,6 +55,8 @@ func newKey(t *testing.T, kind string) crypto.Signer {
 		key, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	case "rsa":
 		key, err = rsa.GenerateKey(rand.Reader, 2048)
+	case "rsa1024":
+		key, err = rsa.GenerateKey(rand.Reader, 1024)
 	default:
 		t.Fatalf("no key of kind %q", kind)
 	}
@@ -115,7 +119,7 @@ func serverCert(t *testing.T, issuer *authority, kind string, edit func(*x509.Ce
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
-	if kind == "rsa" {
+	if strings.HasPrefix(kind, "rsa") {
 		template.KeyUsage |= x509.KeyUsageKeyEncipherment
 	}
 	if edit != nil {
@@ -126,6 +130,27 @@ func serverCert(t *testing.T, issuer *authority, kind string, edit func(*x509.Ce
 		chain.Certificate = append(chain.Certificate, cert.Raw)
 	}
 	return chain
+}
+
+// broken is chain with its first certificate's signature changed, so that its issuer's key doesn't verify it.
+func broken(chain tls.Certificate) tls.Certificate {
+	der := slices.Clone(chain.Certificate[0])
+	der[len(der)-1] ^= 1
+	chain.Certificate = append([][]byte{der}, chain.Certificate[1:]...)
+	return chain
+}
+
+// bmpSubject is a subject whose common name is name as a BMPString (UTF-16), which OpenSSL decodes before Node reads it.
+func bmpSubject(t *testing.T, name string) []byte {
+	t.Helper()
+	var units []byte
+	for _, unit := range utf16.Encode([]rune(name)) {
+		units = append(units, byte(unit>>8), byte(unit))
+	}
+	value := asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagBMPString, Bytes: units}
+	subject, err := asn1.Marshal(pkix.RDNSequence{{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: value}}})
+	assert.NilError(t, err)
+	return subject
 }
 
 // writePEM writes certs to a new PEM file in dir and returns its path.
@@ -493,6 +518,15 @@ func startTLSLab(t *testing.T) *tlsLab {
 		Subject: pkix.Name{CommonName: "PTS Not A CA"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour),
 		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, BasicConstraintsValid: true, IsCA: false,
 	}, notCAKey, root)
+	usageOf := func(usage ...x509.ExtKeyUsage) func(*x509.Certificate) {
+		return func(c *x509.Certificate) { c.ExtKeyUsage = usage }
+	}
+	clientsIntermediate := newAuthority(t, "PTS Intermediate CA for clients", "p256", root, usageOf(x509.ExtKeyUsageClientAuth))
+	emailIntermediate := newAuthority(t, "PTS Intermediate CA for email", "p256", root, usageOf(x509.ExtKeyUsageEmailProtection))
+	pathZero := newAuthority(t, "PTS Intermediate CA of path length 0", "p256", root, func(c *x509.Certificate) { c.MaxPathLen, c.MaxPathLenZero = 0, true })
+	underPathZero := newAuthority(t, "PTS Intermediate CA under path length 0", "p256", pathZero, nil)
+	rsa1024Intermediate := newAuthority(t, "PTS RSA 1024 Intermediate CA", "rsa1024", root, nil)
+	noCertSign := newAuthority(t, "PTS Intermediate CA without keyCertSign", "p256", root, func(c *x509.Certificate) { c.KeyUsage = x509.KeyUsageDigitalSignature })
 	servers := []struct {
 		name     string
 		cert     tls.Certificate
@@ -536,6 +570,40 @@ func startTLSLab(t *testing.T) *tlsLab {
 			c.DNSNames, c.IPAddresses = nil, nil
 		}), nil, false},
 		{"ips-and-common-name", serverCert(t, root, "p256", func(c *x509.Certificate) { c.DNSNames = nil }), nil, true},
+		{"intermediate-for-clients", serverCert(t, clientsIntermediate, "p256", nil, clientsIntermediate.cert), nil, false},
+		{"intermediate-for-email", serverCert(t, emailIntermediate, "p256", nil, emailIntermediate.cert), nil, false},
+		{"any-purpose-only", serverCert(t, root, "p256", usageOf(x509.ExtKeyUsageAny)), nil, false},
+		{"untrusted-client-auth-only", serverCert(t, other, "p256", usageOf(x509.ExtKeyUsageClientAuth)), nil, false},
+		{"broken-signature-intermediate", broken(serverCert(t, intermediate, "p256", nil, intermediate.cert)), nil, false},
+		{"broken-signature-root", broken(serverCert(t, root, "p256", nil)), nil, false},
+		{"path-length-exceeded", serverCert(t, underPathZero, "p256", nil, underPathZero.cert, pathZero.cert), nil, false},
+		{"rsa1024", serverCert(t, rsaRoot, "rsa1024", nil), nil, false},
+		{"rsa1024-intermediate", serverCert(t, rsa1024Intermediate, "p256", nil, rsa1024Intermediate.cert), nil, false},
+		{"sha1", serverCert(t, rsaRoot, "rsa", func(c *x509.Certificate) { c.SignatureAlgorithm = x509.SHA1WithRSA }), nil, false},
+		{"no-cert-sign", serverCert(t, noCertSign, "p256", nil, noCertSign.cert), nil, false},
+		{"bmp-common-name", serverCert(t, root, "p256", func(c *x509.Certificate) {
+			c.RawSubject = bmpSubject(t, "localhost")
+			c.DNSNames, c.IPAddresses = nil, nil
+		}), nil, true},
+		{"comma-name", serverCert(t, root, "p256", certFor("localhost, DNS:x")), nil, false},
+	}
+	// CAs with name constraints, which no client of this lab may trust: mbedTLS can't check them (D-223).
+	constrained := func(name string, edit func(*x509.Certificate)) tls.Certificate {
+		ca := newAuthority(t, name, "p256", root, edit)
+		return serverCert(t, ca, "p256", certFor("localhost"), ca.cert)
+	}
+	for _, server := range []struct {
+		name string
+		cert tls.Certificate
+	}{
+		{"constrained-elsewhere", constrained("PTS CA for example.org", func(c *x509.Certificate) { c.PermittedDNSDomains = []string{"example.org"} })},
+		{"constrained-excluded", constrained("PTS CA except localhost", func(c *x509.Certificate) { c.ExcludedDNSDomains = []string{"localhost"} })},
+		{"constrained-permitted", constrained("PTS CA for localhost", func(c *x509.Certificate) { c.PermittedDNSDomains = []string{"localhost"} })},
+		{"constrained-critical", constrained("PTS CA for localhost, critically", func(c *x509.Certificate) {
+			c.PermittedDNSDomains, c.PermittedDNSDomainsCritical = []string{"localhost"}, true
+		})},
+	} {
+		lab.name(server.name, "https://localhost:"+lab.serveTLS(t, lab.mustNotReach(server.name, mux), "", server.cert, nil, ""))
 	}
 	for _, server := range servers {
 		handler := http.Handler(mux)
@@ -710,6 +778,19 @@ wildcard, two labels deep TypeError: fetch failed | ERR_TLS_CERT_ALTNAME_INVALID
 wildcard, the bare domain TypeError: fetch failed | ERR_TLS_CERT_ALTNAME_INVALID | Hostname/IP does not match certificate's altnames: Host: pts.localhost. is not in the cert's altnames: DNS:*.pts.localhost
 wildcard of a top-level domain TypeError: fetch failed | ERR_TLS_CERT_ALTNAME_INVALID | Hostname/IP does not match certificate's altnames: Host: a.localhost. is not in the cert's altnames: DNS:*.localhost
 wildcard, partial 200 <wildcard-partial>/hello GET sni="ab.pts.localhost" alpn="http/1.1" TLS 1.3, offered alpn=["http/1.1"] versions=["TLS 1.3" "TLS 1.2"]
+intermediate for clients only TypeError: fetch failed | INVALID_PURPOSE | unsuitable certificate purpose
+intermediate for email only TypeError: fetch failed | INVALID_PURPOSE | unsuitable certificate purpose
+for any purpose only TypeError: fetch failed | INVALID_PURPOSE | unsuitable certificate purpose
+untrusted CA, for clients only TypeError: fetch failed | UNABLE_TO_VERIFY_LEAF_SIGNATURE | unable to verify the first certificate
+signature broken, intermediate sent TypeError: fetch failed | CERT_SIGNATURE_FAILURE | certificate signature failure
+signature broken, by the root TypeError: fetch failed | CERT_SIGNATURE_FAILURE | certificate signature failure
+path length exceeded TypeError: fetch failed | PATH_LENGTH_EXCEEDED | path length constraint exceeded
+RSA 1024 key TypeError: fetch failed | UNSPECIFIED | EE certificate key too weak
+RSA 1024 intermediate TypeError: fetch failed | UNSPECIFIED | CA certificate key too weak
+SHA-1 signature TypeError: fetch failed | UNSPECIFIED | CA signature digest algorithm too weak
+intermediate without keyCertSign TypeError: fetch failed | UNSPECIFIED | key usage does not include certificate signing
+common name as a BMPString 200 <bmp-common-name>/hello GET sni="localhost" alpn="http/1.1" TLS 1.3, offered alpn=["http/1.1"] versions=["TLS 1.3" "TLS 1.2"]
+a comma in a DNS name TypeError: fetch failed | ERR_TLS_CERT_ALTNAME_INVALID | Hostname/IP does not match certificate's altnames: Host: localhost. is not in the cert's altnames: DNS:"localhost\u002c DNS:x"
 requests that reached servers whose certificates don't verify: none
 plain HTTP server at https TypeError: fetch failed | the cause is an Error: true
 https server at http 400 <localhost-as-http>/hello Client sent an HTTP request to an HTTPS server.
@@ -793,9 +874,10 @@ func TestFetchHTTPSEveryLoop(t *testing.T) {
 }
 
 // TestFetchHTTPSUnderSanitizers runs the TLS programs (H33) built with AddressSanitizer
-// and UndefinedBehaviorSanitizer on one loop and on four, so that a TLS context freed too
-// early or twice, a handshake's buffers used after an abort or a record read past its end
-// fails, as TestFetchUnderSanitizers does for plain HTTP.
+// and UndefinedBehaviorSanitizer on one loop and on four, so that the runtime's misuse of
+// a TLS session (freed too early or twice, its buffers used after an abort or read past
+// their end) fails, as TestFetchUnderSanitizers does for plain HTTP. mbedTLS and libuv
+// are built without the sanitizers (vendoredFlags), so faults inside them go unseen.
 func TestFetchHTTPSUnderSanitizers(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"fetch_tls", "fetch_tls_parallel"} {
@@ -858,6 +940,29 @@ func TestFetchHTTPSTrustStore(t *testing.T) {
 		got := runTLSProgram(t, run.env, exe, lab.base("localhost")+"/hello")
 		assert.Check(t, got.stdout == run.want && got.exitCode == 0, "%s: got exit code %d, stdout %q, want %q; stderr:\n%s", run.name, got.exitCode, got.stdout, run.want, got.stderr)
 	}
+}
+
+// TestFetchHTTPSNameConstraints runs http/fetch_tls_one.pts (H33) against servers whose
+// certificates come from CAs with name constraints, which mbedTLS can't check (D-223):
+// a non-critical extension, which mbedTLS ignores, makes the CA untrusted, and a critical
+// one fails mbedTLS's parse of the certificate, so no request reaches any of them, where
+// Node takes the permitted ones and rejects the others with "permitted subtree violation"
+// and "excluded subtree violation".
+func TestFetchHTTPSNameConstraints(t *testing.T) {
+	t.Parallel()
+	exe := buildShared(t, "fetch_tls_one")
+	lab := startTLSLab(t)
+	const unsupported = "TypeError: fetch failed | UNSPECIFIED | name constraints are not supported: a CA that has them is not trusted\n"
+	for _, run := range []struct{ name, want string }{
+		{"constrained-elsewhere", unsupported},
+		{"constrained-excluded", unsupported},
+		{"constrained-permitted", unsupported},
+		{"constrained-critical", "TypeError: fetch failed | undefined | X509 - The extension tag or value is invalid : ASN1 - ASN1 tag was of an unexpected value (mbedTLS -0x2562)\n"},
+	} {
+		got := runTLSProgram(t, []string{"NODE_EXTRA_CA_CERTS=" + lab.trusted}, exe, lab.base(run.name)+"/hello")
+		assert.Check(t, got.stdout == run.want && got.exitCode == 0, "%s: got exit code %d, stdout %q, want %q; stderr:\n%s", run.name, got.exitCode, got.stdout, run.want, got.stderr)
+	}
+	assert.Equal(t, lab.state("/unverified"), "none")
 }
 
 // publicSite is the site TestFetchHTTPSPublicSite fetches.
