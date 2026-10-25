@@ -1,0 +1,29 @@
+// no-diff: a hash-map object's pattern element named after an Object.prototype member keeps D-059's RangeError where JS reads the inherited member
+// An object pattern's element with a default over a hash-map object reads a missing key as
+// undefined, which the default replaces (D-222), except for Object.prototype's members
+// (`toString`, `__proto__`, …): JS reads the inherited member there and takes no default,
+// which a hash-map object can't give, so they keep D-059's RangeError, never the default
+// (review round 1, R1-F7: H12's first change gave the default silently).
+const rec: Record<string, number> = { a: 1 };
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+attempt("toString", () => {
+  const { toString: ts = 5 } = rec;
+  console.log(typeof ts);
+});
+attempt("__proto__", () => {
+  const { __proto__: p = 5 } = rec;
+  console.log(typeof p);
+});
+const { a = 0, b = 2 } = rec;
+console.log(a, b);
+
+// expect:
+// toString threw RangeError
+// __proto__ threw RangeError
+// 1 2

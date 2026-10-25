@@ -310,7 +310,7 @@ func (c *pass) parameterDefaults(declaration *ast.Node, fn *function) {
 		value := param.Initializer()
 		switch {
 		case value == nil:
-		case fn.params[i] != nil:
+		case fn.params[i] != nil && !c.defaultHoldsUndefined(param): // `v: int | undefined = undefined` holds undefined (R1-F9)
 			c.requireConvertible(value, c.expr(value, fn.params[i]), *fn.params[i])
 		default:
 			c.visit(value)

@@ -208,6 +208,9 @@ func (e *emitter) parameterPrologue(f *ir.Func, frame *generatorFrame) {
 	if f.Closure {
 		e.capturePrologue(f)
 	}
+	if mayRecurse(f) {
+		e.line(1, "pts_stack_check();") // a default may call the generator again (review round 1, R1-F4)
+	}
 	e.scope(f.Body.Stmts[:f.Prologue], 1)
 }
 

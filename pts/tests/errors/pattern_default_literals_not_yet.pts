@@ -1,0 +1,15 @@
+// A nested pattern's object-literal default is copied as the property's type only where it
+// leaves optional members out and has no accessors (D-222); otherwise it stays an honest
+// PTS1001 (review round 1, R1-F6): a copy into a type with a required member it lacks would
+// throw when the default is taken, and one with a getter would call it before later
+// defaults run, where JS calls it when the pattern reads the member.
+type Options = { size: number; color: string };
+const items: { opts?: Options }[] = [{ opts: { size: 3, color: "red" } }, {}];
+for (const { opts: { size } = { size: 10 } } of items) console.log(size);
+type Inner = { x?: number; b?: number };
+const rows: { a?: Inner }[] = [{}];
+function d(): number { return 1; }
+for (const { a: { x = d(), b } = { get b() { return 2; } } } of rows) console.log(x, b);
+
+// error: pattern_default_literals_not_yet.pts:8:31 - error PTS1001
+// error: pattern_default_literals_not_yet.pts:12:34 - error PTS1001

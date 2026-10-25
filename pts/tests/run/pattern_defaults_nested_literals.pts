@@ -1,0 +1,26 @@
+// Nested patterns' literal defaults: an object literal in a `for…of` binding, which tsc
+// types by the pattern rather than the property, is copied as the property's type where it
+// only leaves optional members out (C330, the reproducer's N3: PTS1001 before); a generic
+// call as an object-typed default, whose type argument tsc infers with undefined from the
+// optional property, is checked to be there (C331, N4: PTS1001 before).
+type Leaf = { c?: number };
+const sources: { a?: { b?: Leaf } }[] = [{}, { a: {} }, { a: { b: { c: 9 } } }];
+for (const { a: { b: { c = 3 } = {} } = {} } of sources) console.log(c);
+const lists: { list?: ({ v?: number } | undefined)[] }[] = [{}];
+for (const { list: [{ v = 0 } = {}] = [] } of lists) console.log(v);
+function same<T>(value: T): T {
+  return value;
+}
+const opt: { a?: { k: number } } = {};
+const { a = same({ k: 5 }) } = opt;
+console.log(a.k);
+const pick = ({ a = same({ k: 6 }) }: { a?: { k: number } }) => a.k;
+console.log(pick({}), pick({ a: { k: 7 } }));
+
+// expect:
+// 3
+// 3
+// 9
+// 0
+// 5
+// 6 7

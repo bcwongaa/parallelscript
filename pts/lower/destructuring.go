@@ -345,10 +345,15 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	}
 	if t, ok := source.Type().(*ir.MapType); ok && t.Record {
 		key := &ir.StringConst{Value: name}
-		if t.Value == ir.Value || elementHasDefault(element) {
-			return &ir.MapCall{Op: ir.MapGet, Args: []ir.Expr{source, key}, Map: t} // a missing key is undefined, which a default replaces
+		switch {
+		case t.Value == ir.Value:
+			return &ir.MapCall{Op: ir.MapGet, Args: []ir.Expr{source, key}, Map: t} // a missing key of a Record<string, unknown> is undefined
+		case objectPrototypeNames[name]: // checked below, as before
+		case elementHasDefault(element):
+			return &ir.MapCall{Op: ir.MapGet, Args: []ir.Expr{source, key}, Map: t} // a missing key is undefined, which the default replaces
+		default:
+			return l.recordEntry(source, key, element) // undefined where the entry type holds it, as `rec.k` reads it (D-172)
 		}
-		return l.recordEntry(source, key, element) // undefined where the entry type holds it, as `rec.k` reads it (D-172)
 	}
 	if read := propertyOf(source, name); read != nil {
 		return read
@@ -388,6 +393,13 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	l.notSupportedYet(property, fmt.Sprintf("destructuring the property `%s` of a %s is", name, source.Type()))
 	return nil
 }
+
+// objectPrototypeNames are the properties every object has from Object.prototype, which a
+// hash-map object without them as keys gives JS's pattern (`{ toString = f } = rec`), not
+// undefined: they keep D-059's RangeError (review round 1, R1-F7).
+var objectPrototypeNames = map[string]bool{"constructor": true, "hasOwnProperty": true, "isPrototypeOf": true, "propertyIsEnumerable": true,
+	"toLocaleString": true, "toString": true, "valueOf": true, "__proto__": true, "__defineGetter__": true, "__defineSetter__": true,
+	"__lookupGetter__": true, "__lookupSetter__": true}
 
 // elementHasDefault reports whether an element of an object pattern, or of an object
 // literal on the left of an assignment, has a default: `{ a = 1 }`, `{ a: x = 1 }`.
@@ -586,7 +598,9 @@ func (l *lowerer) elementPart(source ir.Expr, element *ast.Node, index int, init
 		case element.Kind != ast.KindBindingElement && isUnion(t.Elem):
 			// an assignment's target of one of a rest tuple's element types (`[h, s] = r` for an
 			// `[number, ...string[]]`, a `(number | string)[]`): the element as a dynamic value,
-			// which the store converts with a check, as a binding's name's is (C307)
+			// which the store converts with a check, as a binding's name's is (C307); undefined
+			// past the end where the target takes it, so such a variable is loose
+			// (patternElementMayBeMissing; review round 1, R1-F1)
 			target, ok := l.patternTargetType(name)
 			if !ok {
 				return nil

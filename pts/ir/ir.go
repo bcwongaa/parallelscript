@@ -519,8 +519,9 @@ type Func struct {
 	// listen, D-136): a program that calls it runs the loop after its top-level code.
 	Listens bool
 	// Generator marks a generator function (`function*`, D-109). A call makes a generator
-	// object, a Value (Result), and returns it without running Body, which runs when the
-	// object is resumed, holding every local in the object's frame. A Yield in Body
+	// object, a Value (Result), binds the parameters (Prologue) and returns it without
+	// running the rest of Body, which runs when the object is resumed, holding every local
+	// in the object's frame. A Yield in Body
 	// suspends it; a Return's Value, a Value, is the generator's return value.
 	Generator bool
 	// Async marks an async function (D-112), also marked Generator: a call runs Body as a

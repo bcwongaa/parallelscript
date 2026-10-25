@@ -1,0 +1,22 @@
+// A generator binds its parameters at the call (D-222), so a default that calls the
+// generator again recurses at the call: the stack check throws RangeError, as Node's
+// "Maximum call stack size exceeded" does. H12's first change ran the defaults in the
+// generator's starter without the check: SIGSEGV (review round 1, R1-F4).
+function* deep(n: number, inner: Generator<number> | undefined = deep(n + 1)): Generator<number> {
+  yield n;
+}
+try {
+  const it = deep(0);
+  console.log("made", it.next().value);
+} catch (e) {
+  console.log("threw", (e as Error).name);
+}
+function* bounded(n: number, inner: Generator<number> | undefined = n < 3 ? bounded(n + 1) : undefined): Generator<number> {
+  yield n;
+  if (inner) yield* inner;
+}
+console.log([...bounded(0)]);
+
+// expect:
+// threw RangeError
+// [ 0, 1, 2, 3 ]

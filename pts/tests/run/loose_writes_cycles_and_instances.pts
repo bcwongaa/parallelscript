@@ -1,0 +1,58 @@
+// Whether a variable is loose (it may hold an undefined tsc narrows away) doesn't depend on
+// which variable or generic instance the compiler asks about first. Two variables written
+// each other, one of them an element read past the end: both are loose, in either order of
+// declaration (review round 1, R1-F2: the second was taken as not loose, SIGSEGV). A
+// generic function's variable written `xs[3]` is loose in every instance, an `unknown` or
+// `any` instance compiled first too (R1-F3: SIGSEGV in the string instance).
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const empty: string[] = [];
+attempt("cycle y first", () => {
+  let y: string | undefined = "y";
+  let x: string | undefined = "x";
+  y = x;
+  x = y;
+  y = empty[3];
+  x = y;
+  console.log(x.length);
+});
+attempt("cycle x first", () => {
+  let x: string | undefined = "x";
+  let y: string | undefined = "y";
+  y = x;
+  x = y;
+  y = empty[3];
+  x = y;
+  console.log(x.length);
+});
+function shown<T>(xs: T[], show: (t: T) => string): string {
+  let x: T | undefined = undefined;
+  x = xs[3];
+  return show(x);
+}
+const unknowns: unknown[] = ["a"];
+console.log(shown(unknowns, (t) => String(t)));
+attempt("string instance", () => console.log(shown(["a"], (t) => "len " + t.length)));
+function length<T extends string>(xs: T[]): number {
+  let x: T | undefined = undefined;
+  x = xs[3];
+  return x.length;
+}
+const anys: any[] = ["a"];
+attempt("any instance", () => console.log(length(anys)));
+attempt("string instance 2", () => console.log(length(["a"])));
+console.log(length(["a", "b", "c", "dddd"]));
+
+// expect:
+// cycle y first threw TypeError
+// cycle x first threw TypeError
+// undefined
+// string instance threw TypeError
+// any instance threw TypeError
+// string instance 2 threw TypeError
+// 4

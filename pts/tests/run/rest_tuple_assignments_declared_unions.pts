@@ -1,0 +1,56 @@
+// An array assignment pattern over a rest tuple (`[number, ...string[]]`, an IR array of
+// all its element types) assigns undefined past the end, as JS does, to a target whose type
+// takes undefined; tsc then narrows a variable target to the element type, so the variable
+// is loose and its reads as that type are checked (TypeError, as Node's member read of
+// undefined throws). H12's first change assigned undefined and read the variable unchecked:
+// SIGSEGV (review round 1, R1-F1), in generic instances too; member and element targets'
+// reads were checked already.
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const short: [number, ...string[]] = [1];
+const long: [number, ...string[]] = [1, "abc"];
+attempt("variable", () => {
+  let h = 0;
+  let s: string | undefined = "s";
+  [h, s] = short;
+  console.log(h, s.length);
+});
+attempt("present", () => {
+  let h = 0;
+  let s: string | undefined = "s";
+  [h, s] = long;
+  console.log(h, s.length);
+});
+function generic<T extends string>(r: [number, ...T[]]): number {
+  let s: T | undefined = undefined;
+  let h = 0;
+  [h, s] = r;
+  return h + s.length;
+}
+attempt("generic", () => console.log(generic(long)));
+attempt("generic short", () => console.log(generic(short)));
+attempt("member", () => {
+  const o: { s: string | undefined } = { s: "s" };
+  let h = 0;
+  [h, o.s] = short;
+  console.log(o.s.length);
+});
+attempt("union array", () => {
+  const mixed: (number | string)[] = [1];
+  let s: number | string | undefined = "s";
+  [, s] = mixed;
+  console.log(s.toString());
+});
+
+// expect:
+// variable threw TypeError
+// 1 3
+// 4
+// generic short threw TypeError
+// member threw TypeError
+// union array threw TypeError

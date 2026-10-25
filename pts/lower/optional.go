@@ -197,13 +197,26 @@ func (l *lowerer) patternDefault(initializer *ast.Node, t ir.Type) ir.Expr {
 	if value == nil {
 		return nil
 	}
-	if iface, ok := t.(*ir.Interface); ok && literal.Kind == ast.KindObjectLiteralExpression && value.Type() != t && unprovided(value.Type(), iface) != "" && !holdsOptionally(value.Type(), iface) {
+	if iface, ok := t.(*ir.Interface); ok && literal.Kind == ast.KindObjectLiteralExpression && value.Type() != t && unprovided(value.Type(), iface) != "" && !holdsOptionally(value.Type(), iface) && copiesAsLeftOut(value.Type(), iface) {
 		return l.dynamicConversion(box(value), t, initializer)
 	}
 	if u, ok := value.Type().(*ir.Union); ok && u.Has(ir.Undefined) && t != nil && !ir.HoldsUndefined(t) {
 		return &ir.FromUnion{X: value, To: l.withoutUndefined(u), Defined: true}
 	}
 	return value
+}
+
+// copiesAsLeftOut reports whether a new object of shape made, an object literal's, copied
+// into iface's shape is the object a JS default makes: it has no accessors (whose getters
+// the copy would call early, before later defaults) and every property of iface it lacks is
+// optional (a required one is tsc's pattern type, not the property's: the copy would throw;
+// review round 1, R1-F6).
+func copiesAsLeftOut(made ir.Type, iface *ir.Interface) bool {
+	shape, ok := made.(*ir.Class)
+	if !ok || !shape.Shape || slices.ContainsFunc(shape.Fields, func(field *ir.Field) bool { return field.Accessor || field.Method || field.Kind != ir.Plain }) {
+		return false
+	}
+	return !slices.ContainsFunc(iface.Fields, func(field *ir.Field) bool { return !field.Optional && shape.Field(field.Name) == nil })
 }
 
 // isPureFieldRead reports whether x reads a field of a class or shape held in a local, which

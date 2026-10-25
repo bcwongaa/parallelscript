@@ -1,0 +1,48 @@
+// A method whose default may be undefined (`v = this.map.get("q")`) still takes the
+// parameter as any method with a default does (the value and whether the call passed it),
+// so it implements an interface's optional parameter, overrides a base method and
+// implements an abstract one; only its body sees `string | undefined`, as tsc types it.
+// H12's first change made the method take `string | undefined` itself: PTS1001 (review
+// round 1, R1-F5).
+interface Named {
+  m(v?: string): string;
+}
+class C implements Named {
+  map = new Map<string, string>([["q", "Q"]]);
+  m(v = this.map.get("q")): string {
+    return v ?? "none";
+  }
+}
+const named: Named = new C();
+console.log(named.m(), named.m("y"));
+class Base {
+  m(v?: string): string {
+    return "B" + (v ?? "-");
+  }
+}
+class Derived extends Base {
+  map = new Map<string, string>([["q", "Q"]]);
+  override m(v = this.map.get("q")): string {
+    return "D" + (v ?? "none");
+  }
+}
+const base: Base = new Derived();
+console.log(base.m(), base.m("y"), new Base().m());
+abstract class Shape {
+  abstract label(v?: string): string;
+  run(): string {
+    return this.label();
+  }
+}
+class Square extends Shape {
+  names = new Map<string, string>();
+  label(v = this.names.get("q")): string {
+    return v ?? "none";
+  }
+}
+console.log(new Square().run(), new Square().label("z"));
+
+// expect:
+// Q y
+// DQ Dy B-
+// none z
