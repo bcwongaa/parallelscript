@@ -206,3 +206,80 @@ Every round-1 probe now prints what Node prints, except the documented divergenc
 To replay: `run_lab_probes.sh`, `run_combos.sh`, `run_openssl_probes.sh` (all default to snap2's CLI; rebuilt binaries were removed to keep the archive small). The OpenSSL probes need `labdir.replay/ossl.*` copied into `labdir/` after a `run_lab_probes.sh` run.
 
 VERDICT: READY
+
+## Round 3 (verbatim)
+
+The same `reviewer`, resumed, read-only, on snapshot 3 (`/tmp/h33/snap3`: `0da298c33` plus round 2's fixes). Probes: [h33a-review3-probes.tar.gz](h33a-review3-probes.tar.gz).
+
+---
+
+# H33a review, round 3: fixes for the round-2 findings
+
+**VERDICT: READY.** Both round-2 fixes (malformed common names, issuer key identifiers) now match Node. I found no regression from the new chain cut. Two new low-severity gaps remain, both in how mbedTLS builds chains; they should be documented, not fixed. Snapshot `/tmp/h33/snap3` is untouched; probes are in `/tmp/h33/review3/` and `/tmp/h33/review3-probes.tar.gz`.
+
+## What I re-ran
+- **Focused tests pass.** `TestFetchHTTPS{MatchesNode,NameConstraints}`, run read-only from snap3 with `PTS_REQUIRE_NODE=1` and `GOMAXPROCS=2 -p 1`: `ok … 24.668s` (`focused3.log`).
+- **Node's baseline is stable.** For the round-2 combinations, Node printed the same lines as the recorded `c1/node.round2.out`, apart from OpenSSL's per-run thread id inside its error strings.
+- **Round-2 fixes, verified against Node** (`run_combos.sh`):
+  - **R2-F4 fixed.** All four cases now match Node:
+
+| Case | Node and pts now |
+|---|---|
+| `same-name-fake-root` | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
+| `same-name-fake-inter-real-sent` | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
+| `pathlen+expired-inter1` | `CERT_HAS_EXPIRED` |
+| `notca-issuer-expired` | `CERT_HAS_EXPIRED` |
+
+  - **R2-F1 fixed.** Odd-length BMPString, bad-length UniversalString, surrogates and code points past U+10FFFF no longer name anything, so the certificate is rejected. Node fails these earlier, at OpenSSL's parse; pts fails them with `ERR_TLS_CERT_ALTNAME_INVALID`. The test uses `attemptFailing`, so this difference doesn't matter.
+  - **No regressions** in every other round-2 combination.
+  - **What still differs** is all documented: name constraints (failing closed), the trusted intermediate acting as an anchor (R2-F3), and the misordered chain (R2-F2). Both R2-F2 and R2-F3 are now in the Known gaps and §8.
+- **Round-1 probes** (`run_lab_probes.log`): the only remaining differences are the documented ones (name constraints, the keyEncipherment-only leaf, trailing-dot SNI). The OpenSSL `s_server` probes behave as in round 2.
+- **Sanitizers.** The combos built with ASan and UBSan (snap3's runtime) on 1 and 4 loops give output identical to the plain build. No ASan or UBSan reports, and no leaks with tls/x509/psa frames.
+- **Public sites.** 15 sites fetched over TLS with snap3's CLI and none failed TLS. The 403 from entrust and the 405 from amazon are HTTP answers to the probe's HEAD.
+
+## Regression hunt on the chain cut
+The new lab cases are in `lab2/main.go` and run via `run_combos.sh`. Each child is signed with its parent's real key, but its AKID names a different SKID.
+
+| Case | Node | pts | Same? |
+|---|---|---|---|
+| AKID mismatch at the leaf + wrong host | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | same | yes |
+| AKID mismatch at the leaf + expired leaf | `CERT_HAS_EXPIRED` | same | yes |
+| AKID mismatch at the leaf + expired intermediate above the cut (ignored, as in OpenSSL) | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | same | yes |
+| AKID mismatch at the intermediate + wrong host | `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` | same | yes |
+| AKID mismatch at the intermediate + expired leaf | `CERT_HAS_EXPIRED` | same | yes |
+| clientAuth EKU on the certificate at the cut (kept) | `INVALID_PURPOSE` | same | yes |
+| clientAuth EKU on the root above the cut (dropped) | `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` | same | yes |
+| clientAuth-EKU root without a cut | `INVALID_PURPOSE` | same | yes |
+| AKID mismatch at the leaf only, nothing else wrong | rejected | 200 | no: R3-F1 |
+| AKID mismatch at the intermediate only, nothing else wrong | rejected | 200 | no: R3-F1 |
+| AKID mismatch at both | rejected | 200 | no: R3-F1 |
+
+- **The cut can't change acceptance.** Verification passes or fails on mbedTLS's flags; `verify_failure` only picks which error to report once it has failed.
+- **No change for chains without a cut.** Without a cut, `kept` equals `seen`, so `flags` is passed through unchanged.
+- **`tls->above`** compares each depth with the depth above it, because mbedTLS calls the callback for every depth from the top down. It is NULL again after depth 0. The new arrays are bounded by the same guard as `found[]`.
+- **`refusal_among`** resets `*validity` correctly on every path. `directory_text`'s NULL result is handled: `fwrite` gets length 0, and NULL never reaches the pattern match.
+
+## Findings
+
+### R3-F1 (low): pts accepts a chain whose AKID doesn't match its issuer's SKID; Node rejects it. Verified. Not documented.
+- **Where:** mbedTLS never checks the authority key identifier. This predates round 3; round 3 only makes the failure messages match.
+- **Repro:** `run_combos.sh`, cases `akid-leaf-valid`, `akid-inter-valid`, `akid-leaf-and-inter`. Node gives `UNABLE_TO_VERIFY_LEAF_SIGNATURE` or `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`; pts gives 200.
+- **Why only low:** the signatures do verify up to a trusted root, and Go and browsers also treat the AKID only as a hint. pts is looser than Node here, but not in a way that bypasses verification.
+- **Related:** `other_issuer_key` (`tls.c:598`) compares only the keyIdentifier. OpenSSL's AKID check also compares authorityCertIssuer and the serial number, so an old-style AKID that names those isn't cut.
+- **Action:** document it in D-223's Known gaps and §8.
+
+### R3-F2 (low): a same-named intermediate with another key, sent before the right one, fails the chain; Node succeeds. Verified. Not documented.
+- **Where:** an mbedTLS 3.6 limitation. For certificates the server sent, `x509_crt_find_parent_in` takes the first one whose name matches and whose dates are valid, without checking its signature first. It never tries the next candidate.
+- **Repro:** cases `same-name-inters-wrong-first` and `same-name-inters-right-first`.
+
+| Order sent | Node | pts |
+|---|---|---|
+| `[leaf, interOld, interK]` (wrong key first) | 200 | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
+| `[leaf, interK, interOld]` (right key first) | 200 | 200 |
+
+- **How common:** servers that bundle both the old and the new intermediate during a CA re-key.
+- **Action:** add it to the existing out-of-order note in D-223's Known gaps and §8.
+
+To replay: `run_combos.sh`, `run_lab_probes.sh`, `run_openssl_probes.sh` (all default to snap3's CLI; probe binaries were removed). The OpenSSL probes need `labdir.replay/ossl.*` from a `run_lab_probes.sh` run copied into `labdir/`.
+
+VERDICT: READY

@@ -64,8 +64,9 @@ func newKey(t *testing.T, kind string) crypto.Signer {
 	return key
 }
 
-// certify makes the certificate template describes, for key, signed by issuer, or by key itself if issuer is nil.
-func certify(t *testing.T, template *x509.Certificate, key crypto.Signer, issuer *authority) *x509.Certificate {
+// certifyDER makes the DER of the certificate template describes, for key, signed by
+// issuer, or by key itself if issuer is nil. It may be one Go can't parse back.
+func certifyDER(t *testing.T, template *x509.Certificate, key crypto.Signer, issuer *authority) []byte {
 	t.Helper()
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
 	assert.NilError(t, err)
@@ -76,7 +77,13 @@ func certify(t *testing.T, template *x509.Certificate, key crypto.Signer, issuer
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, parent, key.Public(), signer)
 	assert.NilError(t, err)
-	cert, err := x509.ParseCertificate(der)
+	return der
+}
+
+// certify makes the certificate template describes, for key, signed by issuer, or by key itself if issuer is nil.
+func certify(t *testing.T, template *x509.Certificate, key crypto.Signer, issuer *authority) *x509.Certificate {
+	t.Helper()
+	cert, err := x509.ParseCertificate(certifyDER(t, template, key, issuer))
 	assert.NilError(t, err)
 	return cert
 }
@@ -125,7 +132,7 @@ func serverCert(t *testing.T, issuer *authority, kind string, edit func(*x509.Ce
 	if edit != nil {
 		edit(template)
 	}
-	chain := tls.Certificate{Certificate: [][]byte{certify(t, template, key, issuer).Raw}, PrivateKey: key}
+	chain := tls.Certificate{Certificate: [][]byte{certifyDER(t, template, key, issuer)}, PrivateKey: key}
 	for _, cert := range sent {
 		chain.Certificate = append(chain.Certificate, cert.Raw)
 	}
@@ -140,17 +147,22 @@ func broken(chain tls.Certificate) tls.Certificate {
 	return chain
 }
 
-// bmpSubject is a subject whose common name is name as a BMPString (UTF-16), which OpenSSL decodes before Node reads it.
-func bmpSubject(t *testing.T, name string) []byte {
+// commonNameSubject is a subject whose common name is the string of ASN.1 tag holding bytes.
+func commonNameSubject(t *testing.T, tag int, bytes []byte) []byte {
 	t.Helper()
+	value := asn1.RawValue{Class: asn1.ClassUniversal, Tag: tag, Bytes: bytes}
+	subject, err := asn1.Marshal(pkix.RDNSequence{{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: value}}})
+	assert.NilError(t, err)
+	return subject
+}
+
+// bmpString is name in a BMPString's UTF-16, which OpenSSL decodes before Node reads a common name.
+func bmpString(name string) []byte {
 	var units []byte
 	for _, unit := range utf16.Encode([]rune(name)) {
 		units = append(units, byte(unit>>8), byte(unit))
 	}
-	value := asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagBMPString, Bytes: units}
-	subject, err := asn1.Marshal(pkix.RDNSequence{{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: value}}})
-	assert.NilError(t, err)
-	return subject
+	return units
 }
 
 // writePEM writes certs to a new PEM file in dir and returns its path.
@@ -527,6 +539,18 @@ func startTLSLab(t *testing.T) *tlsLab {
 	underPathZero := newAuthority(t, "PTS Intermediate CA under path length 0", "p256", pathZero, nil)
 	rsa1024Intermediate := newAuthority(t, "PTS RSA 1024 Intermediate CA", "rsa1024", root, nil)
 	noCertSign := newAuthority(t, "PTS Intermediate CA without keyCertSign", "p256", root, func(c *x509.Certificate) { c.KeyUsage = x509.KeyUsageDigitalSignature })
+	sameNameRoot := newAuthority(t, "PTS Test Root CA", "p256", nil, nil)                  // the trusted root's name, another key
+	sameNameIntermediate := newAuthority(t, "PTS Test Intermediate CA", "p256", root, nil) // the intermediate's name, another key
+	expiredPathZero := newAuthority(t, "PTS Expired Intermediate CA of path length 0", "p256", root, func(c *x509.Certificate) {
+		c.MaxPathLen, c.MaxPathLenZero = 0, true
+		expired(c)
+	})
+	underExpiredPathZero := newAuthority(t, "PTS Intermediate CA under an expired one of path length 0", "p256", expiredPathZero, nil)
+	expiredNotCAKey := newKey(t, "p256")
+	expiredNotCA := certify(t, &x509.Certificate{
+		Subject: pkix.Name{CommonName: "PTS Expired Not A CA"}, NotBefore: now.Add(-48 * time.Hour), NotAfter: now.Add(-24 * time.Hour),
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, BasicConstraintsValid: true, IsCA: false,
+	}, expiredNotCAKey, root)
 	servers := []struct {
 		name     string
 		cert     tls.Certificate
@@ -582,9 +606,21 @@ func startTLSLab(t *testing.T) *tlsLab {
 		{"sha1", serverCert(t, rsaRoot, "rsa", func(c *x509.Certificate) { c.SignatureAlgorithm = x509.SHA1WithRSA }), nil, false},
 		{"no-cert-sign", serverCert(t, noCertSign, "p256", nil, noCertSign.cert), nil, false},
 		{"bmp-common-name", serverCert(t, root, "p256", func(c *x509.Certificate) {
-			c.RawSubject = bmpSubject(t, "localhost")
+			c.RawSubject = commonNameSubject(t, asn1.TagBMPString, bmpString("localhost"))
 			c.DNSNames, c.IPAddresses = nil, nil
 		}), nil, true},
+		{"bmp-common-name-odd-length", serverCert(t, root, "p256", func(c *x509.Certificate) {
+			c.RawSubject = commonNameSubject(t, asn1.TagBMPString, append(bmpString("localhost"), 'A'))
+			c.DNSNames, c.IPAddresses = nil, nil
+		}), nil, false},
+		{"bmp-common-name-surrogate", serverCert(t, root, "p256", func(c *x509.Certificate) {
+			c.RawSubject = commonNameSubject(t, asn1.TagBMPString, append([]byte{0xd8, 0x3d, 0xde, 0x00}, bmpString("localhost")...))
+			c.DNSNames, c.IPAddresses = nil, nil
+		}), nil, false},
+		{"same-name-root", serverCert(t, sameNameRoot, "p256", nil), nil, false},
+		{"same-name-intermediate", serverCert(t, sameNameIntermediate, "p256", nil, intermediate.cert), nil, false},
+		{"path-length-exceeded-expired", serverCert(t, underExpiredPathZero, "p256", nil, underExpiredPathZero.cert, expiredPathZero.cert), nil, false},
+		{"issuer-not-ca-expired", serverCert(t, &authority{expiredNotCA, expiredNotCAKey}, "p256", nil, expiredNotCA), nil, false},
 		{"comma-name", serverCert(t, root, "p256", certFor("localhost, DNS:x")), nil, false},
 	}
 	// CAs with name constraints, which no client of this lab may trust: mbedTLS can't check them (D-223).
@@ -791,6 +827,12 @@ SHA-1 signature TypeError: fetch failed | UNSPECIFIED | CA signature digest algo
 intermediate without keyCertSign TypeError: fetch failed | UNSPECIFIED | key usage does not include certificate signing
 common name as a BMPString 200 <bmp-common-name>/hello GET sni="localhost" alpn="http/1.1" TLS 1.3, offered alpn=["http/1.1"] versions=["TLS 1.3" "TLS 1.2"]
 a comma in a DNS name TypeError: fetch failed | ERR_TLS_CERT_ALTNAME_INVALID | Hostname/IP does not match certificate's altnames: Host: localhost. is not in the cert's altnames: DNS:"localhost\u002c DNS:x"
+a CA named as the trusted root TypeError: fetch failed | UNABLE_TO_VERIFY_LEAF_SIGNATURE | unable to verify the first certificate
+a CA named as the intermediate sent TypeError: fetch failed | UNABLE_TO_VERIFY_LEAF_SIGNATURE | unable to verify the first certificate
+path length exceeded by an expired CA TypeError: fetch failed | CERT_HAS_EXPIRED | certificate has expired
+expired issuer not a CA TypeError: fetch failed | CERT_HAS_EXPIRED | certificate has expired
+common name as a BMPString of odd length TypeError: fetch failed | the cause is an Error: true
+common name as a BMPString with a surrogate TypeError: fetch failed | the cause is an Error: true
 requests that reached servers whose certificates don't verify: none
 plain HTTP server at https TypeError: fetch failed | the cause is an Error: true
 https server at http 400 <localhost-as-http>/hello Client sent an HTTP request to an HTTPS server.

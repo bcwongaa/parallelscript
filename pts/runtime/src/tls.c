@@ -56,9 +56,13 @@ struct pts_tls {
   int error;           /* mbedTLS's error that ended the session */
   /* What verifying the server's certificate found (on_verify), for verify_failure. */
   uint32_t found[MBEDTLS_X509_MAX_VERIFY_CHAIN_SIZE]; /* each certificate's flags, by depth */
+  bool self_issued[MBEDTLS_X509_MAX_VERIFY_CHAIN_SIZE]; /* each certificate issued itself */
+  bool other_key[MBEDTLS_X509_MAX_VERIFY_CHAIN_SIZE];   /* each certificate's issuer key isn't its parent's in the chain */
+  const mbedtls_x509_crt *above; /* the certificate on_verify saw last, above the next */
   int chain_length;     /* of the chain mbedTLS built: the server's certificates, and a root if one is trusted */
   bool top_self_issued; /* the chain's last certificate issued itself */
   refusal refused;      /* why mbedTLS didn't take an issuer of the chain's last certificate, if there is one */
+  uint32_t refused_validity; /* that issuer's own validity flags (expired, not yet valid) */
   bool leaf_key_weak;   /* the server's own RSA key is shorter than mbedTLS takes */
   bool constrained;     /* a CA of the chain has name constraints, which aren't supported */
   bool names_checked;   /* on_verify checked the certificate's names */
@@ -194,10 +198,29 @@ static pts_value described(int error) {
  */
 static pts_value verify_failure(const pts_tls *tls, uint32_t flags) {
   const char *code = NULL, *message = NULL;
+  /*
+   * OpenSSL's chain ends below an issuer whose key isn't the one the certificate names
+   * (by its authority key identifier), where mbedTLS takes it and finds the signature bad:
+   * the certificate's issuer is then missing, and the flags of what is above don't count.
+   */
   int top = tls->chain_length - 1;
-  bool lone_leaf = top == 0 && !tls->top_self_issued && tls->refused == REFUSED_NONE;
-  if (top >= 0 && (tls->found[top] & MBEDTLS_X509_BADCERT_NOT_TRUSTED) && tls->refused == REFUSED_NONE) {
-    if (tls->top_self_issued) {
+  for (int depth = 0; depth < top; depth++) {
+    if (tls->other_key[depth]) {
+      top = depth;
+    }
+  }
+  bool cut = top < tls->chain_length - 1, self_issued = cut ? tls->self_issued[top] : tls->top_self_issued;
+  bool untrusted = cut || (top >= 0 && (tls->found[top] & MBEDTLS_X509_BADCERT_NOT_TRUSTED));
+  refusal refused = cut ? REFUSED_NONE : tls->refused;
+  uint32_t seen = 0, kept = 0;
+  for (int depth = 0; depth < tls->chain_length; depth++) {
+    seen |= tls->found[depth];
+    kept |= depth <= top ? tls->found[depth] : 0;
+  }
+  flags = kept | (flags & ~seen); /* and what mbedTLS checked of the server's after the callback */
+  bool lone_leaf = top == 0 && !self_issued && refused == REFUSED_NONE && untrusted;
+  if (untrusted && refused == REFUSED_NONE) {
+    if (self_issued) {
       code = top == 0 ? "DEPTH_ZERO_SELF_SIGNED_CERT" : "SELF_SIGNED_CERT_IN_CHAIN";
       message = top == 0 ? "self-signed certificate" : "self-signed certificate in certificate chain";
     } else {
@@ -205,11 +228,11 @@ static pts_value verify_failure(const pts_tls *tls, uint32_t flags) {
       message = top == 0 ? "unable to verify the first certificate" : "unable to get local issuer certificate";
     }
   }
-  if (tls->refused == REFUSED_NOT_CA || (flags & (MBEDTLS_X509_BADCERT_KEY_USAGE | MBEDTLS_X509_BADCERT_EXT_KEY_USAGE | MBEDTLS_X509_BADCERT_NS_CERT_TYPE))) {
+  if (refused == REFUSED_NOT_CA || (flags & (MBEDTLS_X509_BADCERT_KEY_USAGE | MBEDTLS_X509_BADCERT_EXT_KEY_USAGE | MBEDTLS_X509_BADCERT_NS_CERT_TYPE))) {
     code = "INVALID_PURPOSE", message = "unsuitable certificate purpose";
-  } else if (tls->refused == REFUSED_NO_CERT_SIGN) {
+  } else if (refused == REFUSED_NO_CERT_SIGN) {
     code = "UNSPECIFIED", message = "key usage does not include certificate signing";
-  } else if (tls->refused == REFUSED_PATH_LENGTH) {
+  } else if (refused == REFUSED_PATH_LENGTH) {
     code = "PATH_LENGTH_EXCEEDED", message = "path length constraint exceeded";
   }
   if (flags & MBEDTLS_X509_BADCERT_BAD_KEY) {
@@ -218,9 +241,14 @@ static pts_value verify_failure(const pts_tls *tls, uint32_t flags) {
   } else if (flags & MBEDTLS_X509_BADCERT_BAD_MD) {
     code = "UNSPECIFIED", message = "CA signature digest algorithm too weak";
   }
+  if (refused != REFUSED_NONE && (tls->refused_validity & MBEDTLS_X509_BADCERT_EXPIRED)) {
+    code = "CERT_HAS_EXPIRED", message = "certificate has expired"; /* the refused issuer, above the chain mbedTLS built */
+  } else if (refused != REFUSED_NONE && (tls->refused_validity & MBEDTLS_X509_BADCERT_FUTURE)) {
+    code = "CERT_NOT_YET_VALID", message = "certificate is not yet valid";
+  }
   for (int depth = top; depth >= 0; depth--) {
     uint32_t found = tls->found[depth];
-    if ((depth < top && (found & MBEDTLS_X509_BADCERT_NOT_TRUSTED)) || (depth == top && tls->refused == REFUSED_SIGNATURE)) {
+    if ((depth < top && (found & MBEDTLS_X509_BADCERT_NOT_TRUSTED)) || (depth == top && refused == REFUSED_SIGNATURE)) {
       code = "CERT_SIGNATURE_FAILURE", message = "certificate signature failure"; /* its issuer above it didn't sign it */
     }
     if (depth == 0 && lone_leaf) {
@@ -421,17 +449,26 @@ static bool dns_name_names(const mbedtls_x509_crt *crt, const char *host, size_t
 }
 
 /*
- * A directory string's text as UTF-8, malloc'd, its length in *len: a BMPString's UTF-16
- * and a UniversalString's UTF-32 decoded (as OpenSSL does before Node sees a common name),
- * other kinds' bytes as they are.
+ * A directory string's text as UTF-8, malloc'd, its length in *len: a BMPString's UCS-2
+ * and a UniversalString's UCS-4 decoded, as OpenSSL decodes them before Node sees a common
+ * name, other kinds' bytes as they are; NULL for a BMPString or UniversalString OpenSSL
+ * refuses (a length not a whole number of characters, a surrogate, a code point past
+ * U+10FFFF).
  */
 static unsigned char *directory_text(const mbedtls_x509_buf *value, size_t *len) {
   size_t unit = value->tag == MBEDTLS_ASN1_BMP_STRING ? 2 : value->tag == MBEDTLS_ASN1_UNIVERSAL_STRING ? 4 : 1;
+  if (value->len % unit != 0) {
+    return NULL;
+  }
   unsigned char *text = checked(malloc(value->len * 4 + 1)), *end = text;
   for (size_t i = 0; i + unit <= value->len; i += unit) {
     uint32_t c = value->p[i];
     for (size_t j = 1; j < unit; j++) {
       c = c << 8 | value->p[i + j];
+    }
+    if (unit > 1 && ((c >= 0xD800 && c <= 0xDFFF) || c > 0x10FFFF)) {
+      free(text);
+      return NULL;
     }
     if (unit == 1 || c < 0x80) {
       *end++ = (unsigned char)c;
@@ -452,12 +489,12 @@ static unsigned char *directory_text(const mbedtls_x509_buf *value, size_t *len)
 static bool common_name_names(const mbedtls_x509_crt *crt, const char *host, size_t host_len, bool *some, FILE *out) {
   for (const mbedtls_x509_name *name = &crt->subject; name != NULL; name = name->next) {
     if (MBEDTLS_OID_CMP(MBEDTLS_OID_AT_CN, &name->oid) == 0 && name->val.len > 0) {
-      size_t len;
-      unsigned char *text = directory_text(&name->val, &len);
+      size_t len = 0;
+      unsigned char *text = directory_text(&name->val, &len); /* NULL: names nothing */
       fputs(*some ? "," : "", out);
       fwrite(text, 1, len, out);
       *some = true;
-      bool named = pattern_names(text, len, host, host_len);
+      bool named = text != NULL && pattern_names(text, len, host, host_len);
       free(text);
       if (named) {
         return true;
@@ -557,17 +594,32 @@ static bool has_name_constraints(const mbedtls_x509_crt *crt) {
   return false;
 }
 
+/* Whether child names another key as its issuer's than parent's: its authority key identifier against parent's subject key identifier, where both have one. */
+static bool other_issuer_key(const mbedtls_x509_crt *child, const mbedtls_x509_crt *parent) {
+  const mbedtls_x509_buf *authority = &child->authority_key_id.keyIdentifier, *subject = &parent->subject_key_id;
+  return authority->len > 0 && subject->len > 0 && (authority->len != subject->len || memcmp(authority->p, subject->p, subject->len) != 0);
+}
+
+/* Its validity flags, MBEDTLS_X509_BADCERT_EXPIRED or …_FUTURE, as mbedTLS checks a chain's. */
+static uint32_t validity_of(const mbedtls_x509_crt *crt) {
+  return (mbedtls_x509_time_is_past(&crt->valid_to) ? MBEDTLS_X509_BADCERT_EXPIRED : 0) |
+         (mbedtls_x509_time_is_future(&crt->valid_from) ? MBEDTLS_X509_BADCERT_FUTURE : 0);
+}
+
 /*
- * Why mbedTLS didn't take a certificate among candidates that names crt's issuer as its
- * issuer, crt being at depth (mbedTLS's checks in x509_crt_check_parent and
- * x509_crt_find_parent_in); a trusted one with no other fault was refused for its
- * signature. MBEDTLS_PRIVATE: mbedTLS keeps the basic constraints to itself.
+ * Why mbedTLS didn't take a certificate among candidates that names crt's issuer, by name
+ * and key identifier, as its issuer, crt being at depth (mbedTLS's checks in
+ * x509_crt_check_parent and x509_crt_find_parent_in), with that certificate's validity in
+ * *validity; a trusted one with no other fault was refused for its signature.
+ * MBEDTLS_PRIVATE: mbedTLS keeps the basic constraints to itself.
  */
-static refusal refusal_among(const mbedtls_x509_crt *crt, const mbedtls_x509_crt *candidates, int depth, bool trusted) {
+static refusal refusal_among(const mbedtls_x509_crt *crt, const mbedtls_x509_crt *candidates, int depth, bool trusted, uint32_t *validity) {
   for (const mbedtls_x509_crt *other = candidates; other != NULL && other->raw.p != NULL; other = other->next) {
-    if (other == crt || other->subject_raw.len != crt->issuer_raw.len || memcmp(other->subject_raw.p, crt->issuer_raw.p, crt->issuer_raw.len) != 0) {
+    if (other == crt || other->subject_raw.len != crt->issuer_raw.len || memcmp(other->subject_raw.p, crt->issuer_raw.p, crt->issuer_raw.len) != 0 ||
+        other_issuer_key(crt, other)) {
       continue;
     }
+    *validity = validity_of(other);
     if (!other->MBEDTLS_PRIVATE(ca_istrue) && other->version >= 3) {
       return REFUSED_NOT_CA;
     }
@@ -581,6 +633,7 @@ static refusal refusal_among(const mbedtls_x509_crt *crt, const mbedtls_x509_crt
       return REFUSED_SIGNATURE;
     }
   }
+  *validity = 0;
   return REFUSED_NONE;
 }
 
@@ -598,8 +651,10 @@ static int on_verify(void *data, mbedtls_x509_crt *crt, int depth, uint32_t *fla
     tls->chain_length = depth + 1;
     tls->top_self_issued = crt->issuer_raw.len == crt->subject_raw.len && memcmp(crt->issuer_raw.p, crt->subject_raw.p, crt->subject_raw.len) == 0;
     if ((*flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED) && !tls->top_self_issued) {
-      tls->refused = refusal_among(crt, crt->next, depth, false);
-      tls->refused = tls->refused != REFUSED_NONE ? tls->refused : refusal_among(crt, &client_setup.roots, depth, true);
+      tls->refused = refusal_among(crt, crt->next, depth, false, &tls->refused_validity);
+      if (tls->refused == REFUSED_NONE) {
+        tls->refused = refusal_among(crt, &client_setup.roots, depth, true, &tls->refused_validity);
+      }
     }
   }
   if (!usage_serves_tls(crt)) {
@@ -621,7 +676,10 @@ static int on_verify(void *data, mbedtls_x509_crt *crt, int depth, uint32_t *fla
   }
   if (depth < MBEDTLS_X509_MAX_VERIFY_CHAIN_SIZE) {
     tls->found[depth] = *flags;
+    tls->self_issued[depth] = crt->issuer_raw.len == crt->subject_raw.len && memcmp(crt->issuer_raw.p, crt->subject_raw.p, crt->subject_raw.len) == 0;
+    tls->other_key[depth] = tls->above != NULL && other_issuer_key(crt, tls->above);
   }
+  tls->above = depth > 0 ? crt : NULL;
   return 0;
 }
 

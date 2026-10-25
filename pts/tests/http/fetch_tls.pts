@@ -192,6 +192,12 @@ await attempt("SHA-1 signature", () => get("sha1"));
 await attempt("intermediate without keyCertSign", () => get("no-cert-sign"));
 await attempt("common name as a BMPString", () => get("bmp-common-name"));
 await attempt("a comma in a DNS name", () => get("comma-name"));
+await attempt("a CA named as the trusted root", () => get("same-name-root"));
+await attempt("a CA named as the intermediate sent", () => get("same-name-intermediate"));
+await attempt("path length exceeded by an expired CA", () => get("path-length-exceeded-expired"));
+await attempt("expired issuer not a CA", () => get("issuer-not-ca-expired"));
+await attemptFailing("common name as a BMPString of odd length", () => get("bmp-common-name-odd-length"));
+await attemptFailing("common name as a BMPString with a surrogate", () => get("bmp-common-name-surrogate"));
 console.log("requests that reached servers whose certificates don't verify:", await stateOf("/unverified"));
 
 await attemptFailing("plain HTTP server at https", () => get("plain-as-https"));
