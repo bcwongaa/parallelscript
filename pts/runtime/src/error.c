@@ -19,7 +19,7 @@ _Thread_local pts_handler *pts_handlers;
 /* An uncaught exception: its stack, or for any other value, the value as console.log shows it nested (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception) {
   pts_begin_exit();
-  fflush(stdout);
+  pts_flush_output(stdout);
   fputs("Uncaught ", stderr);
   if (pts_value_is_object(exception) && pts_is_error(pts_value_as_object(exception))) {
     pts_error *error = (pts_error *)pts_value_as_object(exception);

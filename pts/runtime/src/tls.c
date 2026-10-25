@@ -844,6 +844,22 @@ pts_tls_identity *pts_tls_identity_new(const char *cert, size_t cert_len, const 
   return identity;
 }
 
+/* Room for a private key in DER: an RSA key of 16,384 bits takes about 9.3 KB. */
+enum { KEY_DER_MAX = 16 * 1024 };
+
+char *pts_tls_identity_key(const pts_tls_identity *identity, size_t *len) {
+  unsigned char *der = checked(malloc(KEY_DER_MAX));
+  int written = mbedtls_pk_write_key_der(&identity->key, der, KEY_DER_MAX); /* at the buffer's end */
+  if (written <= 0) {
+    pts_tls_forget((char *)der, KEY_DER_MAX);
+    return NULL;
+  }
+  memmove(der, der + KEY_DER_MAX - written, (size_t)written);
+  mbedtls_platform_zeroize(der + written, KEY_DER_MAX - (size_t)written);
+  *len = (size_t)written;
+  return (char *)der;
+}
+
 pts_tls *pts_tls_server(pts_tls_identity *identity, pts_value *failure) {
   pts_tls *tls = checked(calloc(1, sizeof *tls + 1));
   tls->server = true;

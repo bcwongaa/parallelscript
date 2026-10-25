@@ -7,6 +7,7 @@
 #include "inspect_internal.h"
 #include "string_internal.h"
 
+#include <errno.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -48,9 +49,10 @@ static void write_text(FILE *stream, const char *bytes, size_t len) {
  */
 static void write_line(FILE *stream, const char *bytes, size_t len) {
   if (stream == stderr) {
-    fflush(stdout);
+    pts_flush_output(stdout);
   }
   size_t indentation = atomic_load(&group_indentation);
+  errno = 0;
   flockfile(stream);
   indent(stream, indentation);
   for (const char *newline; indentation > 0 && (newline = memchr(bytes, '\n', len)) != NULL;) {
@@ -62,6 +64,7 @@ static void write_line(FILE *stream, const char *bytes, size_t len) {
   write_text(stream, bytes, len);
   fputc('\n', stream);
   funlockfile(stream);
+  pts_check_output(stream);
 }
 
 /* Writes the arguments to stream as util.format formats them. */
@@ -76,7 +79,7 @@ static void write_formatted(FILE *stream, size_t argc, const pts_value *argv) {
 static void warn(const char *format, const char *label, const char *method) {
   char line[256];
   int len = snprintf(line, sizeof line, format, label, method);
-  fflush(stdout);
+  pts_flush_output(stdout);
   fprintf(stderr, "Warning: %.*s\n", len, line);
 }
 

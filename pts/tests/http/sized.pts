@@ -1,0 +1,22 @@
+// A server whose answer to /sized?N is N bytes, over HTTPS if TLS_CERT_FILE is set, for
+// TestHTTPServersSurviveClientsThatResetMidPipeline and TestHTTPSServerAnswersCloseNotify:
+// it prints "listening" and its port; GET /stop stops it, so the program ends.
+import { serve, type TLSOptions } from "pts:http";
+
+const certFile = process.env.TLS_CERT_FILE;
+const tls: TLSOptions | undefined = certFile === undefined ? undefined : { certFile, keyFile: process.env.TLS_KEY_FILE };
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  tls,
+  fetch(request, server) {
+    const target = request.url.slice(request.url.indexOf("/", "https://".length));
+    if (target === "/stop") {
+      server.stop();
+      return new Response("bye");
+    }
+    return new Response("x".repeat(Number(target.slice(target.indexOf("?") + 1))));
+  },
+});
+console.log("listening", server.port);

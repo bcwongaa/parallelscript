@@ -888,7 +888,7 @@ pts_value pts_promise_with_resolvers(void) {
 void pts_check_top_level(pts_value promise) {
   if (((pts_promise *)pts_value_as_object(promise))->state == PENDING) {
     pts_begin_exit();
-    fflush(stdout);
+    pts_flush_output(stdout);
     fputs("Warning: Detected unsettled top-level await\n", stderr);
     exit(13);
   }

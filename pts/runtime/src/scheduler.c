@@ -70,7 +70,7 @@ static void on_wake(uv_async_t *handle);
 /* Before a loop waits for I/O, what the program printed goes out: a server's log lines appear as it runs, as Node's do (D-136). */
 static void on_prepare(uv_prepare_t *handle) {
   (void)handle;
-  fflush(stdout);
+  pts_flush_output(stdout);
 }
 
 static loop_slot *new_slot(void) {
@@ -311,7 +311,7 @@ static void run(loop_slot *slot) {
     if (task != NULL) {
       pts_message_run(task);
     } else {
-      fflush(stdout);
+      pts_flush_output(stdout);
       if (!wait_for_work(slot)) {
         return;
       }

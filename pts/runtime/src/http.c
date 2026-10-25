@@ -669,10 +669,10 @@ static void lost(connection *c) {
 /*
  * Gives an https connection's session len bytes from the client: goes on with the
  * handshake, then decrypts the requests into the connection's buffer, and sends what the
- * session has for the client meanwhile (the handshake's messages). False if the session
- * has ended: the client's close_notify, or a failure.
+ * session has for the client meanwhile (the handshake's messages). PTS_TLS_WANT while the
+ * session goes on; PTS_TLS_CLOSED for the client's close_notify, PTS_TLS_FAILED for a failure.
  */
-static bool unseal(connection *c, const char *bytes, size_t len) {
+static pts_tls_status unseal(connection *c, const char *bytes, size_t len) {
   pts_tls_received(c->tls, bytes, len);
   pts_tls_status status = PTS_TLS_DONE;
   if (!c->secured) {
@@ -686,26 +686,39 @@ static bool unseal(connection *c, const char *bytes, size_t len) {
     c->in_len += got;
     reserve(c);
   }
-  if (status != PTS_TLS_WANT) {
-    return false;
+  if (status == PTS_TLS_WANT) {
+    send_sealed(c, false);
   }
-  send_sealed(c, false);
-  return true;
+  return status;
+}
+
+/*
+ * Sends what an https connection's session has for the client (close_notify, an alert)
+ * only if the socket takes it at once, as the connection closes, so that a client that
+ * doesn't read can't hold it open.
+ */
+static void send_last(connection *c) {
+  char *bytes;
+  size_t len;
+  if (queued(c) == 0 && pts_tls_take_output(c->tls, &bytes, &len)) {
+    uv_buf_t buf = uv_buf_init(bytes, (unsigned)len);
+    uv_try_write((uv_stream_t *)&c->tcp, &buf, 1);
+    free(bytes);
+  }
 }
 
 /*
  * An https connection's session has ended, after the requests that came before its end:
- * as a plain connection's end, the connection closes and a request the program has is
- * aborted; if there is none, after the session's alert.
+ * by the client's close_notify, which is answered with the server's (RFC 8446 §6.1), or by
+ * a failure, after mbedTLS's alert if it wrote one. As a plain connection's end, the
+ * connection closes and a request the program has is aborted.
  */
-static void end_sealed(connection *c) {
-  if (c->roots->request != PTS_VALUE_ABSENT) {
-    lost(c);
-    return;
+static void end_sealed(connection *c, bool notified) {
+  if (notified) {
+    pts_tls_close(c->tls);
   }
-  c->busy = true, c->draining = false; /* nothing more is read or processed */
-  uv_read_stop((uv_stream_t *)&c->tcp);
-  send_sealed(c, true);
+  send_last(c);
+  lost(c);
 }
 
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -714,9 +727,9 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     lost(c);
     return;
   }
-  bool ended = false;
+  pts_tls_status status = PTS_TLS_WANT;
   if (c->tls != NULL) {
-    ended = !unseal(c, buf->base, (size_t)nread);
+    status = unseal(c, buf->base, (size_t)nread);
   } else {
     c->in_len += (size_t)nread;
   }
@@ -724,8 +737,8 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     uv_read_stop(stream); /* pipelined requests wait in the kernel until this one is answered */
   }
   process(c);
-  if (ended && !c->closing) {
-    end_sealed(c);
+  if (status != PTS_TLS_WANT && !c->closing) {
+    end_sealed(c, status == PTS_TLS_CLOSED);
   }
 }
 
@@ -895,17 +908,10 @@ static void init_servers(void) { uv_mutex_init(&servers_lock); }
 
 static void on_listener_closed(uv_handle_t *handle) { free(handle); }
 
-/*
- * Closes a connection that has no request: an https one after close_notify if the client
- * can take it at once, so that one that doesn't read can't hold the program open.
- */
+/* Closes a connection that has no request: an https one after close_notify, if the client can take it at once. */
 static void close_idle(connection *c) {
-  char *bytes;
-  size_t len;
-  if (c->tls != NULL && c->secured && queued(c) == 0 && pts_tls_close(c->tls) == PTS_TLS_DONE && pts_tls_take_output(c->tls, &bytes, &len)) {
-    uv_buf_t buf = uv_buf_init(bytes, (unsigned)len);
-    uv_try_write((uv_stream_t *)&c->tcp, &buf, 1);
-    free(bytes);
+  if (c->tls != NULL && c->secured && pts_tls_close(c->tls) == PTS_TLS_DONE) {
+    send_last(c);
   }
   close_connection(c);
 }
@@ -1099,7 +1105,19 @@ static void make_identities(server *s, pts_array *tls) {
   char *cert = pem_of(tls_part(tls, TLS_CERT_KIND), tls_part(tls, TLS_CERT), &cert_len, &failure);
   char *key = cert != NULL ? pem_of(tls_part(tls, TLS_KEY_KIND), tls_part(tls, TLS_KEY), &key_len, &failure) : NULL;
   const pts_string *passphrase = pts_array_length_of(tls) > TLS_PASSPHRASE ? tls_part(tls, TLS_PASSPHRASE) : NULL;
-  for (uint32_t i = 0; i < s->listener_count && key != NULL && failure == PTS_VALUE_ABSENT; i++) {
+  if (key != NULL) {
+    s->listeners[0].identity = pts_tls_identity_new(cert, cert_len, key, key_len, passphrase, &failure);
+  }
+  if (s->listeners[0].identity != NULL && s->listener_count > 1) {
+    /* The other loops take the first's key as DER, so that an encrypted key is decrypted once. */
+    size_t der_len;
+    char *der = pts_tls_identity_key(s->listeners[0].identity, &der_len);
+    if (der != NULL) {
+      pts_tls_forget(key, key_len);
+      key = der, key_len = der_len, passphrase = NULL;
+    }
+  }
+  for (uint32_t i = 1; i < s->listener_count && failure == PTS_VALUE_ABSENT; i++) {
     s->listeners[i].identity = pts_tls_identity_new(cert, cert_len, key, key_len, passphrase, &failure);
   }
   free(cert);

@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -79,12 +80,17 @@ func marshalDER(t *testing.T, value any) []byte {
 // `openssl pkcs8 -topk8` writes it: PBES2 with PBKDF2 over HMAC-SHA256 and AES-256-CBC.
 func encryptedPKCS8PEM(t *testing.T, key crypto.Signer, passphrase string) []byte {
 	t.Helper()
+	return encryptedPKCS8PEMIterated(t, key, passphrase, 2048)
+}
+
+// encryptedPKCS8PEMIterated is encryptedPKCS8PEM with PBKDF2 at the given number of iterations.
+func encryptedPKCS8PEMIterated(t *testing.T, key crypto.Signer, passphrase string, iterations int) []byte {
+	t.Helper()
 	plain, err := x509.MarshalPKCS8PrivateKey(key)
 	assert.NilError(t, err)
 	salt, iv := make([]byte, 16), make([]byte, aes.BlockSize)
 	_, _ = rand.Read(salt)
 	_, _ = rand.Read(iv)
-	const iterations = 2048
 	derived, err := pbkdf2.Key(sha256.New, passphrase, salt, iterations, 32)
 	assert.NilError(t, err)
 	block, err := aes.NewCipher(derived)
@@ -1079,6 +1085,7 @@ legacy encrypted key, wrong passphrase: Error: serve's tls key: … (mbedTLS -0x
 another key: Error: serve's tls key doesn't match the certificate
 an RSA certificate, a P-256 key: Error: serve's tls key doesn't match the certificate
 the intermediate first: Error: serve's tls key doesn't match the certificate
+a chain with a certificate that doesn't parse: Error: serve's tls cert: a certificate in it can't be parsed
 a missing file at a port in use: Error: ENOENT: no such file or directory, open 'missing.pem' | ENOENT -2 open missing.pem | as readFileSync: true
 a port in use: Error: listen EADDRINUSE: address already in use 127.0.0.1:PORT
 certFile and keyFile: https true
@@ -1137,6 +1144,7 @@ func TestHTTPSServerOptions(t *testing.T) {
 		"RSA_CERT_FILE=" + writeFile(t, dir, "rsa.pem", chainPEM(serverCert(t, root, "rsa", nil))),
 		"ED25519_CERT_FILE=" + writeFile(t, dir, "ed25519.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ed25519Cert})),
 		"REVERSED_CHAIN_FILE=" + writeFile(t, dir, "reversed.pem", reversed),
+		"BROKEN_CHAIN_FILE=" + writeFile(t, dir, "broken.pem", append(chainPEM(chain), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not DER")})...)),
 		"DIRECTORY=" + directory,
 	}
 	heavyJobs <- struct{}{}
@@ -1152,4 +1160,117 @@ func TestHTTPSServerOptions(t *testing.T) {
 	assert.NilError(t, err, "stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	assert.Equal(t, stdout.String(), serveTLSOptionsOutput, "stderr:\n%s", stderr.String())
 	assert.Equal(t, stderr.String(), "")
+}
+
+// ---------------------------------------------------------------- clients that reset or close_notify
+
+// TestHTTPServersSurviveClientsThatResetMidPipeline runs sized.pts over HTTP and HTTPS
+// against clients that pipeline a hundred requests for 100 KB answers and then reset
+// their connections: the server writes on to a socket the client has reset, which must
+// fail that connection only, not end the program by SIGPIPE (H33b's review, R1-F1;
+// pre-existing over HTTP). The server then still answers, and ends after /stop with
+// nothing on stderr.
+func TestHTTPServersSurviveClientsThatResetMidPipeline(t *testing.T) {
+	t.Parallel()
+	exe := buildServer(t, "sized")
+	certFile, keyFile, root := serverFiles(t, t.TempDir())
+	for _, secure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("tls=%v", secure), func(t *testing.T) {
+			t.Parallel()
+			var env []string
+			var config *tls.Config
+			if secure {
+				env = []string{"TLS_CERT_FILE=" + certFile, "TLS_KEY_FILE=" + keyFile}
+				config = &tls.Config{RootCAs: pool(root.cert), ServerName: "localhost"}
+			}
+			server, ports := startServer(t, exe, env...)
+			address := "127.0.0.1:" + ports[0]
+			for range 20 {
+				resetMidPipeline(t, address, config)
+			}
+			client, scheme := http.DefaultClient, "http"
+			if secure {
+				client, scheme = httpsClient(config.RootCAs, nil, false), "https"
+			}
+			_, body := requestWith(t, client, "GET", scheme+"://"+address+"/sized?5", "")
+			assert.Equal(t, body, "xxxxx")
+			_, body = requestWith(t, client, "GET", scheme+"://"+address+"/stop", "")
+			assert.Equal(t, body, "bye")
+			awaitExit(t, server)
+			assert.Equal(t, server.stderr.String(), "")
+		})
+	}
+}
+
+// resetMidPipeline connects to address (over TLS if config isn't nil), pipelines a hundred
+// requests for 100 KB answers, and resets the connection while the server is answering.
+func resetMidPipeline(t *testing.T, address string, config *tls.Config) {
+	t.Helper()
+	tcp, err := net.DialTimeout("tcp", address, 5*time.Second)
+	assert.NilError(t, err)
+	var conn net.Conn = tcp
+	if config != nil {
+		secured := tls.Client(tcp, config)
+		assert.NilError(t, secured.HandshakeContext(t.Context()))
+		conn = secured
+	}
+	_, err = conn.Write([]byte(strings.Repeat("GET /sized?100000 HTTP/1.1\r\nHost: a\r\n\r\n", 100)))
+	assert.NilError(t, err)
+	time.Sleep(20 * time.Millisecond)
+	assert.NilError(t, tcp.(*net.TCPConn).SetLinger(0))
+	assert.NilError(t, tcp.Close())
+}
+
+// TestHTTPSServerAnswersCloseNotify: a client that ends its side of an idle connection with
+// close_notify, keeping TCP open, gets the server's close_notify before the TCP close, as
+// RFC 8446 §6.1 and RFC 5246 §7.2.1 ask and Node's server does (H33b's review, R1-F2).
+func TestHTTPSServerAnswersCloseNotify(t *testing.T) {
+	t.Parallel()
+	exe := buildServer(t, "sized")
+	certFile, keyFile, root := serverFiles(t, t.TempDir())
+	server, ports := startServer(t, exe, "TLS_CERT_FILE="+certFile, "TLS_KEY_FILE="+keyFile)
+	address := "127.0.0.1:" + ports[0]
+	for _, version := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
+		conn := dialTLS(t, address, &tls.Config{RootCAs: pool(root.cert), ServerName: "localhost", MinVersion: version, MaxVersion: version})
+		conn.send(t, "GET /sized?3 HTTP/1.1\r\nHost: a\r\n\r\n")
+		_, body := conn.response(t)
+		assert.Equal(t, body, "xxx")
+		assert.NilError(t, conn.CloseWrite())
+		conn.endedWithCloseNotify(t)
+	}
+	_, body := requestWith(t, httpsClient(pool(root.cert), nil, false), "GET", "https://"+address+"/stop", "")
+	assert.Equal(t, body, "bye")
+	awaitExit(t, server)
+	assert.Equal(t, server.stderr.String(), "")
+}
+
+// TestHTTPSServerDecryptsItsKeyOnce runs encrypted_key_loops.pts on eight loops with an RSA
+// key encrypted at 300,000 PBKDF2 iterations: starting its server on every loop takes less
+// than three times as long as starting one on one loop, since the key is decrypted once,
+// not once per loop (H33b's review, R1-F3: eight times as long); fresh connections, which
+// the kernel spreads over the loops, all get answers, so each loop's copy of the RSA key
+// serves; and the program ends after /stop, with nothing on stderr.
+func TestHTTPSServerDecryptsItsKeyOnce(t *testing.T) {
+	t.Parallel()
+	exe := buildServer(t, "encrypted_key_loops")
+	dir := t.TempDir()
+	root := newAuthority(t, "PTS Test Root CA", "p256", nil, nil)
+	chain := serverCert(t, root, "rsa", nil)
+	certFile := writeFile(t, dir, "server.pem", chainPEM(chain))
+	keyFile := writeFile(t, dir, "server-key.pem", encryptedPKCS8PEMIterated(t, signerOf(chain), "slow secret", 300_000))
+	server, fields := startServer(t, exe, "PTS_THREADS=8", "TLS_CERT_FILE="+certFile, "TLS_KEY_FILE="+keyFile, "TLS_PASSPHRASE=slow secret")
+	assert.Equal(t, len(fields), 3, server.lines.Text())
+	slower, err := strconv.ParseFloat(fields[2], 64)
+	assert.NilError(t, err)
+	assert.Assert(t, slower < 3, "the server on every loop took %.2f times as long to start as the one on one loop", slower)
+	t.Logf("the server on every loop took %.2f times as long to start as the one on one loop", slower)
+	fresh := httpsClient(pool(root.cert), nil, false)
+	bodies := getAll(t, fresh, "https://127.0.0.1:"+fields[0]+"/", 8, 8)
+	assert.DeepEqual(t, tallyBodies(bodies), map[string]int{"every loop": 64})
+	_, body := requestWith(t, fresh, "GET", "https://127.0.0.1:"+fields[1]+"/", "")
+	assert.Equal(t, body, "one loop")
+	_, body = requestWith(t, fresh, "GET", "https://127.0.0.1:"+fields[0]+"/stop", "")
+	assert.Equal(t, body, "bye")
+	awaitExit(t, server)
+	assert.Equal(t, server.stderr.String(), "")
 }

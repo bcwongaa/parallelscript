@@ -26,12 +26,16 @@ pts_tls *pts_tls_client(const char *host, pts_value *failure);
 
 /*
  * A server's certificate chain (its own first, then the intermediates it sends) and private
- * key, from PEM text (NUL-terminated, len counting the NUL), with the configuration its
- * sessions share; or NULL, with *failure the Error that says why. passphrase is NULL for
- * a key that isn't encrypted. One loop's sessions use it: signing isn't shared across loops.
+ * key, from PEM text (NUL-terminated, len counting the NUL) or, for the key, DER, with the
+ * configuration its sessions share; or NULL, with *failure the Error that says why.
+ * passphrase is NULL for a key that isn't encrypted. One loop's sessions use it: signing
+ * isn't shared across loops.
  */
 typedef struct pts_tls_identity pts_tls_identity;
 pts_tls_identity *pts_tls_identity_new(const char *cert, size_t cert_len, const char *key, size_t key_len, const pts_string *passphrase, pts_value *failure);
+
+/* identity's private key in DER, decrypted (malloc'd, *len bytes, for pts_tls_forget); NULL if mbedTLS can't write it. */
+char *pts_tls_identity_key(const pts_tls_identity *identity, size_t *len);
 
 void pts_tls_identity_free(pts_tls_identity *identity);
 

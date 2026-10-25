@@ -24,7 +24,7 @@ void pts_process_init(int argc, char **argv) {
 
 int pts_runtime_exit(int code) {
   pts_begin_exit();
-  fflush(stdout);
+  pts_flush_output(stdout);
   return code != 0 ? code : exit_code;
 }
 
@@ -95,13 +95,16 @@ pts_string *pts_process_cwd(void) {
 
 _Noreturn void pts_process_exit(double code) {
   pts_begin_exit();
-  fflush(stdout);
-  fflush(stderr);
+  pts_flush_output(stdout);
+  pts_flush_output(stderr);
   exit((int)code);
 }
 
 void pts_process_set_exit_code(double code) { exit_code = (int)code; }
 
 void pts_process_write(double fd, pts_string *chunk) {
-  pts_string_write_for_output(chunk, fd == 2 ? stderr : stdout);
+  FILE *stream = fd == 2 ? stderr : stdout;
+  errno = 0;
+  pts_string_write_for_output(chunk, stream);
+  pts_check_output(stream);
 }

@@ -4,7 +4,8 @@
 // environment variables: CERT_FILE and KEY_FILE (P-256), OTHER_KEY_FILE (another key),
 // ENCRYPTED_KEY_FILE and LEGACY_KEY_FILE (KEY_FILE's key encrypted with PASSPHRASE, as
 // PKCS#8 and as legacy PEM), RSA_CERT_FILE, ED25519_CERT_FILE, REVERSED_CHAIN_FILE (an
-// intermediate, then CERT_FILE's certificate) and DIRECTORY; FREE_PORT is a port nothing
+// intermediate, then CERT_FILE's certificate), BROKEN_CHAIN_FILE (CERT_FILE's certificate,
+// then a CERTIFICATE block that isn't one) and DIRECTORY; FREE_PORT is a port nothing
 // listens on, which every case that fails asks for. A file that can't be read throws what
 // readFileSync throws. Afterwards the process has the files it had and the port is free.
 import { serve, Server, type ServeOptions, type TLSOptions } from "pts:http";
@@ -115,6 +116,7 @@ attempt("legacy encrypted key, wrong passphrase", withTLS({ cert, key: legacy, p
 attempt("another key", withTLS({ cert, keyFile: given("OTHER_KEY_FILE") }));
 attempt("an RSA certificate, a P-256 key", withTLS({ certFile: given("RSA_CERT_FILE"), key }));
 attempt("the intermediate first", withTLS({ certFile: given("REVERSED_CHAIN_FILE"), key }));
+attempt("a chain with a certificate that doesn't parse", withTLS({ certFile: given("BROKEN_CHAIN_FILE"), key }));
 attempt("a missing file at a port in use", withTLS({ certFile: "missing.pem", keyFile }, busy.port), "missing.pem");
 attempt("a port in use", withTLS({ cert, key }, busy.port));
 

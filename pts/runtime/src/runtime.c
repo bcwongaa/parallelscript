@@ -1,7 +1,9 @@
 #include "pts.h"
 
+#include <errno.h>
 #include <gc_gcj.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +23,7 @@ enum { INITIAL_HEAP_SIZE = 4 << 20 };
 enum { GC_MARKER_THREADS = 2 };
 
 void pts_runtime_init(int argc, char **argv) {
+  signal(SIGPIPE, SIG_IGN);
   pts_process_init(argc, argv);
   GC_set_markers_count(GC_MARKER_THREADS);
   GC_INIT();
@@ -34,6 +37,19 @@ void pts_runtime_init(int argc, char **argv) {
   GC_init_gcj_malloc(GC_GCJ_RESERVED_MARK_PROC_INDEX, NULL); /* objects: see pts_object_new */
   pts_time_origin_init();
   pts_stack_limit_init();
+}
+
+void pts_check_output(void *stream) {
+  if (errno == EPIPE && ferror(stream)) {
+    signal(SIGPIPE, SIG_DFL);
+    raise(SIGPIPE);
+  }
+}
+
+void pts_flush_output(void *stream) {
+  errno = 0;
+  fflush(stream);
+  pts_check_output(stream);
 }
 
 _Thread_local uintptr_t pts_stack_limit;
@@ -79,7 +95,7 @@ void pts_begin_exit(void) { pthread_mutex_lock(&exit_lock); }
 
 void pts_panic(const char *error_name, const char *format, ...) {
   pts_begin_exit();
-  fflush(stdout);
+  pts_flush_output(stdout);
   fprintf(stderr, "Uncaught %s: ", error_name);
   va_list args;
   va_start(args, format);

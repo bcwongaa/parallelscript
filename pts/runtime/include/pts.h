@@ -2378,6 +2378,15 @@ void pts_runtime_init(int argc, char **argv);
 /* Flushes output and returns the process exit code: code, or if it is 0, process.exitCode's. */
 int pts_runtime_exit(int code);
 
+/*
+ * The runtime ignores SIGPIPE, so that a socket whose peer has gone fails its write with
+ * EPIPE, as in Node (C350). A write to stdout or stderr (a FILE *) that finds its reader
+ * gone still ends the program by SIGPIPE, as a C or Go program's output into `| head` does:
+ * pts_check_output after writes made with errno cleared, pts_flush_output to flush.
+ */
+void pts_check_output(void *stream);
+void pts_flush_output(void *stream);
+
 #ifdef __cplusplus
 }
 #endif
