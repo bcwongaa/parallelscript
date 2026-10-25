@@ -1,0 +1,160 @@
+// An element read or a loose local that is the result of `||`, `??`, `&&` or `,`, written to
+// a variable declared `T | undefined`, may be undefined there though tsc types it without:
+// the lowering reads the element as undefined past the end where the whole's place takes
+// undefined (D-015), and tsc narrows the variable to T by the write. The variable is loose
+// (D-090), so its reads as a T are checked: TypeError, as Node's member read of undefined
+// throws. They were read as a T unchecked: SIGSEGV, or NaN for a number (review round 3,
+// R3-F1; pre-existing, C327's class).
+const strs: string[] = ["a"];
+const nums: number[] = [1];
+const rec: Record<string, string> = { a: "" };
+const str = "ab";
+const empty: string[] = [];
+const [missing] = empty;
+const blank: string = "";
+const zero: number = 0;
+function attempt(label: string, f: () => void): void {
+  try {
+    f();
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+attempt("||", () => {
+  let x: string | undefined = "x";
+  x = blank || strs[3];
+  console.log(x.length);
+});
+attempt("&&", () => {
+  const c: string = "c";
+  let x: string | undefined = "x";
+  x = c && strs[3];
+  console.log(x.length);
+});
+attempt("initializer ||", () => {
+  const x: string | undefined = blank || strs[3];
+  console.log(x.length);
+});
+attempt("comma", () => {
+  let x: string | undefined = "x";
+  x = (console.log("side"), strs[3]);
+  console.log(x.length);
+});
+attempt("||= of ||", () => {
+  let x: string | undefined = "";
+  x ||= blank || strs[3];
+  console.log(x.length);
+});
+attempt("loose &&", () => {
+  let x: string | undefined = "x";
+  x = missing && "s";
+  console.log(x.length);
+});
+attempt("initializer loose &&", () => {
+  const x: string | undefined = missing && missing.trim();
+  console.log(x.length);
+});
+attempt("parameter", () => {
+  function f(a: string, p: string | undefined): number {
+    p = a || strs[3];
+    return p.length;
+  }
+  console.log(f("", "p"));
+});
+attempt("generic", () => {
+  function g<T extends string>(xs: T[], a: T): number {
+    let x: string | undefined = "x";
+    x = a || xs[3];
+    return x.length;
+  }
+  console.log(g([""], ""));
+});
+attempt("record", () => {
+  let x: string | undefined = "x";
+  x = blank || rec["zz"];
+  console.log(x.length);
+});
+attempt("string element", () => {
+  let x: string | undefined = "x";
+  x = blank || str[9];
+  console.log(x.length);
+});
+attempt("returned", () => {
+  function get(a: string): string {
+    const r: string | undefined = a || strs[3];
+    return r;
+  }
+  console.log(get("").length);
+});
+attempt("generator", () => {
+  function* gen(a: string): Generator<number> {
+    let x: string | undefined = "x";
+    x = a || strs[3];
+    yield 1;
+    console.log(x.length);
+  }
+  for (const _ of gen("")) {
+  }
+});
+attempt("finally", () => {
+  let x: string | undefined = "x";
+  try {
+    x = blank || strs[3];
+  } finally {
+    console.log(x.length);
+  }
+});
+["", "b"].forEach((a: string) => {
+  attempt("callback " + a, () => {
+    let x: string | undefined = "x";
+    x = a || strs[3];
+    console.log(x.length);
+  });
+});
+attempt("pattern default", () => {
+  let s: string | undefined = "s";
+  [s = blank || strs[3]] = empty;
+  console.log(s.length);
+});
+attempt("number", () => {
+  let n: number | undefined = 1;
+  n = zero || nums[3];
+  console.log(n.toFixed(1));
+});
+attempt("number comma", () => {
+  let n: number | undefined = 1;
+  n = (console.log("side"), nums[3]);
+  console.log(n.toFixed(1));
+});
+let tested: string | undefined = "t";
+tested = blank || strs[3];
+console.log(tested === undefined);
+const full: string = "s";
+let kept: string | undefined = "k";
+kept = full || strs[3];
+console.log(kept.length);
+
+// expect:
+// || threw TypeError
+// && threw TypeError
+// initializer || threw TypeError
+// side
+// comma threw TypeError
+// ||= of || threw TypeError
+// loose && threw TypeError
+// initializer loose && threw TypeError
+// parameter threw TypeError
+// generic threw TypeError
+// record threw TypeError
+// string element threw TypeError
+// returned threw TypeError
+// generator threw TypeError
+// finally threw TypeError
+// callback  threw TypeError
+// 1
+// pattern default threw TypeError
+// number threw TypeError
+// side
+// number comma threw TypeError
+// true
+// 1

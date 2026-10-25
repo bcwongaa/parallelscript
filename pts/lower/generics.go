@@ -534,8 +534,12 @@ func (l *lowerer) erasing(parameters []*checker.Type, declaration *ast.Node) *su
 }
 
 // typeAt, typeOfSymbol, contextualType and returnTypeOf are the checker's answers,
-// instantiated for the instance being lowered.
+// instantiated for the instance being lowered; while isLoose decides, typeAt's is the same
+// for every instance (instanceFreeType).
 func (l *lowerer) typeAt(node *ast.Node) *checker.Type {
+	if l.decidingLooseness > 0 {
+		return l.instanceFreeType(l.checker.GetTypeAtLocation(node))
+	}
 	if t, ok := l.chainObjects[node]; ok {
 		return t.checkerType // the object of a `?.` that was neither null nor undefined (D-064)
 	}
@@ -555,6 +559,19 @@ func (l *lowerer) typeAt(node *ast.Node) *checker.Type {
 	return t
 }
 
+// instanceFreeType is t, tsc's own type at a node, as every instance of the generic code
+// the node is in has it, for an answer every instance shares (isLoose): a type parameter, or
+// an indexed access of one, as its constraint (`xs` of a `T extends string[]` is an array in
+// every instance).
+func (l *lowerer) instanceFreeType(t *checker.Type) *checker.Type {
+	if t.Flags()&(checker.TypeFlagsTypeParameter|checker.TypeFlagsIndexedAccess) != 0 {
+		if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {
+			t = constraint
+		}
+	}
+	return l.normalized(t)
+}
+
 func (l *lowerer) typeOfSymbol(symbol *ast.Symbol) *checker.Type {
 	return l.instantiate(l.checker.GetTypeOfSymbol(symbol))
 }
@@ -562,6 +579,11 @@ func (l *lowerer) typeOfSymbol(symbol *ast.Symbol) *checker.Type {
 func (l *lowerer) contextualType(node *ast.Node) *checker.Type {
 	if isDestructuringSource(node) {
 		return nil // the type tsc derives from the pattern (`{ x: any }`) says nothing about the value
+	}
+	if target := shorthandDefaultTarget(node); target != nil {
+		// tsc gives none; the renamed form's `q = v` has q's type, as an assignment's value
+		// (review round 3, R3-F3)
+		return l.typeOfSymbol(l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(target)))
 	}
 	t := l.checker.GetContextualType(node, checker.ContextFlagsNone)
 	switch {
@@ -571,6 +593,41 @@ func (l *lowerer) contextualType(node *ast.Node) *checker.Type {
 		return l.instantiateMade(t) // the type of the value it makes, as typeAt's
 	}
 	return l.instantiate(t)
+}
+
+// shorthandDefaultTarget is the shorthand target of an object assignment pattern whose
+// default node is, or is part of as tsc hands a contextual type down (a conditional's
+// branch, an operand of `||` or `??`, the right of `&&` or `,`): `({ p = v } = o)`'s p for
+// v, and for `a || v`'s v; nil for any other node.
+func shorthandDefaultTarget(node *ast.Node) *ast.Node {
+	for {
+		switch parent := node.Parent; parent.Kind {
+		case ast.KindParenthesizedExpression:
+		case ast.KindConditionalExpression:
+			if parent.AsConditionalExpression().Condition == node {
+				return nil
+			}
+		case ast.KindBinaryExpression:
+			binary := parent.AsBinaryExpression()
+			switch binary.OperatorToken.Kind {
+			case ast.KindBarBarToken, ast.KindQuestionQuestionToken:
+			case ast.KindAmpersandAmpersandToken, ast.KindCommaToken:
+				if binary.Right != node {
+					return nil
+				}
+			default:
+				return nil
+			}
+		case ast.KindShorthandPropertyAssignment:
+			if parent.AsShorthandPropertyAssignment().ObjectAssignmentInitializer == node {
+				return parent
+			}
+			return nil
+		default:
+			return nil
+		}
+		node = node.Parent
+	}
 }
 
 func (l *lowerer) returnTypeOf(signature *checker.Signature) *checker.Type {

@@ -1,0 +1,91 @@
+// Whether a generic function's local is loose is decided once for every instance, with tsc's
+// own types and a type parameter's constraint: `xs[3]` for an `xs: T` of a `T extends
+// string[]` reads an element in every instance. A module variable written such a local
+// (`M = x`) asked about first, outside the instances, decided the local there, where `xs`
+// was a T and no array: not loose, and that answer was kept for the instances, whose read
+// of x as a string went unchecked (SIGSEGV), or whose tested `const x = xs[3]` threw
+// RangeError where it had read undefined (review round 3, R3-F2).
+let early: string | undefined = "m";
+function viaLocal<T extends string[]>(xs: T): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  early = x;
+  return x.length;
+}
+try {
+  console.log(viaLocal(["a"]));
+} catch (e) {
+  console.log("local threw", (e as Error).name);
+}
+console.log(early === undefined);
+
+function declaredLater<T extends string[]>(xs: T): number {
+  let x: string | undefined = "x";
+  x = xs[3];
+  late = x;
+  return x.length;
+}
+let late: string | undefined = "m";
+try {
+  console.log(declaredLater(["a"]));
+} catch (e) {
+  console.log("later threw", (e as Error).name);
+}
+console.log(late === undefined);
+
+let fromMethod: string | undefined = "m";
+class Box<T extends string[]> {
+  constructor(public xs: T) {}
+  first(): number {
+    let x: string | undefined = "x";
+    x = this.xs[3];
+    fromMethod = x;
+    return x.length;
+  }
+}
+try {
+  console.log(new Box(["a"]).first());
+} catch (e) {
+  console.log("method threw", (e as Error).name);
+}
+console.log(fromMethod === undefined);
+
+let fromTested: string | undefined = "m";
+function tested<T extends string[]>(xs: T): string {
+  const x = xs[3];
+  fromTested = x;
+  if (x === undefined) {
+    return "none";
+  }
+  return x.toUpperCase();
+}
+console.log(tested(["a"]));
+try {
+  console.log(fromTested.length);
+} catch (e) {
+  console.log("tested threw", (e as Error).name);
+}
+
+let fromDefault: string | undefined = "m";
+function defaulted<T extends string[]>(xs: T, p: string | undefined = xs[3]): number {
+  fromDefault = p;
+  return p.length;
+}
+try {
+  console.log(defaulted(["a"]));
+} catch (e) {
+  console.log("default threw", (e as Error).name);
+}
+console.log(fromDefault === undefined);
+
+// expect:
+// local threw TypeError
+// true
+// later threw TypeError
+// true
+// method threw TypeError
+// true
+// none
+// tested threw TypeError
+// default threw TypeError
+// true

@@ -32,7 +32,7 @@ func (l *lowerer) collectUndefinedTests(files []*ast.SourceFile) {
 			return false // reads a loose local as its union, but doesn't make one (a dispatch over `shapes[i]`)
 		}
 		if target, value := assignedVariable(node); target != nil {
-			if symbol := l.checker.GetSymbolAtLocation(target); symbol != nil {
+			if symbol := l.assignedSymbol(target); symbol != nil {
 				l.assignedValues[symbol] = append(l.assignedValues[symbol], value)
 			}
 		}
@@ -57,8 +57,14 @@ func (l *lowerer) collectUndefinedTests(files []*ast.SourceFile) {
 }
 
 // assignedVariable is the variable that node, an assignment (`x = v`, `x ??= v`, `x ||= v`,
-// `x &&= v`), stores in, and the value it stores; nil for any other node.
+// `x &&= v`) or a shorthand target's default in an object assignment pattern (`({ p = v } =
+// o)`, review round 3, R3-F3), stores in, and the value it stores; nil for any other node.
 func assignedVariable(node *ast.Node) (target *ast.Node, value *ast.Node) {
+	if node.Kind == ast.KindShorthandPropertyAssignment {
+		if initializer := node.AsShorthandPropertyAssignment().ObjectAssignmentInitializer; initializer != nil {
+			return node.Name(), initializer
+		}
+	}
 	if node.Kind != ast.KindBinaryExpression {
 		return nil, nil
 	}
@@ -70,6 +76,15 @@ func assignedVariable(node *ast.Node) (target *ast.Node, value *ast.Node) {
 		}
 	}
 	return nil, nil
+}
+
+// assignedSymbol is the variable that target, an assignedVariable, names: a shorthand
+// target's is its value's, not the property's.
+func (l *lowerer) assignedSymbol(target *ast.Node) *ast.Symbol {
+	if target.Parent.Kind == ast.KindShorthandPropertyAssignment && target.Parent.Name() == target {
+		return l.checker.GetShorthandAssignmentValueSymbol(target.Parent)
+	}
+	return l.checker.GetSymbolAtLocation(target)
 }
 
 // arrayPatternTargets are the variables that node, a destructuring assignment that isn't
@@ -248,7 +263,11 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 	}
 	loose, known := l.looseSymbols[symbol]
 	if !known {
+		// decided once for every instance of the code symbol is in, whichever is being lowered
+		// (or none: a module variable written a generic function's local; review round 3, R3-F2)
+		l.decidingLooseness++
 		l.decideLooseness(symbol)
+		l.decidingLooseness--
 		loose = l.looseSymbols[symbol]
 	}
 	return loose
@@ -315,7 +334,7 @@ func (l *lowerer) ownLooseness(symbol *ast.Symbol) (bool, []*ast.Symbol) {
 	if symbol.ValueDeclaration == nil {
 		return false, nil
 	}
-	declaredWithUndefined := mayHoldUndefined(l.typeOfSymbol(symbol))
+	declaredWithUndefined := mayHoldUndefined(l.normalized(l.checker.GetTypeOfSymbol(symbol))) // a T's instance for `string | undefined` holds a union already: tsc doesn't narrow a T
 	tested := l.undefinedTested[symbol] || symbol.ValueDeclaration.Kind == ast.KindBindingElement || l.iteratesHoles(symbol.ValueDeclaration)
 	if (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration) {
 		return true, nil
@@ -365,17 +384,25 @@ func (l *lowerer) writtenValues(symbol *ast.Symbol) []*ast.Node {
 }
 
 // missingSources reports whether value, written to a place whose type holds undefined,
-// may be undefined though tsc types it without: an element read (D-015), or a conditional
-// with one; and else the variables whose looseness would make it so, since a loose local
-// goes there as the union it holds (D-220).
+// may be undefined though tsc types it without: an element read (D-015), or a conditional,
+// `||`, `??`, `&&` or `,` that may give one, whose operands the lowering reads in the
+// whole's place (contextTakesUndefined; review round 3, R3-F1); and else the variables
+// whose looseness would make it so, since a loose local goes there as the union it holds
+// (D-220).
 func (l *lowerer) missingSources(value *ast.Node) (bool, []*ast.Symbol) {
 	value = ast.SkipParentheses(value)
 	switch {
 	case value.Kind == ast.KindConditionalExpression:
 		conditional := value.AsConditionalExpression()
-		missing, sources := l.missingSources(conditional.WhenTrue)
-		otherMissing, others := l.missingSources(conditional.WhenFalse)
-		return missing || otherMissing, append(sources, others...)
+		return l.missingSourcesOfEither(conditional.WhenTrue, conditional.WhenFalse)
+	case value.Kind == ast.KindBinaryExpression:
+		binary := value.AsBinaryExpression()
+		switch binary.OperatorToken.Kind {
+		case ast.KindBarBarToken, ast.KindQuestionQuestionToken, ast.KindCommaToken:
+			return l.missingSources(binary.Right) // the left's undefined is never the result
+		case ast.KindAmpersandAmpersandToken:
+			return l.missingSourcesOfEither(binary.Left, binary.Right) // `lb && "s"` is lb's undefined
+		}
 	case l.isElementRead(value):
 		return true, nil
 	case value.Kind == ast.KindIdentifier:
@@ -384,6 +411,13 @@ func (l *lowerer) missingSources(value *ast.Node) (bool, []*ast.Symbol) {
 		}
 	}
 	return false, nil
+}
+
+// missingSourcesOfEither is missingSources of a value that is a or b.
+func (l *lowerer) missingSourcesOfEither(a, b *ast.Node) (bool, []*ast.Symbol) {
+	missing, sources := l.missingSources(a)
+	otherMissing, others := l.missingSources(b)
+	return missing || otherMissing, append(sources, others...)
 }
 
 // patternElementMayBeMissing reports whether element, an identifier that an array
@@ -564,7 +598,9 @@ func (l *lowerer) placeType(node *ast.Node) ir.Type {
 		yielded, _, _ := l.iterationTypes(l.generatorType()) // as yieldPoint converts it
 		return l.irTypeOrNone(yielded, node)
 	case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:
-		return l.literalFieldType(node.Parent)
+		if shorthandDefaultTarget(node) == nil {
+			return l.literalFieldType(node.Parent)
+		}
 	case ast.KindConditionalExpression:
 		if !isPlaceValue(node.Parent) {
 			return nil
@@ -658,7 +694,7 @@ func isPlaceValue(node *ast.Node) bool {
 	case ast.KindVariableDeclaration, ast.KindPropertyDeclaration, ast.KindPropertyAssignment, ast.KindParameter:
 		return parent.Initializer() == node // a parameter's default too, which a parameter of a type with undefined holds as it is (C306)
 	case ast.KindShorthandPropertyAssignment:
-		return parent.Name() == node
+		return parent.Name() == node || parent.AsShorthandPropertyAssignment().ObjectAssignmentInitializer == node // `({ p = v } = o)` stores v as `p = v` does
 	case ast.KindBinaryExpression:
 		binary := parent.AsBinaryExpression()
 		switch binary.OperatorToken.Kind {

@@ -2,8 +2,11 @@
 // (D-222): fourteen variables declared `string | undefined` that all write each other, one
 // of them an element read past the end, are all loose, and compile at once. Review round 1's
 // recursion explored every path of such a graph: minutes for a dozen variables, past the
-// test's timeout (review round 2, R2-F2). A second graph with no missing write keeps its
-// variables plain.
+// test's timeout (review round 2, R2-F2). a0, declared first, is decided first: its looseness
+// comes from a13's missing write through variables not decided yet, which only the
+// fixpoint's propagation finds (review round 3's test-quality note: the missing write had
+// been a0's, decided before the variables it reached). A second graph, with no missing
+// write, compiles at once too.
 const empty: string[] = [];
 let a0: string | undefined = "a0";
 let a1: string | undefined = "a1";
@@ -201,20 +204,20 @@ if (empty.length > 191) a13 = a9;
 if (empty.length > 192) a13 = a10;
 if (empty.length > 193) a13 = a11;
 if (empty.length > 194) a13 = a12;
-if (empty.length === 0) a0 = empty[3];
-if (empty.length === 0) a1 = a0;
-if (empty.length === 0) a2 = a1;
-if (empty.length === 0) a3 = a2;
-if (empty.length === 0) a4 = a3;
-if (empty.length === 0) a5 = a4;
-if (empty.length === 0) a6 = a5;
-if (empty.length === 0) a7 = a6;
-if (empty.length === 0) a8 = a7;
-if (empty.length === 0) a9 = a8;
-if (empty.length === 0) a10 = a9;
-if (empty.length === 0) a11 = a10;
-if (empty.length === 0) a12 = a11;
-if (empty.length === 0) a13 = a12;
+if (empty.length === 0) a13 = empty[3];
+if (empty.length === 0) a12 = a13;
+if (empty.length === 0) a11 = a12;
+if (empty.length === 0) a10 = a11;
+if (empty.length === 0) a9 = a10;
+if (empty.length === 0) a8 = a9;
+if (empty.length === 0) a7 = a8;
+if (empty.length === 0) a6 = a7;
+if (empty.length === 0) a5 = a6;
+if (empty.length === 0) a4 = a5;
+if (empty.length === 0) a3 = a4;
+if (empty.length === 0) a2 = a3;
+if (empty.length === 0) a1 = a2;
+if (empty.length === 0) a0 = a1;
 try {
   console.log(a7.length);
 } catch (e) {

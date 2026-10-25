@@ -202,3 +202,122 @@ The seven new tests match Node and test what they claim. None covers R2-F1's obj
 - Rerun script: `/tmp/h12/review2/tools/rerun_findings.sh` (output in `/tmp/h12/review2/rerun-findings.out`)
 - Supporting tools: `/tmp/h12/review2/tools/run3.py`, `/tmp/h12/review2/tools/gen_cycles.py`
 - Results: `/tmp/h12/review2/replay-r1.json`, `/tmp/h12/review2/matrix-snap3.jsonl`, `/tmp/h12/review2/sweep23.json`
+
+## Round 3 (commit `3f62244ff`, snapshot 4)
+
+A fresh `reviewer` (the round-1/2 reviewer was killed with session 1 during its round 3, before it reported; this one was briefed with the log, the earlier probe dirs and the killed round's leads in `/tmp/h12/review3/`).
+
+**Verdict: NOT READY.**
+
+Round 2's three fixes work, and nothing that matched Node on snapshot 2 or 3 is worse on snapshot 4. But the class this slice says it fixes still crashes:
+- **R3-F1 (High, pre-existing, in scope):** an element read or a loose local inside `a || b`, `a && b` or `(x, b)` that is written into a variable declared `T | undefined` still crashes with SIGSEGV. The ledger marks C327 "fixed — Never a crash". `best = cached || items[i]` is ordinary code.
+- **R3-F2 (Medium):** looseness decided outside a generic instance is cached for the instance. That gives a SIGSEGV (pre-existing) and one regression from `752397090`: a RangeError where the base matched Node.
+
+There are two Lows and some test-quality notes. I ran every finding on Node, base, snapshot 2, snapshot 3 and snapshot 4 (`tools/rerun_findings.sh`, saved as `rerun-findings.out` / `.json`).
+
+## Findings
+
+### R3-F1 (High, verified, pre-existing, in H12's scope: C327/C326)
+**What happens:** the value written is a logical or comma expression. The lowering lets its element read or loose local through as undefined, but the variable is never made loose. tsc narrows it to `T`, and the read is unchecked.
+
+**Where:**
+- `pts/lower/loose_locals.go:371–387`: `missingSources` only looks at a conditional, an element read or an identifier.
+- The lowering lets undefined through in two places:
+  - `contextTakesUndefined` (`unions.go:787`, via `fallbackOf`). The right side of `||`/`??` and of `&&`/`,` gets the whole expression's contextual type, so `lower.go:1587` reads the element with `ArrayElement`.
+  - `sameType`/`takesOperandsUndefined` (`lower.go:3803`). A loose local on the left of `&&` goes as its union.
+- C for `x01`: the write is `x = (…truthy(a) ? a : pts_array_element(arr, 3.0))`, and the read is `pts_value_as_object(x)` with no check.
+
+Every probe below gives exit 139 on base and on snapshots 2, 3 and 4. Node prints a TypeError.
+
+| Probe (`p/…`) | Shape |
+|---|---|
+| `x/x01_or_fallback_elem.pts` | `x = a \|\| arr[3]` |
+| `x/x03_and_elem.pts` | `x = c && arr[3]` |
+| `x/x04_init_or_fallback.pts` | `const x: string \| undefined = a \|\| arr[3]` |
+| `x/x08_comma_elem.pts` | `x = (side(), arr[3])` |
+| `x/x15_or_assign_or.pts` | `x \|\|= a \|\| arr[3]` |
+| `x/x20_loose_and_left.pts`, `x21` | `x = lb && "s"`, `const x: string \| undefined = lb && lb.trim()` |
+| `x/x22`, `x24`, `x25` | a parameter; a generic `T extends string`; a record's and a string's element |
+| `pr/pr02`–`pr05` | returned value, generator across a yield, try/finally, a callback |
+| `d/d02_05.pts` | a pattern default `[s = e \|\| arr[3]] = strs` |
+
+`x/x16_number_or.pts` and `x41`: a number written the same way prints `NaN` silently on every build, where Node throws a TypeError.
+
+These are safe today:
+- `??` (an honest PTS1001)
+- `as` and `satisfies` (D-085's RangeError)
+- `await` and `!` (TypeError at the write)
+- `x = y = arr[3]` and `x = (y ||= lb)` (TypeError at the write)
+- property targets
+
+**Suggested fix:** in `missingSources`, look inside the operands the lowering lets through:
+- `||` and `??`: the right operand;
+- `&&`: both operands;
+- `,`: the right operand.
+
+Add these shapes to `element_reads_assigned_to_declared_unions.pts`.
+
+### R3-F2 (Medium, verified: the SIGSEGV is pre-existing, the RangeError is a regression since `752397090`)
+**What happens:** `decideLooseness` explores across functions. When a module-scope variable is decided first, a generic function's local is decided outside its instance.
+- `isElementRead` → `isArrayExpression` → `typeAt` sees `T` there, not `string[]`, for `xs: T extends string[]`.
+- That "not loose" answer is cached in `l.looseSymbols` (`loose_locals.go:305`) and then used inside the instance.
+- Where: `loose_locals.go:379` (`missingSources`) and `:428` (`readsElement`); `arrays.go:58`.
+- C for `g20`: `pts_value_as_object(x)` unchecked. For `g22`, the same function with no module variable, it is `pts_value_defined(x, …)`.
+
+| Probe | Node | base | snapshot 2 | snapshot 3 | snapshot 4 |
+|---|---|---|---|---|---|
+| `lead/g20_generic_dep_from_module.pts` (`M = x` from a generic local) | `threw TypeError / true` | 139 | 139 | 139 | 139 |
+| `lead/g24`, `g/g30` (generic class method), `g/g32` | TypeError | 139 | 139 | 139 | 139 |
+| `g/g34_generic_tested.pts` (`const x = xs[3]` tested, `M = x`) | `none / threw TypeError` | **matches Node** | RangeError | RangeError | RangeError |
+| controls `lead/g22`, `g/g36` (no module variable); `lead/g23` (`xs: T[]`) | — | — | — | match Node | match Node |
+
+**Suggested fix:** decide `isElementRead` for looseness with tsc's own types, using a type parameter's base constraint, as `readsElement` already does for binding patterns and `iteratesHoles` does. Or don't cache answers for a generic function's symbols that were computed outside its instance.
+
+### R3-F3 (Low, verified, pre-existing, in scope: assignment-pattern defaults)
+**What happens:** `({ p = arr[3] } = o)` with `p: string | undefined` throws D-085's RangeError on every build. Node prints `true` for `p === undefined`. The renamed form `({ p: q = arr[3] } = o)` matches Node (`d/d02_04`).
+- Probe: `d/d03_shorthand_default_tested.pts`.
+- Where: `isPlaceValue` (`loose_locals.go:660`) and `assignedVariable` (`:61`) don't handle a ShorthandPropertyAssignment's `ObjectAssignmentInitializer`.
+- Suggested fix: handle it in both. If only `isPlaceValue` changes, it becomes a SIGSEGV, because `p` would not be loose.
+
+### R3-F4 (Low, verified, pre-existing, outside scope; no crash)
+**What happens:** a loose binding read through a namespace import or a default export is checked at the write (an uncaught TypeError), where Node throws later inside the `try`.
+- `m/mod3`: `z = A.first`.
+- `m/mod6`: `export default first`.
+- Base gives the same.
+- The killed round's `mod1` crashed on base only through its named-import half, which this slice fixed.
+
+### Leads from the killed round
+- `f01`, `f06`: pre-existing (base gives the same). This is D-140's checked read of a variable a closure wrote. No crash.
+- `la02`'s "str plain": C335, a documented gap.
+- `w30`–`w32`: honest PTS1001 on every build. Assigning to `s!` is PTS1001 even outside patterns (`w/w40`–`w43`).
+
+## What holds up
+- **R2-F1:** `w01`, `w06`, `w07`, `w08`, `w11`, `w22`, `w24`, `w25` and `w33` match Node. The parent lists `w24` as a snapshot-3 crash; it now matches Node.
+- **R2-F2:**
+  - No compile time blows up any more. 200, 1,000, 3,000 and 6,000 variables with 3 writes each take 0.7, 2.3, 7.0 and 12.4 s on snapshot 4, against 1.2, 2.0, 6.2 and 14.8 s on base. Snapshot 3 runs past 300 s at 200 variables.
+  - The answers are right: the big graphs, and 440 fuzzed programs on snapshot 4, match Node except `cyc21_038` (D-140, pre-existing). Contexts covered: module, function, generator, async, generic, loops, try/finally, `||=`/`??=`/`&&=`, patterns.
+  - The fuzzers catch this class: snapshot 2 fails 73 of `fuzz5`'s 120.
+- **R2-F3:** `la10`–`la12` show numbers, booleans, `string | number`, objects, `any`, `unknown` and null all match Node. The exceptions are documented: `n + 1` (R1-F8) and an inferred `string` (C335). Non-loose operands are unchanged on every build.
+- **Replays:** all 96 round-1 and 37 round-2 probes. Nothing that matched Node on snapshot 3 differs on snapshot 4; nine more match.
+- **emit-c sweep, snapshot 3 against 4 (1,464 programs):** only the three new tests changed.
+- **Reproducer's matrix:** a sample of every 8th case (430) on snapshot 4 is identical to the killed round's full run. Classes are the same as snapshot 3, and none is worse than base.
+
+## Test quality
+- All three new tests match Node and pass on snapshot 4. The first two fail on snapshot 3 (139; TypeError).
+- I built mutants with `go build -overlay`:
+
+  | Mutant | Killed by |
+  |---|---|
+  | no propagation in the fixpoint | `loose_writes_cycles_and_instances`, `loose_locals_into_declared_unions` |
+  | no object-literal case | `nested_assignment_patterns_rest_tuples` |
+  | no `isPatternElement` check | `nested_assignment_patterns_rest_tuples` |
+  | no default case | `nested_assignment_patterns_rest_tuples` |
+  | no logical-assignment place | `logical_assignments_loose_values` |
+
+- **`loose_writes_dense_graph` passes with no propagation at all.** Its declaration order lets each variable find a source that is already decided. So it only guards compile time, and on regression it fails by hanging until the package's 10-minute timeout. Its second graph ("keeps its variables plain") can't be seen in the output either.
+- No test covers R3-F1, R3-F2 or R3-F3.
+
+Everything is in `/tmp/h12/review3b/`:
+- archive: `h12-review3-probes.tar.gz` (probes, tools, results, mutant overlays; the mutant binaries are deleted)
+- `DONE` is touched
+- the main tree is untouched

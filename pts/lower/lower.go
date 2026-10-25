@@ -420,6 +420,7 @@ type lowerer struct {
 	assignedValues       map[*ast.Symbol][]*ast.Node // what the program's assignments (`=`, `??=`, `||=`, `&&=`) store in each variable (collectUndefinedTests)
 	patternWrites        map[*ast.Symbol][]*ast.Node // the elements of array assignment patterns that assign each variable (`[h, s] = r`'s s)
 	looseSymbols         map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
+	decidingLooseness    int                         // isLoose is deciding: typeAt gives tsc's own types, the same in every instance
 	madeLiterals         map[*ast.Node]ir.Type       // the shape or hash-map type an object literal being lowered makes (literalFieldType)
 	intrinsics           map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
 	globalBindings       map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
