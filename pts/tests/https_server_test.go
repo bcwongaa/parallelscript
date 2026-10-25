@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/typescript-go/pts/driver"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -1164,6 +1165,27 @@ func TestHTTPSServerOptions(t *testing.T) {
 
 // ---------------------------------------------------------------- clients that reset or close_notify
 
+// sizedServer is http/sized.pts built once for the tests that run it, which run at once:
+// building it again while another test runs it fails with ETXTBSY.
+var sizedServer = sync.OnceValues(func() (string, error) {
+	exe := filepath.Join(buildDir, "http_sized")
+	source, err := filepath.Abs(filepath.Join("http", "sized.pts"))
+	if err != nil {
+		return "", err
+	}
+	heavyJobs <- struct{}{}
+	defer func() { <-heavyJobs }()
+	return exe, driver.Build(context.Background(), source, exe)
+})
+
+// buildSized is sized.pts's executable.
+func buildSized(t *testing.T) string {
+	t.Helper()
+	exe, err := sizedServer()
+	assert.NilError(t, err)
+	return exe
+}
+
 // TestHTTPServersSurviveClientsThatResetMidPipeline runs sized.pts over HTTP and HTTPS
 // against clients that pipeline a hundred requests for 100 KB answers and then reset
 // their connections: the server writes on to a socket the client has reset, which must
@@ -1172,7 +1194,7 @@ func TestHTTPSServerOptions(t *testing.T) {
 // nothing on stderr.
 func TestHTTPServersSurviveClientsThatResetMidPipeline(t *testing.T) {
 	t.Parallel()
-	exe := buildServer(t, "sized")
+	exe := buildSized(t)
 	certFile, keyFile, root := serverFiles(t, t.TempDir())
 	for _, secure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tls=%v", secure), func(t *testing.T) {
@@ -1226,7 +1248,7 @@ func resetMidPipeline(t *testing.T, address string, config *tls.Config) {
 // RFC 8446 §6.1 and RFC 5246 §7.2.1 ask and Node's server does (H33b's review, R1-F2).
 func TestHTTPSServerAnswersCloseNotify(t *testing.T) {
 	t.Parallel()
-	exe := buildServer(t, "sized")
+	exe := buildSized(t)
 	certFile, keyFile, root := serverFiles(t, t.TempDir())
 	server, ports := startServer(t, exe, "TLS_CERT_FILE="+certFile, "TLS_KEY_FILE="+keyFile)
 	address := "127.0.0.1:" + ports[0]
@@ -1326,6 +1348,45 @@ func TestHTTPSServerDecryptsItsKeyOnce(t *testing.T) {
 	_, body := requestWith(t, fresh, "GET", "https://127.0.0.1:"+fields[1]+"/", "")
 	assert.Equal(t, body, "one loop")
 	_, body = requestWith(t, fresh, "GET", "https://127.0.0.1:"+fields[0]+"/stop", "")
+	assert.Equal(t, body, "bye")
+	awaitExit(t, server)
+	assert.Equal(t, server.stderr.String(), "")
+}
+
+// TestHTTPSServerSendsNothingAfterAFatalAlert: a malformed request and a record that doesn't
+// decrypt, read at once, make mbedTLS write its fatal alert (bad_record_mac) while the
+// requests are decrypted; the server's 400 for the request must not follow it, since a
+// connection is closed once a fatal alert is sent (RFC 8446 §6.2; H33b's review, R3-F1).
+// Checked under TLS 1.2, whose records show their type: the last records are the alert alone.
+func TestHTTPSServerSendsNothingAfterAFatalAlert(t *testing.T) {
+	t.Parallel()
+	exe := buildSized(t)
+	certFile, keyFile, root := serverFiles(t, t.TempDir())
+	server, ports := startServer(t, exe, "TLS_CERT_FILE="+certFile, "TLS_KEY_FILE="+keyFile)
+	address := "127.0.0.1:" + ports[0]
+	tcp, err := net.DialTimeout("tcp", address, 5*time.Second)
+	assert.NilError(t, err)
+	defer tcp.Close()
+	held := &heldConn{Conn: tcp}
+	secured := tls.Client(held, &tls.Config{RootCAs: pool(root.cert), ServerName: "localhost", MaxVersion: tls.VersionTLS12})
+	assert.NilError(t, secured.HandshakeContext(t.Context()))
+	held.holding = true
+	_, err = secured.Write([]byte("NOT HTTP\r\n\r\n"))
+	assert.NilError(t, err)
+	garbage := append([]byte{23, 3, 3, 0, 48}, bytes.Repeat([]byte{0x5a}, 48)...) // application data that doesn't decrypt
+	_, err = tcp.Write(append(held.held, garbage...))
+	assert.NilError(t, err)
+	assert.NilError(t, tcp.SetReadDeadline(time.Now().Add(5*time.Second)))
+	sent, err := io.ReadAll(tcp)
+	assert.Assert(t, !isTimeout(err), "the server didn't end the connection")
+	var types []byte
+	for rest := sent; len(rest) >= 5; {
+		length := int(rest[3])<<8 | int(rest[4])
+		types = append(types, rest[0])
+		rest = rest[min(len(rest), 5+length):]
+	}
+	assert.DeepEqual(t, types, []byte{21})
+	_, body := requestWith(t, httpsClient(pool(root.cert), nil, false), "GET", "https://"+address+"/stop", "")
 	assert.Equal(t, body, "bye")
 	awaitExit(t, server)
 	assert.Equal(t, server.stderr.String(), "")

@@ -124,3 +124,72 @@ All five round-1 findings are fixed or properly recorded, and I found no high or
 - `TestOutputToAReaderThatLeftEndsTheProgram` and `TestHTTPSServerAnswersCloseNotify` are deterministic.
 
 Probes are in `/tmp/h33b/review2-probes.tar.gz`; the binaries are deleted except `dupcn/dupcn`, which R2-F1's repro script uses. Nothing is left running, and `/tmp/h33b/review2.done` is touched.
+
+
+## Round 3 (verbatim)
+
+The same `reviewer`, resumed, read-only, on snapshot 3 (`/tmp/h33b/snap3`: `61c3dd061` plus round 2's fixes, committed as `a6bc9f487`). Probes: [h33b-review3-probes.tar.gz](h33b-review3-probes.tar.gz).
+
+---
+
+VERDICT: READY
+
+Both round-2 fixes check out on snapshot 3, nothing else changed, and the parent's full suite there is green: 6,014 pass / 401 skip / 0 fail across all ten packages, with empty stderr. The two findings below are minor and neither blocks.
+
+## Findings
+- **R3-F1 · low · pre-existing in the slice since `d393fae47`, not caused by round 2.** Sometimes a 400 answer and a corrupt record reach the server in one read. Then under TLS 1.2 it sends `[21 bad_record_mac, 23 the 400, 21 close_notify]`: mbedTLS writes its fatal alert while decrypting, and the 400 is sealed after it. RFC 8446 §6.2 says a connection closes once a fatal alert is sent, so nothing should follow it. Snapshots 2 and 3 behave the same: 9–10 of 10 runs, and the rest when the two writes are read separately. It's harmless, since clients stop at the alert. If you want to fix it, `seal`/`send_parts` could refuse to write once the session has failed. Probe: `cnpaths 400-then-garbage-at-once`.
+- **R3-F2 · low · docs.** SPEC §8 and D-224 say pts ends by SIGPIPE "as C and Go programs do, also when it was started with SIGPIPE ignored". That reads as if C programs die too. Only Go does; a C program started with SIGPIPE ignored gets EPIPE instead (coreutils `yes` printed `Broken pipe` and exited 1 in round 2). Suggested wording: "… as C and Go programs do; also when started with SIGPIPE ignored, as Go (a C program then gets EPIPE)". The Node statements now match what I measured on 24.21: `console.log` exits 0, and `process.stdout.write` exits 1 on the unhandled `EPIPE` event. The pts:fs FIFO sentence matches too.
+
+## Verified
+- **Every `pts_tls_close` path** (`seal`, `end_sealed`, `close_idle`), TLS 1.2 and 1.3, snapshots 2 and 3 side by side (`paths.log`). Identical record sequences and FIN endings for:
+  - answers that close (`Connection: close`, HTTP/1.0);
+  - 400, 413 and 431;
+  - the client's close_notify on an idle connection, and on a busy one whose request is held (close_notify answered, request aborted);
+  - close_notify while a large answer is still queued (cut, no alert, as before);
+  - a session failing after the server's close;
+  - an idle connection closed by `stop()`.
+
+  The only differences are the two fixed cases:
+
+  | Case (10 runs each) | Snapshot 2 | Snapshot 3 |
+  |---|---|---|
+  | `Connection: close` request + close_notify read at once | 4 records, 2 alerts | 3 records, 1 alert |
+  | 400 + close_notify read at once | 3 records (9 of 10) | 2 records (10 of 10) |
+
+  TLS 1.3 shows the same one-record drop.
+- **dupcn's scenario:** 2 alerts under TLS 1.2 on snapshot 2, exactly 1 on snapshot 3. The extra TLS 1.3 record is gone too.
+- **The new `closesAndNotifiesAtOnce` check:**
+  - Not vacuous: run against snapshot 2's runtime with `go test -overlay`, it fails 2 of 2 with `2 != 1` alerts. Snapshot 2's tree stayed untouched, since tests build into a temp directory.
+  - Deterministic: 5 of 5 passes on snapshot 3, and 5 of 5 under load (311,282 HTTPS requests on the same 2 cores, with the parent's suite also running).
+  - Its hand-made single segment guarantees both records land in one read.
+  - Its alert count only runs under TLS 1.2, which is enough because the fix doesn't depend on the version.
+- **Integrity:** snapshots 2 and 3 match the parent's checksums, and the repo copies of my earlier archives contain no private keys.
+
+Probes are in `/tmp/h33b/review3-probes.tar.gz`, with no keys or binaries: `cnpaths/main.go`, `paths.sh`/`paths.log`, `repeat.sh`/`repeat.log`, `test_under_load.sh` and `overlay.json`. Note that `/tmp/h33b/review2-probes.tar.gz` in /tmp still holds the throwaway test keys; the repo copies don't. `/tmp/h33b/review3.done` is touched.
+
+
+## Round 4 (verbatim)
+
+The same `reviewer`, resumed, read-only, on snapshot 4 (`/tmp/h33b/snap4`: `a6bc9f487` plus round 3's fixes). Probes: [h33b-review4-probes.tar.gz](h33b-review4-probes.tar.gz).
+
+---
+
+VERDICT: READY
+
+Round 3's fixes do what they claim, nothing else changed, and I found no new problems (no R4 findings). The parent's full suite on snapshot 4 is green: 6,015 pass / 401 skip / 0 fail across all ten packages, with empty stderr (one more pass than snapshot 3, the new test).
+
+- **R3-F1 (nothing after a fatal alert) is fixed.** I ran 19 closing scenarios under TLS 1.2 and 1.3 on snapshots 3 and 4 (`paths.log`):
+  - **What changed:** only the cases where the session fails while a request is being answered. `400-then-garbage-at-once` and the new held-segment `400-garbage-held` went from `[21 bad_record_mac, 23 the 400, 21 close_notify]` to `[21]`. `hello-garbage-held` (a keep-alive answer plus a corrupt record) went from `[21, 23, 23]` to `[21]`. Under TLS 1.3 the record counts drop the same way (3 to 1).
+  - **What didn't:** every other path is identical, record for record, with a FIN at the end:
+    - answers that close and HTTP/1.0;
+    - 400, 413 and 431;
+    - the client's close_notify on idle and busy connections, and both at-once cases;
+    - `stop()` on an idle connection;
+    - a failure after the server's own close.
+  - **Held and queued answers:** a held request whose session fails (in the same segment or later) and an async handler answering after the failure both get just the alert; all 4 held requests saw their abort, with empty stderr (`held.sh`). A partly queued 3 MB answer followed by a corrupt record is still cut with no alert, as before.
+- **The client side is unaffected.** `tls->error` is only set on failure (`status_of`, the name-check guard, a failed write). `fetch.c` calls `pts_tls_write` once, right after a successful handshake, and never calls `pts_tls_close`. All six `TestFetchHTTPS*` tests pass in the suite.
+- **The new test is sound.** `TestHTTPSServerSendsNothingAfterAFatalAlert`, run against snapshot 3's runtime via `go test -overlay`, fails 2 of 2 with records `[21 23 21]` against `[21]`; snapshot 3's tree stayed untouched. On snapshot 4 it passed 5 of 5. Together with the other two tests that share `sized.pts`, it passed 5 of 5 each under load (304,509 HTTPS requests alongside), which also exercised the shared build.
+- **The shared build covers the only collision.** No other server program is built by two tests (each `buildServer` name is used once), so the `text file busy` race can't recur elsewhere.
+- **R3-F2's wording is now accurate:** Go programs die even with SIGPIPE ignored, and C programs get EPIPE instead.
+
+Snapshots 3 and 4 match their checksums. Probes are in `/tmp/h33b/review4-probes.tar.gz`: `cnpaths/main.go`, `paths.sh`, `paths.log`, `held.sh`, `test_under_load.sh` and `overlay.json`. The archive holds no keys or binaries; a leftover server binary got in at first and I removed it. Nothing is left running, and `/tmp/h33b/review4.done` is touched.

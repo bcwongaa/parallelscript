@@ -56,10 +56,10 @@ bool pts_tls_take_output(pts_tls *tls, char **bytes, size_t *len);
 /* Goes on with the handshake: DONE once it is complete and, for a client, the server's certificate verified. */
 pts_tls_status pts_tls_handshake(pts_tls *tls);
 
-/* Encrypts len bytes for the peer, which pts_tls_take_output then gives. */
+/* Encrypts len bytes for the peer, which pts_tls_take_output then gives; FAILED once the session has failed. */
 pts_tls_status pts_tls_write(pts_tls *tls, const char *bytes, size_t len);
 
-/* Ends the session with close_notify, which pts_tls_take_output then gives; once, whoever asks again. */
+/* Ends the session with close_notify, which pts_tls_take_output then gives; once, whoever asks again, and not after a failure. */
 pts_tls_status pts_tls_close(pts_tls *tls);
 
 /* Decrypts what has come, up to cap bytes into out: DONE with *got of them (at least 1), or what stops it. */

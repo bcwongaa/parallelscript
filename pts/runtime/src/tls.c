@@ -935,6 +935,9 @@ pts_tls_status pts_tls_handshake(pts_tls *tls) {
 }
 
 pts_tls_status pts_tls_write(pts_tls *tls, const char *bytes, size_t len) {
+  if (tls->error != 0) {
+    return PTS_TLS_FAILED; /* nothing follows a fatal alert (RFC 8446 §6.2); mbedTLS would seal it */
+  }
   while (len > 0) {
     int written = mbedtls_ssl_write(&tls->ssl, (const unsigned char *)bytes, len);
     if (written < 0) {
@@ -948,6 +951,9 @@ pts_tls_status pts_tls_write(pts_tls *tls, const char *bytes, size_t len) {
 }
 
 pts_tls_status pts_tls_close(pts_tls *tls) {
+  if (tls->error != 0) {
+    return PTS_TLS_FAILED;
+  }
   if (tls->closed) {
     return PTS_TLS_DONE; /* mbedtls_ssl_close_notify would write a second one */
   }

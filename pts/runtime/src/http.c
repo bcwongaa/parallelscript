@@ -213,6 +213,7 @@ static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
 static void on_alloc_sealed(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
 static void process(connection *c);
+static void send_last(connection *c);
 
 static size_t queued(connection *c) { return uv_stream_get_write_queue_size((uv_stream_t *)&c->tcp); }
 
@@ -271,6 +272,7 @@ static bool seal(connection *c, const char *bytes, size_t len, bool close_after)
 static void send_parts(connection *c, const char *head, size_t head_len, const char *body, size_t body_len, bool close_after) {
   if (c->tls != NULL) {
     if (!seal(c, head, head_len, false) || !seal(c, body, body_len, close_after)) {
+      send_last(c); /* the session failed: its alert, and nothing after it */
       close_connection(c);
       return;
     }
