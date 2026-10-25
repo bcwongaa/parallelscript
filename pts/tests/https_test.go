@@ -251,13 +251,38 @@ func (lab *tlsLab) base(name string) string {
 	panic("no server called " + name)
 }
 
-// listen listens on address and closes the listener when the test ends.
+// listen listens on address and closes the listener when the test ends. On IPv6's
+// loopback at a port the kernel picks, it holds that port on 127.0.0.1 as well, so that
+// no other server has it there: where localhost resolves to ::1 first, as on GitHub's
+// runners, a request to localhost at that port would try this listener first and reach
+// the wrong server (CI run 40220044180).
 func listen(t *testing.T, address string) net.Listener {
 	t.Helper()
+	if address == "[::1]:0" {
+		return listenIPv6Loopback(t)
+	}
 	listener, err := net.Listen("tcp", address)
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 	return listener
+}
+
+// listenIPv6Loopback listens on [::1] at a port it also holds on 127.0.0.1, trying other
+// ports while 127.0.0.1's is taken.
+func listenIPv6Loopback(t *testing.T) net.Listener {
+	t.Helper()
+	for range 100 {
+		listener, err := net.Listen("tcp", "[::1]:0")
+		assert.NilError(t, err)
+		held, err := net.Listen("tcp", "127.0.0.1:"+port(listener))
+		if err == nil {
+			t.Cleanup(func() { _ = listener.Close(); _ = held.Close() })
+			return listener
+		}
+		_ = listener.Close()
+	}
+	t.Fatal("no port free on both loopbacks")
+	return nil
 }
 
 // port is the port listener listens on.
@@ -942,6 +967,25 @@ func TestFetchHTTPSUnderSanitizers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTLSLabIPv6ServerHoldsItsIPv4Port checks that the lab's server on IPv6's loopback
+// holds its port on IPv4's too. Where localhost resolves to ::1 first, as on GitHub's
+// runners, a request to localhost at a port another server has on 127.0.0.1 (or 0.0.0.0)
+// tries [::1] at that port first, and reached a parallel test's lab there: a certificate
+// from its root, which has this lab's root's name and another key (CI run 40220044180).
+func TestTLSLabIPv6ServerHoldsItsIPv4Port(t *testing.T) {
+	t.Parallel()
+	lab := startTLSLab(t)
+	if slices.Contains(lab.absent, "by IPv6 address ") {
+		t.Skip("no IPv6 loopback")
+	}
+	ipv6Port := strings.TrimPrefix(lab.base("[::1]"), "https://[::1]:")
+	listener, err := net.Listen("tcp", "127.0.0.1:"+ipv6Port)
+	if err == nil {
+		_ = listener.Close()
+	}
+	assert.Assert(t, err != nil, "127.0.0.1:%s is free while the lab's [::1] server listens at that port", ipv6Port)
 }
 
 // TestFetchHTTPSTrustStore runs http/fetch_tls_one.pts (H33) against a server whose
