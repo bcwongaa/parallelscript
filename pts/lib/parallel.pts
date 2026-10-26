@@ -654,7 +654,9 @@ export class ParallelRange {
 
     // A new array of the integers sorted by compare.
     sort(compare: ParallelCallback<(a: number, b: number) => number>): number[] {
-        return new ParallelArray(this.toArray()).sort(compare);
+        const sorted = new ParallelArray(this.toArray()).sort(compare);
+        pts_publish(); // sorted in place after toArray made it
+        return sorted;
     }
 
     // A new array of the integers sorted by key's value for each.

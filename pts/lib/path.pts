@@ -1,6 +1,10 @@
 // pts:path: Node's path module for POSIX systems (D-116), ported from Node's lib/path.js
 // (its posix object), so that every function gives Node's result for every input.
 
+// Orders what this thread stored before it before what it stores after (D-226): a builder
+// publishes the object it made and filled before handing it out.
+declare function pts_publish(): void;
+
 const CHAR_DOT = 46; // .
 const CHAR_FORWARD_SLASH = 47; // /
 
@@ -470,6 +474,7 @@ export function parse(path: string): ParsedPath {
     } else if (isAbsolute) {
         ret.dir = "/";
     }
+    pts_publish(); // its parts, set after the literal was made
     return ret;
 }
 

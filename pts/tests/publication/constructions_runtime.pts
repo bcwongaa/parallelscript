@@ -6,6 +6,7 @@
 // follows is reported.
 // publication: strict
 import { readdirSync } from "pts:fs";
+import { parse } from "pts:path";
 // threads: 1 2 4
 const box: { v: unknown } = { v: 0 };
 let made = 0;
@@ -80,10 +81,12 @@ enum Color {
 keep(Color);
 keep(readdirSync("."));
 keep(readdirSync(".", { recursive: true }));
+keep(parse("/home/user/file.txt"));
+keep(parse("/"));
 function peek(): unknown {
   return box.v;
 }
 console.log(made, await parallel peek() !== undefined);
 
 // expect:
-// 47 true
+// 49 true

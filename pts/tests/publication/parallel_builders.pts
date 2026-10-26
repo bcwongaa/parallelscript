@@ -25,10 +25,11 @@ keep(range(0, 8).par.toArray());
 keep(nums.par.toArray());
 keep(ta.par.filter((x) => x > 1));
 keep(join(() => [1, 2], () => "b"));
+keep(range(0, 8).par.sort((a, b) => b - a));
 function peek(): unknown {
   return box.v;
 }
 console.log(made, await parallel peek() !== undefined);
 
 // expect:
-// 11 true
+// 12 true
