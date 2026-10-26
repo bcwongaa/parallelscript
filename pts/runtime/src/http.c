@@ -63,6 +63,7 @@ enum {
 /* A server's socket on one loop, and the connections that loop accepted from it; only that loop touches it once it listens. */
 typedef struct listener {
   uv_tcp_t *tcp; /* NULL until the loop listens, and once it stops */
+  uv_check_t *deferred; /* on macOS, where loops share a socket (another_listening_socket): accepts after the loop's poll */
   struct server *server;
   struct connection *connections;
   pts_tls_identity *identity; /* an https server's certificate and key for this loop's connections; NULL for http */
@@ -745,11 +746,35 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   }
 }
 
+static void accept_connection(listener *l, uv_stream_t *stream);
+static void on_deferred_accept(uv_check_t *check);
+
+/*
+ * A connection came. Where loops share a socket (macOS), its accept waits for the loop's
+ * check phase, and libuv reads the socket no more until then: the other loops the
+ * connections woke take the next ones, where libuv would take every waiting one here.
+ */
 static void on_connection(uv_stream_t *stream, int status) {
   listener *l = stream->data;
   if (status < 0 || atomic_load(&l->server->stopped)) {
     return;
   }
+  if (l->deferred != NULL) {
+    uv_check_start(l->deferred, on_deferred_accept);
+    return;
+  }
+  accept_connection(l, stream);
+}
+
+static void on_deferred_accept(uv_check_t *check) {
+  listener *l = check->data;
+  uv_check_stop(check);
+  if (l->tcp != NULL && !atomic_load(&l->server->stopped)) {
+    accept_connection(l, (uv_stream_t *)l->tcp);
+  }
+}
+
+static void accept_connection(listener *l, uv_stream_t *stream) {
   connection *c = checked(calloc(1, sizeof *c));
   uv_tcp_init(stream->loop, &c->tcp);
   if (uv_accept(stream, (uv_stream_t *)&c->tcp) < 0) {
@@ -985,6 +1010,14 @@ static void start_listening(void *data) {
     return;
   }
   l->tcp = tcp;
+#if defined(__APPLE__)
+  if (l->server->listener_count > 1) {
+    l->deferred = checked(malloc(sizeof *l->deferred));
+    uv_check_init(pts_uv_loop(), l->deferred);
+    l->deferred->data = l;
+    uv_unref((uv_handle_t *)l->deferred);
+  }
+#endif
 }
 
 /*
@@ -995,8 +1028,12 @@ static void start_listening(void *data) {
 static void stop_listening(void *data) {
   listener *l = data;
   if (l->tcp != NULL) {
-    uv_close((uv_handle_t *)l->tcp, on_listener_closed);
+    uv_close((uv_handle_t *)l->tcp, on_listener_closed); /* and a connection whose accept was deferred */
     l->tcp = NULL;
+  }
+  if (l->deferred != NULL) {
+    uv_close((uv_handle_t *)l->deferred, on_listener_closed);
+    l->deferred = NULL;
   }
   bool close_active = atomic_load(&l->server->close_active);
   for (connection *c = l->connections, *next; c != NULL; c = next) {

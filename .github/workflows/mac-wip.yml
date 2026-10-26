@@ -53,6 +53,32 @@ jobs:
           $GITHUB_WORKSPACE/pts-bin/pts build hello.pts -o hello 2>&1 | tail -50
           ls -la; otool -L hello || true
           ./hello; echo "exit $?"
+          lldb --batch -o 'breakpoint set --file hello.pts --line 3' -o run -o 'thread backtrace 3' -o 'frame variable' -o kill ./hello 2>&1 | tail -30 || true
+          cat > burst.pts <<'PTS'
+          import { serve } from "pts:http";
+          const server = serve({ port: 0, hostname: "127.0.0.1", fetch() { return new Response("ok"); } });
+          for (const burst of [100, 120, 140, 200, 400]) {
+            const outcomes = await Promise.all(Array.from({ length: burst }, () => fetch(`http://127.0.0.1:${server.port}/`).then((r) => r.text(), (e) => String((e as { cause?: { code?: string } }).cause?.code ?? e))));
+            const counts = new Map<string, number>();
+            for (const o of outcomes) counts.set(o, (counts.get(o) ?? 0) + 1);
+            console.log("pts", burst, [...counts].join(" "));
+          }
+          server.stop();
+          PTS
+          cat > burst.mjs <<'NODE'
+          import http from "node:http";
+          const server = http.createServer((req, res) => res.end("ok"));
+          await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+          const port = server.address().port;
+          for (const burst of [100, 120, 140, 200, 400]) {
+            const outcomes = await Promise.all(Array.from({ length: burst }, () => fetch(`http://127.0.0.1:${port}/`).then((r) => r.text(), (e) => String(e.cause?.code ?? e))));
+            const counts = new Map();
+            for (const o of outcomes) counts.set(o, (counts.get(o) ?? 0) + 1);
+            console.log("node", burst, [...counts].join(" "));
+          }
+          server.close();
+          NODE
+          $GITHUB_WORKSPACE/pts-bin/pts build burst.pts -o burst && for i in 1 2 3; do ./burst; node burst.mjs; done
       - name: PTS tests
         if: always()
         run: |

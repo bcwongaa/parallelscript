@@ -88,7 +88,9 @@ func TestEmitCPrintsCWithLineDirectives(t *testing.T) {
 	got := runIn(t, dir, "emit-c", "hello.pts")
 
 	assert.Equal(t, got.code, 0, got.stderr)
-	assert.Assert(t, strings.Contains(got.stdout, `#line 1 "`+filepath.Join(dir, "hello.pts")+`"`), got.stdout)
+	real, err := filepath.EvalSymlinks(filepath.Join(dir, "hello.pts")) // on macOS, the temporary directory's real path is under /private
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(got.stdout, `#line 1 "`+real+`"`), got.stdout)
 	assert.Assert(t, strings.Contains(got.stdout, "pts_console_log("), got.stdout)
 }
 
