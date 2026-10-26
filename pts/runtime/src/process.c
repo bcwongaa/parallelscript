@@ -6,10 +6,16 @@
 #include "pts.h"
 
 #include <errno.h>
+#include <gc.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <uv.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 extern char **environ;
 
@@ -28,6 +34,17 @@ int pts_runtime_exit(int code) {
   return code != 0 ? code : exit_code;
 }
 
+#if defined(__APPLE__)
+/* The absolute path of the running executable (Node's process.execPath) without symbolic links, as libuv's uv_exepath, or argv[0] if the system won't tell. */
+static pts_string *exec_path(void) {
+  char given[PATH_MAX], resolved[PATH_MAX];
+  uint32_t size = sizeof given;
+  if (_NSGetExecutablePath(given, &size) == 0 && realpath(given, resolved) != NULL) {
+    return pts_string_from_utf8_lossy(resolved, strlen(resolved));
+  }
+  return pts_string_from_cstr(program_argc > 0 ? program_argv[0] : "");
+}
+#else
 /* The absolute path of the running executable (Node's process.execPath), or argv[0] if the system won't tell. */
 static pts_string *exec_path(void) {
   for (size_t size = 256;; size *= 2) {
@@ -48,6 +65,7 @@ static pts_string *exec_path(void) {
   }
   return pts_string_from_cstr(program_argc > 0 ? program_argv[0] : "");
 }
+#endif
 
 pts_string *pts_process_exec_path(void) { return exec_path(); }
 
@@ -76,6 +94,19 @@ pts_array *pts_process_environ(void) {
 
 double pts_process_pid(void) { return (double)getpid(); }
 
+pts_array *pts_process_memory_usage(void) {
+  size_t rss = 0;
+  if (uv_resident_set_memory(&rss) != 0) {
+    rss = 0;
+  }
+  GC_word heap_size, free_bytes;
+  GC_get_heap_usage_safe(&heap_size, &free_bytes, NULL, NULL, NULL);
+  double figures[] = {(double)rss, (double)heap_size, (double)(heap_size - free_bytes)};
+  pts_array *usage = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], figures, 3);
+  pts_publish();
+  return usage;
+}
+
 pts_string *pts_process_arch(void) {
 #if defined(__aarch64__)
   return pts_string_from_cstr("arm64");
@@ -83,6 +114,16 @@ pts_string *pts_process_arch(void) {
   return pts_string_from_cstr("x64");
 #else
 #error "pts_process_arch: a processor ParallelScript doesn't target"
+#endif
+}
+
+pts_string *pts_process_platform(void) {
+#if defined(__APPLE__)
+  return pts_string_from_cstr("darwin");
+#elif defined(__linux__)
+  return pts_string_from_cstr("linux");
+#else
+#error "pts_process_platform: a system ParallelScript doesn't target"
 #endif
 }
 

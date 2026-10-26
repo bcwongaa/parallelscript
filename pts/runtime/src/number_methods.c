@@ -438,7 +438,7 @@ static double power_of_two_digits(const char *s, size_t n, int radix) {
 
 /*
  * The digits in another radix, accumulated in 32-bit parts as V8 does (approximate beyond 2^53, as the spec allows),
- * with each part added as Node's build adds it (fused on arm64 Linux, v8_fma_internal.h).
+ * with each part added as Node's build adds it (fused on arm64, v8_fma_internal.h).
  */
 static double other_radix_digits(const char *s, size_t n, int radix) {
   const uint32_t max_multiplier = 0xFFFFFFFFu / 36;

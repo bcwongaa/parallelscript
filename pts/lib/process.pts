@@ -6,7 +6,9 @@ declare function pts_process_environ(): string[];
 declare function pts_process_exec_path(): string;
 declare function pts_process_pid(): number;
 declare function pts_process_arch(): string;
+declare function pts_process_platform(): string;
 declare function pts_process_cwd(): string;
+declare function pts_process_memory_usage(): number[];
 declare function pts_process_exit(code: number): never;
 declare function pts_process_set_exit_code(code: number): void;
 declare function pts_process_write(fd: number, chunk: string): void;
@@ -73,7 +75,7 @@ export class Process {
     readonly argv: string[] = pts_process_argv();
     readonly execPath: string = pts_process_exec_path();
     env: ProcessEnv = environment();
-    readonly platform: string = "linux";
+    readonly platform: string = pts_process_platform();
     readonly arch: string = pts_process_arch();
     readonly pid: number = pts_process_pid();
     readonly stdout: WriteStream = new WriteStream(1);
@@ -100,6 +102,23 @@ export class Process {
     cwd(): string {
         return pts_process_cwd();
     }
+
+    // Node's memory figures, in bytes: rss, the memory the process has resident; heapTotal and
+    // heapUsed, the collector's heap and what isn't free in it. Arrays' and ArrayBuffers'
+    // storage is in that heap, so external and arrayBuffers are 0.
+    memoryUsage(): MemoryUsage {
+        const usage = pts_process_memory_usage();
+        return { rss: usage[0], heapTotal: usage[1], heapUsed: usage[2], external: 0, arrayBuffers: 0 };
+    }
+}
+
+// What process.memoryUsage() returns, as Node's NodeJS.MemoryUsage.
+export interface MemoryUsage {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+    arrayBuffers: number;
 }
 
 const process: Process = new Process();

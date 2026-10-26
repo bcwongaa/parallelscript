@@ -74,9 +74,12 @@ async function loopTask(task: number): Promise<string[]> {
   return outcomes;
 }
 
+// Keep Linux's 200 simultaneous connects; on macOS use 100 to isolate signal correctness
+// from C367 (H14), retained separately in macos_fetch_burst.pts.
+const batchSize = process.platform === "darwin" ? 100 : 200;
 const pooled: string[] = [];
-for (let round = 0; round < 5; round++) {
-  pooled.push(...(await Promise.all(range(0, 200).par.map((i) => fetchWithSignal(`/pool/${round}`, i, false)))));
+for (let round = 0; round < 1_000 / batchSize; round++) {
+  pooled.push(...(await Promise.all(range(0, batchSize).par.map((i) => fetchWithSignal(`/pool/${round}`, i, false)))));
 }
 console.log("from .par.map:", tally(pooled));
 const looped = await Promise.all([0, 1, 2, 3].map((task) => parallel loopTask(task)));

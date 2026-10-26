@@ -1,0 +1,28 @@
+// The values are implementation-specific byte counts, but their shape, integer range,
+// coherent heap snapshot and fresh result object are public process.memoryUsage behaviour.
+import proc, { type MemoryUsage } from "pts:process";
+
+function valid(usage: MemoryUsage): boolean {
+    return Number.isSafeInteger(usage.rss) && usage.rss > 0
+        && Number.isSafeInteger(usage.heapTotal) && usage.heapTotal > 0
+        && Number.isSafeInteger(usage.heapUsed) && usage.heapUsed >= 0 && usage.heapUsed <= usage.heapTotal
+        && Number.isSafeInteger(usage.external) && usage.external >= 0
+        && Number.isSafeInteger(usage.arrayBuffers) && usage.arrayBuffers >= 0;
+}
+
+const first: MemoryUsage = proc.memoryUsage();
+console.log(Object.keys(first).sort().join(","));
+console.log(valid(first));
+first.rss = -1;
+const retained = new Uint8Array(1024 * 1024);
+retained[retained.length - 1] = 37;
+const second: MemoryUsage = process.memoryUsage();
+console.log(valid(second), first !== second, first.rss, retained[retained.length - 1]);
+const throughAny: any = proc;
+const third: MemoryUsage = throughAny.memoryUsage();
+console.log(valid(third));
+// expect:
+// arrayBuffers,external,heapTotal,heapUsed,rss
+// true
+// true true -1 37
+// true

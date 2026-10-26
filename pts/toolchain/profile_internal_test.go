@@ -3,6 +3,7 @@ package toolchain
 import (
 	"os/exec"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -33,6 +34,9 @@ func TestBuildProfileNamesAProfileOrReleaseWhenUnset(t *testing.T) {
 // function the runtime calls to allocate or free must be one of publicationWraps.
 func TestPublicationWrapsCoverEveryAllocatorTheRuntimeCalls(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("the publication checker links through GNU ld's --wrap, on Linux only")
+	}
 	tc, err := New()
 	assert.NilError(t, err)
 	rt, err := tc.Runtime(t.Context(), Release)

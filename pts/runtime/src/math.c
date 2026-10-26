@@ -8,6 +8,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <sys/random.h>
+#endif
 
 static double argument_at(const pts_array *values, size_t i) { return *(double *)pts_array_slot(values, (double)i, sizeof(double)); }
 

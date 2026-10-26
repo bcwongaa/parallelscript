@@ -3,14 +3,14 @@
 // code a program sets. Node runs it with node:process.
 import proc, { argv, env, platform, cwd, stdout } from "pts:process";
 
-console.log(process === proc, argv === process.argv, env === process.env, platform);
+console.log(process === proc, argv === process.argv, env === process.env, ["linux", "darwin"].includes(platform));
 console.log(process.argv.slice(2), process.argv.length, typeof process.argv[0], process.argv[0] === process.argv[1] || process.argv[1].endsWith(".mts"));
 console.log(process.env.TZ, process.env.PTS_SURELY_NOT_SET, typeof process.env.PATH);
 process.env.PTS_SET_HERE = "yes";
 console.log(process.env["PTS_SET_HERE"], "PTS_SET_HERE" in process.env);
 delete process.env.PTS_SET_HERE;
 console.log(process.env.PTS_SET_HERE, Object.keys(process.env).includes("TZ"));
-console.log(typeof process.pid, process.pid > 0, process.platform, ["x64", "arm64"].includes(process.arch));
+console.log(typeof process.pid, process.pid > 0, process.platform === platform, ["x64", "arm64"].includes(process.arch));
 console.log(cwd() === process.cwd(), process.cwd().startsWith("/"), process.execPath.startsWith("/"));
 stdout.write("written ");
 console.log("then logged");
@@ -20,12 +20,12 @@ process.stderr.write("to stderr\n");
 process.exitCode = 3;
 console.log(process.exitCode);
 // expect:
-// true true true linux
+// true true true true
 // [] 2 string true
 // America/New_York undefined string
 // yes true
 // undefined true
-// number true linux true
+// number true true true
 // true true true
 // written then logged
 // two

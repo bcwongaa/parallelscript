@@ -1,0 +1,5 @@
+const usage = process.memoryUsage();
+console.log(usage.heapTotal > 0, usage.heapUsed >= 0, usage.heapUsed <= usage.heapTotal);
+if (usage.heapUsed < 0 || usage.heapUsed > usage.heapTotal) {
+    console.log("incoherent heap", usage.heapTotal, usage.heapUsed);
+}

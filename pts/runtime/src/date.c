@@ -107,7 +107,7 @@ static double make_date(double day, double time) {
   if (!isfinite(day) || !isfinite(time)) {
     return NAN;
   }
-  return PTS_V8_FMA(day, (double)MS_PER_DAY, time); /* fused as in V8's MakeDate on arm64 Linux */
+  return PTS_V8_FMA(day, (double)MS_PER_DAY, time); /* fused as in V8's MakeDate in Node's arm64 builds */
 }
 
 static double time_clip(double t) {

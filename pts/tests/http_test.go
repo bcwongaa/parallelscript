@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -463,9 +465,15 @@ func TestFetchUnderSanitizers(t *testing.T) {
 	}
 }
 
-// openFiles is how many files process pid has open.
+// openFiles is how many files process pid has open: on macOS, which has no /proc, the
+// numbered descriptors lsof lists.
 func openFiles(t *testing.T, pid int) int {
 	t.Helper()
+	if runtime.GOOS == "darwin" {
+		out, err := exec.CommandContext(t.Context(), "lsof", "-n", "-P", "-F", "f", "-p", strconv.Itoa(pid)).Output()
+		assert.NilError(t, err)
+		return len(regexp.MustCompile(`(?m)^f\d+$`).FindAll(out, -1))
+	}
 	entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid))
 	assert.NilError(t, err)
 	return len(entries)
@@ -474,6 +482,9 @@ func openFiles(t *testing.T, pid int) int {
 // residentMB is how much memory process pid has resident, in MB.
 func residentMB(t *testing.T, pid int) float64 {
 	t.Helper()
+	if runtime.GOOS == "darwin" {
+		return float64(residentKBOnMacOS(t, pid)) / 1024
+	}
 	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	assert.NilError(t, err)
 	m := regexp.MustCompile(`VmRSS:\s+(\d+) kB`).FindSubmatch(status)
@@ -482,6 +493,16 @@ func residentMB(t *testing.T, pid int) float64 {
 	_, err = fmt.Sscan(string(m[1]), &kb)
 	assert.NilError(t, err)
 	return kb / 1024
+}
+
+// residentKBOnMacOS is how much memory process pid has resident, in kB, as ps says.
+func residentKBOnMacOS(t *testing.T, pid int) int {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), "ps", "-o", "rss=", "-p", strconv.Itoa(pid)).Output()
+	assert.NilError(t, err)
+	kb, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	assert.NilError(t, err)
+	return kb
 }
 
 // eventually fails unless done reports true within d.

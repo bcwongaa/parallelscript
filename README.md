@@ -13,12 +13,12 @@ A plain TypeScript program (no `parallel`, no integer types, no `pts:` imports) 
 Why use it:
 
 - **It is TypeScript.** The front end is the TypeScript 7 compiler itself, so the types, the inference and the error messages are tsc's. The test suite runs hundreds of programs under Node too and compares what they print, among them a corpus of 300 realistic programs, 269 of which are classified as printing exactly what Node prints (each of the others says why).
-- **Native binaries that start in a millisecond.** `pts build` makes one executable that needs only libc and libm. Hello world starts in about 1 ms, where Node takes 74 ms.
+- **Native binaries that start in a millisecond.** `pts build` makes one executable that needs only libc and libm on Linux, or libSystem on macOS. Hello world starts in about 1 ms, where Node takes 74 ms.
 - **Every core, one heap.** `parallel f()` runs a task on another core's event loop, `xs.par.map(f)` splits work over a work-stealing pool, and `parallel for` runs a loop's iterations in parallel. Threads share objects directly; nothing is copied or serialized. A data race can make a program read a stale value, but it can't crash it or corrupt memory.
 - **One guardrail, not a borrow checker.** The compiler rejects assigning a captured outer `let` inside a parallel body, and checks nothing else about how threads share data. `pts:sync` has atomics, a mutex and channels for the code that needs them.
 - **Batteries for servers and tools.** `pts:http` is a server in the style of Bun's `serve` that accepts connections on every core, and `fetch`, `pts:fs`, `pts:path`, `pts:process`, RegExp and JSON behave as they do in Node, and `pts test` runs tests written for Node's `node:test` and `node:assert`.
 
-**Status:** experimental. Milestones M0 to M7 are done, the last with a language server, a VS Code extension and `pts test` ([status](#status)). It runs on x86-64 Linux. It also builds for arm64 Linux, there or cross-compiled with `pts build --target aarch64-linux`, so far tested under qemu, with the barriers arm needs where new objects are published to other threads (H35b).
+**Status:** experimental. Milestones M0 to M7 are done, the last with a language server, a VS Code extension and `pts test` ([status](#status)). It runs on x86-64 and arm64 Linux and on macOS on Apple silicon; CI runs the whole suite on each of the three (GitHub's `ubuntu-24.04`, `ubuntu-24.04-arm` and `macos-14` runners). `pts build --target aarch64-linux` cross-compiles for arm64 Linux from x86-64 (and back); macOS programs build on a Mac. The macOS port is an implementation checkpoint: its historical Mac suite passed, but H36's independent hardening acceptance remains [blocked](docs/agent/hardening-evidence/h36-port-review.md).
 
 ```ts
 import { range } from "pts:parallel";
@@ -65,7 +65,7 @@ console.log(await parallel collatzSteps(77_031));
 You need:
 
 - Go 1.26 (what `go.mod` asks for);
-- clang and `ar` (developed with clang 18; `PTS_CC` and `PTS_AR` pick others);
+- clang and `ar` (developed with clang 18; `PTS_CC` and `PTS_AR` pick others); on a Mac, Apple's command line tools (`xcode-select --install`) have both;
 - git, to fetch the vendored C libraries;
 - Node only to run the differential tests (developed with Node 24.21), and hyperfine, Node, Bun, Go and python3 only for the benchmarks.
 
@@ -81,13 +81,13 @@ pts-bin/pts run docs/examples/hello.pts
 Hello, ParallelScript
 ```
 
-Don't initialize `_submodules/TypeScript`: it is large, and only upstream's own tests use it. The first build compiles the runtime and the vendored C libraries and caches them in `~/.cache/pts/` (`PTS_CACHE_DIR` moves it); later builds reuse them. Deleting the cache is always safe.
+Don't initialize `_submodules/TypeScript`: it is large, and only upstream's own tests use it. The first build compiles the runtime and the vendored C libraries and caches them in `~/.cache/pts/` (on macOS `~/Library/Caches/pts/`; `PTS_CACHE_DIR` moves it); later builds reuse them. Deleting the cache is always safe.
 
 The commands (`pts help`):
 
 | Command | What it does |
 |---|---|
-| `pts build file.pts [-o out] [--target target]` | Compile to a native executable (by default named after the file). It links statically against the runtime and needs only libc and libm. `--target aarch64-linux` or `x86_64-linux` cross-compiles for the other machine. |
+| `pts build file.pts [-o out] [--target target]` | Compile to a native executable (by default named after the file). It links statically against the runtime and needs only libc and libm (on macOS libSystem, with its debug information in `<out>.dSYM` beside it). `--target aarch64-linux` or `x86_64-linux` cross-compiles for the other Linux machine. |
 | `pts run file.pts [args...]` | Compile and run; the arguments after the file go to the program. |
 | `pts emit-c file.pts [-o file.c]` | Print the generated C, which carries `#line` directives back to the `.pts` source, so gdb and crash backtraces show `.pts` lines. |
 | `pts test [paths...]` | Build and run the test files (`name.test.pts`, …) under paths, written with `pts:test` and `pts:assert` as for Node's `node:test` and `node:assert/strict`; Node's spec report, exit code 1 on a failure |
@@ -618,7 +618,7 @@ Generic function-value instances are pruned only when bounded immutable-source a
 Not built yet:
 
 - Streamed request and response bodies, HTTP/2 and WebSocket for `pts:http`.
-- Platforms other than x86-64 and arm64 Linux (macOS is H36).
+- Platforms other than x86-64 and arm64 Linux and macOS on Apple silicon (Intel Macs, Windows).
 - npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
 Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):

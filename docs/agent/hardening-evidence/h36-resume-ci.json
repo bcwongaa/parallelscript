@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-10-26 session startup",
+  "command": "gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId",
+  "note": "One non-blocking startup query only. These conclusions certify the named historical SHAs, not the recovered port or later review fixes. Earlier scratch failures are superseded by scratch round 5; earlier main arm64 failures are superseded by the D-227 fix.",
+  "runs": [
+    {"headSha": "f0a3cf56d6492d6540387b6a9a8c078a8030da58", "databaseId": 40288979317, "conclusion": "skipped"},
+    {"headSha": "f0a3cf56d6492d6540387b6a9a8c078a8030da58", "databaseId": 40288979269, "conclusion": "success"},
+    {"headSha": "35089901ea49e5c697fe47a998b93ad3abc9ef56", "databaseId": 40286550840, "conclusion": "success"},
+    {"headSha": "8dd289fb3d8514cfc1b9c335084ab795a3f9cfca", "databaseId": 40283890522, "conclusion": "failure"},
+    {"headSha": "df44b9d8e4b4d8eae222c6d2934bf9fd38a9b5d2", "databaseId": 40281386682, "conclusion": "failure"},
+    {"headSha": "83d4303edf5ab31273670e69b51f0b4f4fe25247", "databaseId": 40279472053, "conclusion": "failure"},
+    {"headSha": "67ac884fb4d3b686b21baf7d9f928c79f6ef6d53", "databaseId": 40276890480, "conclusion": "failure"},
+    {"headSha": "eb3a1ed4b59909d147be9b11e50482429270f3c1", "databaseId": 40274498253, "conclusion": "skipped"},
+    {"headSha": "eb3a1ed4b59909d147be9b11e50482429270f3c1", "databaseId": 40274498183, "conclusion": "failure"},
+    {"headSha": "c18ec5398887a4dd3b6d7d1c6a7fa88daf1a7909", "databaseId": 40273517606, "conclusion": "skipped"}
+  ]
+}

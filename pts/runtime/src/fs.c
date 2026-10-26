@@ -15,6 +15,7 @@
  */
 #include "pts.h"
 
+#include <fcntl.h>
 #include <gc.h>
 #include <stdlib.h>
 #include <string.h>
@@ -168,6 +169,23 @@ static void write_file(job *j) {
     written += (size_t)n;
   }
   close_quietly(fd);
+}
+
+/*
+ * O_CREAT, O_EXCL, O_NOCTTY, O_TRUNC, O_APPEND, O_DIRECTORY, O_NOATIME, O_NOFOLLOW, O_SYNC,
+ * O_DSYNC, O_DIRECT and O_NONBLOCK, in the order pts:internal/fs reads them: macOS's values
+ * differ from Linux's, and it has no O_NOATIME or O_DIRECT (0 here; Node leaves them out).
+ */
+pts_array *pts_fs_open_flags(void) {
+#if defined(__APPLE__)
+  enum { NOATIME = 0, DIRECT = 0 };
+#else
+  enum { NOATIME = O_NOATIME, DIRECT = O_DIRECT };
+#endif
+  double flags[] = {O_CREAT, O_EXCL, O_NOCTTY, O_TRUNC, O_APPEND, O_DIRECTORY, NOATIME, O_NOFOLLOW, O_SYNC, O_DSYNC, DIRECT, O_NONBLOCK};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], flags, sizeof flags / sizeof flags[0]);
+  pts_publish();
+  return array;
 }
 
 /* Node's order: dev, mode, nlink, uid, gid, rdev, blksize, ino, size, blocks, then the seconds and nanoseconds of atime, mtime, ctime, birthtime. */

@@ -89,7 +89,9 @@ static loop_slot *new_slot(void) {
   pthread_mutex_init(&slot->lock, NULL);
   pthread_condattr_t attributes;
   pthread_condattr_init(&attributes);
+#if !defined(__APPLE__) /* macOS has no clock for conditions: wait_at_most waits for a time interval */
   pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC); /* libuv's clock: a sleeping loop waits for its timers (wait_for_work) */
+#endif
   pthread_cond_init(&slot->woken, &attributes);
   pthread_condattr_destroy(&attributes);
   return slot;
@@ -242,6 +244,10 @@ static void wake_main(void) {
 
 /* Waits for slot's condition for at most ms milliseconds; the caller holds slot's lock. */
 static void wait_at_most(loop_slot *slot, int64_t ms) {
+#if defined(__APPLE__)
+  struct timespec interval = {.tv_sec = ms / 1000, .tv_nsec = (ms % 1000) * 1000000};
+  pthread_cond_timedwait_relative_np(&slot->woken, &slot->lock, &interval); /* unaffected by changes of the wall clock, as CLOCK_MONOTONIC */
+#else
   struct timespec until;
   clock_gettime(CLOCK_MONOTONIC, &until);
   until.tv_sec += ms / 1000;
@@ -251,6 +257,7 @@ static void wait_at_most(loop_slot *slot, int64_t ms) {
     until.tv_nsec -= 1000000000;
   }
   pthread_cond_timedwait(&slot->woken, &slot->lock, &until);
+#endif
 }
 
 /* Counts a sleeping loop awake again for its timer, unless no loop is awake: then the program is ending, which an unreferenced timer doesn't hold up. */
@@ -352,8 +359,12 @@ static unsigned configured_count(void) {
     }
   }
   if (count < 1) {
+#if defined(__APPLE__) /* no affinity masks: every core, performance and efficiency cores alike, as Node's availableParallelism */
+    count = sysconf(_SC_NPROCESSORS_ONLN);
+#else
     cpu_set_t cpus;
     count = sched_getaffinity(0, sizeof cpus, &cpus) == 0 ? CPU_COUNT(&cpus) : sysconf(_SC_NPROCESSORS_ONLN);
+#endif
   }
   return count < 1 ? 1 : count > MAX_LOOPS ? MAX_LOOPS : (unsigned)count;
 }

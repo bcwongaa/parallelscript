@@ -7,7 +7,7 @@
 // 0 to 4 ms, at any stage of their handshakes; then 1000 more, after which the process has
 // the files it had (one connection a request, all closed) and hasn't grown much.
 import { range } from "pts:parallel";
-import { readdirSync, readFileSync } from "pts:fs";
+import { readdirSync } from "pts:fs";
 
 type Coded = Error & { code: string };
 
@@ -61,13 +61,13 @@ function tally(outcomes: string[]): string {
   return [...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", ");
 }
 
+// /dev/fd lists this process's open files on Linux (where it is /proc/self/fd) and macOS.
 function openFiles(): number {
-  return readdirSync("/proc/self/fd").length;
+  return readdirSync("/dev/fd").length;
 }
 
 function residentMB(): number {
-  const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync("/proc/self/status", "utf8"));
-  return m === null ? 0 : Number(m[1]) / 1024;
+  return process.memoryUsage().rss / (1024 * 1024);
 }
 
 function pause(ms: number): Promise<void> {

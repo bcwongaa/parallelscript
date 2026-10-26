@@ -1,7 +1,9 @@
 /*
  * pts:http's server (D-136): HTTP/1.1 over libuv's TCP on the loop that listens, or with
  * reusePort on every loop (D-137), each accepting on a socket of its own bound to the same
- * port with SO_REUSEPORT, so the kernel spreads connections across them. Each connection
+ * port with SO_REUSEPORT, so the kernel spreads connections across them (on macOS, whose
+ * SO_REUSEPORT doesn't, each on a descriptor of one socket, handing the connections it
+ * accepts to the loops in turn). Each connection
  * stays on the loop that accepted it: it reads requests one at a time (pipelined ones wait
  * in its buffer), hands each to the program's request callback with an id, writes the
  * response once pts_http_respond answers that id, and goes on with the next request or
@@ -76,6 +78,7 @@ typedef struct server {
   atomic_bool close_active; /* stop(true): connections with requests in flight close too */
   int port;
   uint32_t listener_count;
+  atomic_uint turn; /* on macOS, where the loops share a socket: the listener the next connection goes to (hand_off) */
   listener listeners[]; /* the calling loop's first */
 } server;
 
@@ -744,17 +747,91 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   }
 }
 
+static void start_connection(listener *l, connection *c);
+#if defined(__APPLE__)
+static void hand_off(listener *l, uv_stream_t *stream);
+#endif
+
 static void on_connection(uv_stream_t *stream, int status) {
   listener *l = stream->data;
   if (status < 0 || atomic_load(&l->server->stopped)) {
     return;
   }
+#if defined(__APPLE__)
+  if (l->server->listener_count > 1) {
+    hand_off(l, stream);
+    return;
+  }
+#endif
   connection *c = checked(calloc(1, sizeof *c));
   uv_tcp_init(stream->loop, &c->tcp);
   if (uv_accept(stream, (uv_stream_t *)&c->tcp) < 0) {
     uv_close((uv_handle_t *)&c->tcp, on_closed);
     return;
   }
+  start_connection(l, c);
+}
+
+#if defined(__APPLE__)
+/* A connection one loop accepted for another (hand_off): a descriptor of its own for it. */
+typedef struct handed {
+  listener *to;
+  int fd;
+} handed;
+
+static void on_taken_closed(uv_handle_t *handle) { free(handle); }
+
+/* On the loop a connection was handed to: it takes the connection over, unless the server stopped there meanwhile. */
+static void adopt(void *data) {
+  handed *h = data;
+  listener *l = h->to;
+  int fd = h->fd;
+  free(h);
+  /* The handoff can reach this loop before its listener's startup message. */
+  if (atomic_load(&l->server->stopped)) {
+    close(fd);
+    return;
+  }
+  connection *c = checked(calloc(1, sizeof *c));
+  uv_tcp_init(pts_uv_loop(), &c->tcp);
+  if (uv_tcp_open(&c->tcp, fd) != 0) {
+    close(fd);
+    uv_close((uv_handle_t *)&c->tcp, on_closed);
+    return;
+  }
+  start_connection(l, c);
+}
+
+/*
+ * The loops share a socket on macOS (another_listening_socket), and the loop that is awake
+ * would take every connection before the others wake, so the connections go to the loops in
+ * turn, as Linux's SO_REUSEPORT spreads them: one for another loop is accepted here and its
+ * descriptor's copy handed to that loop.
+ */
+static void hand_off(listener *l, uv_stream_t *stream) {
+  server *s = l->server;
+  listener *to = &s->listeners[atomic_fetch_add(&s->turn, 1) % s->listener_count];
+  uv_tcp_t *taken = checked(malloc(sizeof *taken));
+  uv_tcp_init(stream->loop, taken);
+  uv_os_fd_t fd;
+  if (uv_accept(stream, (uv_stream_t *)taken) == 0 && uv_fileno((uv_handle_t *)taken, &fd) == 0) {
+    handed *h = checked(malloc(sizeof *h));
+    h->to = to;
+    h->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    if (h->fd < 0) {
+      free(h);
+    } else if (to == l) {
+      adopt(h);
+    } else {
+      pts_post_call(to->loop, adopt, h);
+    }
+  }
+  uv_close((uv_handle_t *)taken, on_taken_closed); /* closes the descriptor accept made, not its copy */
+}
+#endif
+
+/* A connection the listener's loop now has: it reads requests from it, through TLS for an https server. */
+static void start_connection(listener *l, connection *c) {
   uv_tcp_nodelay(&c->tcp, 1);
   c->roots = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *c->roots));
   c->listener = l;
@@ -942,7 +1019,16 @@ static in_port_t *port_of(struct sockaddr_storage *address) {
 
 /* A socket bound to address and listening (SO_REUSEADDR as libuv sets it, SO_REUSEPORT if asked), or a libuv error code. */
 static int listening_socket(const struct sockaddr_storage *address, bool reuse_port, int *fd) {
+#if defined(__APPLE__)
+  *fd = socket(address->ss_family, SOCK_STREAM, 0);
+  if (*fd >= 0 && (fcntl(*fd, F_SETFL, O_NONBLOCK) != 0 || fcntl(*fd, F_SETFD, FD_CLOEXEC) != 0)) {
+    int error = -errno;
+    close(*fd);
+    return error;
+  }
+#else
   *fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+#endif
   if (*fd < 0) {
     return -errno;
   }
@@ -1002,13 +1088,30 @@ static void stop_listening(void *data) {
 }
 
 /*
+ * The socket of a listener after the first: on Linux one of its own bound to the same port
+ * with SO_REUSEPORT, so the kernel spreads connections across them; macOS's SO_REUSEPORT
+ * doesn't spread them, so there every listener has a descriptor of the first's socket, and
+ * the loop that accepts first takes a connection.
+ */
+static int another_listening_socket(server *s, const struct sockaddr_storage *address, bool reuse_port, int *fd) {
+#if defined(__APPLE__)
+  (void)address, (void)reuse_port;
+  *fd = fcntl(s->listeners[0].fd, F_DUPFD_CLOEXEC, 0);
+  return *fd < 0 ? -errno : 0;
+#else
+  (void)s;
+  return listening_socket(address, reuse_port, fd);
+#endif
+}
+
+/*
  * Binds a socket per listener to the same port (the first one's, if port is 0), before any
  * loop listens, so that every error is the caller's to throw: 0, or a libuv error code
  * with no socket left open.
  */
 static int bind_listeners(server *s, struct sockaddr_storage *address, bool reuse_port) {
   for (uint32_t i = 0; i < s->listener_count; i++) {
-    int error = listening_socket(address, reuse_port, &s->listeners[i].fd);
+    int error = i == 0 ? listening_socket(address, reuse_port, &s->listeners[i].fd) : another_listening_socket(s, address, reuse_port, &s->listeners[i].fd);
     if (error != 0) {
       for (uint32_t j = 0; j < i; j++) {
         close(s->listeners[j].fd);

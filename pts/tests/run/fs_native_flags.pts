@@ -1,0 +1,42 @@
+// Native flag values and their observable effects must follow Node on the running
+// platform. No fixed output: Linux and macOS intentionally have different values.
+import fs, { constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from "pts:fs";
+import fsp from "pts:fs/promises";
+import { join } from "pts:path";
+
+console.log(constants.O_CREAT, constants.O_EXCL, constants.O_NOCTTY, constants.O_TRUNC, constants.O_APPEND);
+console.log(constants.O_DIRECTORY, constants.O_NOFOLLOW, constants.O_SYNC, constants.O_DSYNC, constants.O_NONBLOCK);
+console.log(fs.constants === constants, fsp.constants === constants);
+
+const dir = mkdtempSync("/tmp/pts-native-flags-");
+const writeFlags = ["w", "wx", "xw", "w+", "wx+", "xw+", "a", "ax", "xa", "as", "sa", "a+", "ax+", "xa+", "as+", "sa+"];
+try {
+    for (const flag of writeFlags) {
+        const path = join(dir, flag);
+        writeFileSync(path, "AB", { flag });
+        let outcome = "ok";
+        try {
+            writeFileSync(path, "Z", { flag });
+        } catch (error) {
+            outcome = (error as { code: string }).code;
+        }
+        console.log("sync", flag, outcome, readFileSync(path, "utf8"));
+
+        const asyncPath = join(dir, "async-" + flag);
+        await fsp.writeFile(asyncPath, "AB", { flag });
+        outcome = "ok";
+        try {
+            await fsp.writeFile(asyncPath, "Z", { flag });
+        } catch (error) {
+            outcome = (error as { code: string }).code;
+        }
+        console.log("promise", flag, outcome, await fsp.readFile(asyncPath, "utf8"));
+    }
+    const readable = join(dir, "readable");
+    writeFileSync(readable, "Q");
+    for (const flag of ["r", "rs", "sr", "r+", "rs+", "sr+"]) {
+        console.log("read", flag, readFileSync(readable, { encoding: "utf8", flag }), await fsp.readFile(readable, { encoding: "utf8", flag }));
+    }
+} finally {
+    rmSync(dir, { recursive: true, force: true });
+}

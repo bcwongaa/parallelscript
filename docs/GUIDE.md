@@ -143,7 +143,7 @@ The four agree on every run and with any number of threads. On an 8-thread lapto
 
 **Can I call C libraries?** Not yet: there is no foreign function interface for programs. The standard library reaches the runtime's C through declarations that only it may write.
 
-**Which platforms?** x86-64 and arm64 (aarch64) Linux. The executables need only libc and libm. `pts build` builds for the machine it runs on, and `pts build app.pts --target aarch64-linux` (or `x86_64-linux`) for the other, once that machine's C library and linker are installed (on Debian and Ubuntu, `apt install gcc-aarch64-linux-gnu libc6-dev-arm64-cross`). Run the result there, or on this machine under qemu: `qemu-aarch64-static -L /usr/aarch64-linux-gnu ./app`. The race-safety guarantee is the same on both: a program whose threads race may see stale values, never a half-made object or a crash (SPEC §4.1); arm64 gets it from a store barrier at the end of each new object's construction (D-226). That was checked on x86-64 (a checker that runs programs and reports an object published before its barrier), in arm64's generated code and by the ARMv8 memory model, not yet on arm64 hardware, which the arm64 CI job and the nightly stress runs use. macOS isn't supported yet.
+**Which platforms?** x86-64 and arm64 (aarch64) Linux, and macOS on Apple silicon. The executables need only libc and libm on Linux, or libSystem on macOS. `pts build` builds for the machine it runs on, and `pts build app.pts --target aarch64-linux` (or `x86_64-linux`) for the other, once that machine's C library and linker are installed (on Debian and Ubuntu, `apt install gcc-aarch64-linux-gnu libc6-dev-arm64-cross`). Run the result there, or on this machine under qemu: `qemu-aarch64-static -L /usr/aarch64-linux-gnu ./app`. The race-safety guarantee is the same on both: a program whose threads race may see stale values, never a half-made object or a crash (SPEC §4.1); arm64 gets it from a store barrier at the end of each new object's construction (D-226). It is checked on x86-64 (a checker that runs programs and reports an object published before its barrier), in arm64's generated code, and against the ARMv8 memory model. The native arm64 Linux and macOS CI jobs run the suite and repeated stress programs on arm hardware; the macOS port's recorded full-suite run is in H36's evidence. On a Mac with Apple silicon, `pts build` and `pts run` work as on Linux once Apple's command line tools are installed (`xcode-select --install`, for clang): the executable needs only macOS's libSystem, with deployment target macOS 11 (native execution recorded on 14.8.9, not older releases; H36's independent acceptance is [blocked](agent/hardening-evidence/h36-port-review.md)); next to it `pts build` writes `app.dSYM`, the debug information from which stack traces take their `.pts` lines and lldb its breakpoints (`lldb ./app`, then `breakpoint set --file app.pts --line 12`). macOS programs build on a Mac only, and some last digits of Math's functions differ between Linux and macOS, as they do in Node (SPEC §2.2 lists macOS's differences).
 
 ## What stays the same
 
@@ -1232,8 +1232,9 @@ try {
 rmSync(dir, { recursive: true });
 console.log(existsSync(dir));
 
-// The global `process` is pts:process's default export; argv.slice(2) is the arguments.
-console.log(argv.slice(2), platform, process.exitCode);
+// The global `process` is pts:process's default export; argv.slice(2) is the arguments,
+// and platform is "linux" or "darwin" (macOS), as Node names them.
+console.log(argv.slice(2), ["linux", "darwin"].includes(platform), process.exitCode);
 ```
 
 It prints this, as Node does with the `node:` modules:
@@ -1251,7 +1252,7 @@ lib/main.pts {
 }
 ENOENT
 false
-[] linux undefined
+[] true undefined
 ```
 
 ### Reading bytes

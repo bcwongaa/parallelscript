@@ -3,6 +3,7 @@ package toolchain_test
 import (
 	"bytes"
 	"debug/elf"
+	"debug/macho"
 	"fmt"
 	"io"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -188,6 +190,10 @@ func TestProgramDependsOnlyOnLibc(t *testing.T) {
 	exe := buildCSource(t, `#include "pts.h"
 int main(int argc, char **argv) { pts_runtime_init(argc, argv); return pts_runtime_exit(0); }
 `)
+	if runtime.GOOS == "darwin" {
+		assertDependsOnlyOnLibSystem(t, exe)
+		return
+	}
 	file, err := elf.Open(exe)
 	assert.NilError(t, err)
 	defer file.Close()
@@ -198,6 +204,18 @@ int main(int argc, char **argv) { pts_runtime_init(argc, argv); return pts_runti
 		assert.Assert(t, slices.Contains([]string{"libc.so.6", "libm.so.6", "ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1"}, library), "unexpected dynamic dependency: %s", library)
 	}
 	assert.Assert(t, slices.Contains([]string{"/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1"}, interpreter(t, file)), interpreter(t, file))
+}
+
+// On macOS, which has no static C library, a program's one library is libSystem, which
+// holds the C library, libm and pthreads (H36).
+func assertDependsOnlyOnLibSystem(t *testing.T, exe string) {
+	t.Helper()
+	file, err := macho.Open(exe)
+	assert.NilError(t, err)
+	defer file.Close()
+	libraries, err := file.ImportedLibraries()
+	assert.NilError(t, err)
+	assert.DeepEqual(t, libraries, []string{"/usr/lib/libSystem.B.dylib"})
 }
 
 // interpreter is the dynamic loader an executable names (its PT_INTERP).

@@ -3,15 +3,13 @@
 // refusing, so 160 rounds of 20,000 callbacks grew the process by 60 to 100 MB. The bound
 // is generous; the fix grows it by about 1 MB.
 // threads: 2 4
-import { readFileSync } from "pts:fs";
 import { range } from "pts:parallel";
 
 const GROWTH_LIMIT_MB = 25;
 const ROUNDS = 160;
 
 function residentKb(): number {
-  const line = readFileSync("/proc/self/status", "utf8").split("\n").find((one) => one.startsWith("VmRSS:")) ?? "";
-  return Number(line.replace(/[^0-9]/g, ""));
+  return process.memoryUsage().rss / 1024;
 }
 
 // How many of 20,000 callbacks had their timer refused.

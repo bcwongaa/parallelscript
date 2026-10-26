@@ -9,26 +9,27 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-// nodeArchNumbersFile holds expressions whose results depend on the processor Node runs on, and a
-// few that pin related behaviour, with what Node printed on x86-64 and arm64 Linux (D-227): Node's
-// linux-arm64 binary is built by GCC, whose default -ffp-contract=fast fuses multiply-adds in V8's
-// C++ (Math's fdlibm, parseInt in radixes that aren't powers of two, MakeDate), and the runtime does
-// the same where it ports that code.
+// nodeArchNumbersFile holds expressions whose results depend on the machine Node runs on, and a few
+// that pin related behaviour, with what Node printed on x86-64 and arm64 Linux and arm64 macOS (D-227,
+// D-228): Node's linux-arm64 binary is built by GCC, whose default -ffp-contract=fast fuses
+// multiply-adds in V8's C++ (Math's fdlibm, parseInt in radixes that aren't powers of two, MakeDate),
+// macOS's by Apple clang, which fuses only within one expression, and the runtime does the same where
+// it ports that code.
 const nodeArchNumbersFile = "testdata/node_arch_numbers.tsv"
 
 // The platform-arch names a program prints (process.platform + "-" + process.arch) and the
 // column of the file that holds what Node printed there.
-var nodeArchColumns = map[string]int{"linux-x64": 1, "linux-arm64": 2}
+var nodeArchColumns = map[string]int{"linux-x64": 1, "linux-arm64": 2, "darwin-arm64": 3}
 
 type nodeArchCase struct {
 	expr string
-	want []string // indexed by column: want[1] on linux-x64, want[2] on linux-arm64
+	want []string // indexed by column: want[1] on linux-x64, want[2] on linux-arm64, want[3] on darwin-arm64
 }
 
 // TestNumbersPrintAsNodeOfTheProgramsArchitecture builds one program of every expression in
 // nodeArchNumbersFile for the tests' target (PTS_TARGET, else this machine) and requires each line to
 // be what Node printed on the architecture the program runs on. It needs no Node: the expectations
-// were recorded from Node 24.21.0's official x86-64 and arm64 Linux binaries.
+// were recorded from Node 24's official x86-64 and arm64 Linux and arm64 macOS binaries.
 func TestNumbersPrintAsNodeOfTheProgramsArchitecture(t *testing.T) {
 	t.Parallel()
 	cases := readNodeArchCases(t)
@@ -58,7 +59,7 @@ func TestNumbersPrintAsNodeOfTheProgramsArchitecture(t *testing.T) {
 }
 
 // readNodeArchCases reads nodeArchNumbersFile: "#" lines are comments, the others
-// "expression<TAB>linux-x64 output<TAB>linux-arm64 output".
+// "expression<TAB>linux-x64 output<TAB>linux-arm64 output<TAB>darwin-arm64 output".
 func readNodeArchCases(t *testing.T) []nodeArchCase {
 	t.Helper()
 	content, err := os.ReadFile(nodeArchNumbersFile)
@@ -69,7 +70,7 @@ func readNodeArchCases(t *testing.T) []nodeArchCase {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		assert.Equal(t, len(fields), 3, "malformed line in %s: %q", nodeArchNumbersFile, line)
+		assert.Equal(t, len(fields), 4, "malformed line in %s: %q", nodeArchNumbersFile, line)
 		cases = append(cases, nodeArchCase{expr: fields[0], want: fields})
 	}
 	return cases

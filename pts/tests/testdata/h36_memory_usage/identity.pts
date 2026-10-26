@@ -1,0 +1,6 @@
+import proc, { arch, argv, execPath, platform } from "pts:process";
+
+console.log(process.platform, process.arch);
+console.log(proc === process, platform === process.platform, arch === process.arch);
+console.log(execPath);
+console.log(argv[0] === execPath, argv[1] === execPath);

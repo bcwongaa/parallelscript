@@ -59,7 +59,7 @@ func TestBuildForAarch64LinuxMakesAnArmExecutableThatRuns(t *testing.T) {
 	assert.Equal(t, runAarch64(t, exe, "PTS_THREADS=4"), crossOutput)
 }
 
-// nodeArchNumbers holds expressions whose results depend on the processor Node runs on, with what
+// nodeArchNumbers holds expressions whose results depend on the machine Node runs on, with what
 // it printed under TZ=America/New_York (pts/tests' TestNumbersPrintAsNodeOfTheProgramsArchitecture).
 const nodeArchNumbers = "../../pts/tests/testdata/node_arch_numbers.tsv"
 
@@ -92,7 +92,7 @@ func TestBuildForAarch64LinuxPrintsNumbersAsNodeOnArm64(t *testing.T) {
 }
 
 // readNodeArchNumbers returns nodeArchNumbers' expressions and what Node printed for each in the
-// given column (1: linux-x64, 2: linux-arm64).
+// given column (1: linux-x64, 2: linux-arm64, 3: darwin-arm64).
 func readNodeArchNumbers(t *testing.T, column int) ([]string, []string) {
 	t.Helper()
 	content, err := os.ReadFile(nodeArchNumbers)
@@ -103,7 +103,7 @@ func readNodeArchNumbers(t *testing.T, column int) ([]string, []string) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		assert.Equal(t, len(fields), 3, "malformed line in %s: %q", nodeArchNumbers, line)
+		assert.Equal(t, len(fields), 4, "malformed line in %s: %q", nodeArchNumbers, line)
 		exprs = append(exprs, fields[0])
 		want = append(want, fields[column])
 	}
@@ -127,7 +127,7 @@ func TestBuildForThisMachinesTargetRunsHere(t *testing.T) {
 	dir := projectWith(t, map[string]string{"arch.pts": archSource})
 
 	assert.Equal(t, runIn(t, dir, "build", "arch.pts", "--target", host.target), result{code: 0})
-	assert.Equal(t, output(t, filepath.Join(dir, "arch")), "linux "+host.arch+"\n")
+	assert.Equal(t, output(t, filepath.Join(dir, "arch")), host.platform+"\n")
 }
 
 // Not parallel: PTS_TARGET is the process's.
@@ -148,7 +148,7 @@ func TestTargetOptionWinsOverPTSTarget(t *testing.T) {
 		t.Setenv("PTS_TARGET", setting)
 
 		assert.Equal(t, runIn(t, dir, "build", "arch.pts", "--target", host.target), result{code: 0}, "PTS_TARGET=%s", setting)
-		assert.Equal(t, output(t, filepath.Join(dir, "arch")), "linux "+host.arch+"\n", "PTS_TARGET=%s", setting)
+		assert.Equal(t, output(t, filepath.Join(dir, "arch")), host.platform+"\n", "PTS_TARGET=%s", setting)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestBuildRefusesAnUnknownTarget(t *testing.T) {
 
 	got := runIn(t, dir, "build", "--target=arm64", "hello.pts")
 
-	assert.Equal(t, got, result{code: exitUsage, stderr: "pts: unknown target \"arm64\": pts builds for x86_64-linux or aarch64-linux\n\n" + commandUsage["build"]})
+	assert.Equal(t, got, result{code: exitUsage, stderr: "pts: unknown target \"arm64\": pts builds for x86_64-linux, aarch64-linux or aarch64-macos\n\n" + commandUsage["build"]})
 	_, err := os.Stat(filepath.Join(dir, "hello"))
 	assert.Assert(t, errors.Is(err, os.ErrNotExist), "%v", err)
 }
@@ -177,12 +177,16 @@ func TestBuildsHelpNamesEveryTarget(t *testing.T) {
 	assert.Assert(t, strings.Contains(usage, "PTS_TARGET"), usage)
 }
 
-// thisMachine is the target of the machine the tests run on and Node's name for its
-// processor, or skips the test if pts has no target for it.
-func thisMachine(t *testing.T) struct{ target, arch string } {
+// thisMachine is the target of the machine the tests run on and Node's names for its
+// system and processor, as archSource prints them, or skips the test if pts has no target for it.
+func thisMachine(t *testing.T) struct{ target, platform string } {
 	t.Helper()
-	host, ok := map[string]struct{ target, arch string }{"amd64": {"x86_64-linux", "x64"}, "arm64": {"aarch64-linux", "arm64"}}[runtime.GOARCH]
-	if !ok || runtime.GOOS != "linux" {
+	host, ok := map[string]struct{ target, platform string }{
+		"linux/amd64":  {"x86_64-linux", "linux x64"},
+		"linux/arm64":  {"aarch64-linux", "linux arm64"},
+		"darwin/arm64": {"aarch64-macos", "darwin arm64"},
+	}[runtime.GOOS+"/"+runtime.GOARCH]
+	if !ok {
 		t.Skipf("no target name for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 	return host

@@ -3,7 +3,9 @@
 // another aborts its controller after a pause that varies from fetch to fetch, so the aborts
 // land in each step of fetch's start: its Request following the signal, fetch's own
 // throwIfAborted, exchange adding its abort listener. Then 200 fetches from `.par.map` share
-// one controller's signal, which the main thread aborts once the server holds them all. Every
+// one controller's signal, which the main thread aborts once the server holds them all; they
+// start together on Linux, or in waves of 100 on macOS, each once the server holds the last:
+// macOS resets connects past its listen queue of 128 (C367, H14; macos_fetch_burst.pts). Every
 // fetch must reject with the reason, as in Node (the program run sequentially, `.par` as plain
 // array methods); a fetch still pending 5 s after the others hung.
 // threads: 1 2 4
@@ -13,8 +15,10 @@ import { AtomicInt } from "pts:sync";
 
 const FETCHES = 1_000;
 const SHARING = 200;
+const WAVE = process.platform === "darwin" ? 100 : SHARING;
 
 let held = 0;
+let waveHeld = WAVE;
 let allHeld: () => void = () => {};
 const server = serve({
   port: 0,
@@ -22,7 +26,7 @@ const server = serve({
   fetch(request) {
     if (request.url.endsWith("/shared")) {
       held++;
-      if (held === SHARING) {
+      if (held === waveHeld) {
         allHeld();
       }
     }
@@ -96,15 +100,19 @@ function tally(outcomes: string[]): string {
 {
   const outcomes = new Array<string>(SHARING).fill("hung");
   const shared = new AbortController();
-  const arrived = new Promise<void>((resolve) => {
-    allHeld = () => resolve();
-  });
-  const fetches = range(0, SHARING).par.map((i) => settle(fetch(`${base}/shared`, { signal: shared.signal }), outcomes, i));
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([arrived, new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, 5_000);
-  })]);
-  clearTimeout(timer);
+  const fetches: Promise<void>[] = [];
+  for (let wave = 0; wave < SHARING; wave += WAVE) {
+    waveHeld = wave + WAVE;
+    const arrived = new Promise<void>((resolve) => {
+      allHeld = () => resolve();
+    });
+    fetches.push(...range(wave, wave + WAVE).par.map((i) => settle(fetch(`${base}/shared`, { signal: shared.signal }), outcomes, i)));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([arrived, new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 5_000);
+    })]);
+    clearTimeout(timer);
+  }
   shared.abort("stop");
   await settled(fetches);
   console.log("sharing one signal:", tally(outcomes));

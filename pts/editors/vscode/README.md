@@ -8,7 +8,7 @@ Editor support for [ParallelScript](https://github.com/bcwongaa/parallelscript) 
 
 ## Requirements
 
-A `pts` binary. Build one from the repository root with `make build` (it is `pts-bin/pts`), then either put it on `PATH` or set `parallelscript.server.path` to it. The language server needs nothing else: no `PTS_HOME`, Node or tsconfig.json.
+A `pts` binary. Build one from the repository root with `make build` (it is `pts-bin/pts`), then either put it on `PATH` or set `parallelscript.server.path` to it. The language server needs nothing else: no `PTS_HOME`, Node or tsconfig.json. The extension itself is the same on every system; on a Mac, build `pts` there (Linux and macOS on Apple silicon are the platforms `pts` runs on).
 
 ## Install
 

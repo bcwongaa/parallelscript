@@ -71,7 +71,30 @@ func TestEmittedCPointsBackToTheSource(t *testing.T) {
 	c, err := driver.EmitC(t.Context(), entry)
 
 	assert.NilError(t, err)
-	assert.Assert(t, strings.Contains(c, "#line 3 \""+entry+"\"\n  pts_console_log("), c)
+	assert.Assert(t, strings.Contains(c, "#line 3 \""+realPath(t, entry)+"\"\n  pts_console_log("), c)
+}
+
+// A module reached through a symbolic link is named by its real path in #line, which stack
+// traces show, as Node names it there (H36: on macOS the temporary directories are links).
+func TestEmittedCNamesTheSourceByItsRealPath(t *testing.T) {
+	t.Parallel()
+	entry := writeSource(t, "console.log(1);\n")
+	link := filepath.Join(t.TempDir(), "linked")
+	assert.NilError(t, os.Symlink(filepath.Dir(entry), link))
+
+	c, err := driver.EmitC(t.Context(), filepath.Join(link, filepath.Base(entry)))
+
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(c, "#line 1 \""+realPath(t, entry)+"\"\n"), c)
+	assert.Assert(t, !strings.Contains(c, link), c)
+}
+
+// realPath is path without symbolic links.
+func realPath(t *testing.T, path string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(path)
+	assert.NilError(t, err)
+	return real
 }
 
 func TestTypeErrorsStopTheBuild(t *testing.T) {

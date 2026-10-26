@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1076,6 +1077,12 @@ func TestFetchHTTPSPublicSite(t *testing.T) {
 	dir := t.TempDir()
 	extra := writePEM(t, dir, "extra.pem", newAuthority(t, "PTS Extra CA", "p256", nil, nil).cert)
 	for _, env := range [][]string{nil, {"NODE_EXTRA_CA_CERTS=" + extra}, {"SSL_CERT_FILE=" + filepath.Join(dir, "missing.pem")}} {
+		want := want
+		if runtime.GOOS == "darwin" && env != nil && strings.HasPrefix(env[0], "SSL_CERT_FILE=") {
+			// SSL_CERT_FILE replaces the system's bundle, as in OpenSSL (D-223); Linux's CA
+			// directories still hold its certificates, and macOS has none.
+			want = "TypeError: fetch failed | UNABLE_TO_GET_ISSUER_CERT_LOCALLY | unable to get local issuer certificate\n"
+		}
 		got := runTLSProgram(t, env, exe, "https://"+publicSite+"/")
 		assert.Check(t, got.stdout == want && got.exitCode == 0, "%v: got exit code %d, stdout %q, want %q; stderr:\n%s", env, got.exitCode, got.stdout, want, got.stderr)
 	}
