@@ -128,7 +128,12 @@ def unapproved_model(event: dict, expected: str = MODEL) -> str | None:
     model = message.get("model")
     # Claude Code labels locally generated API/error notices this way.
     # It is not an inference provider or an alternative selected model.
-    return model if isinstance(model, str) and model not in (expected, "<synthetic>") else None
+    if not isinstance(model, str) or model in (expected, "<synthetic>"):
+        return None
+    # The proxy may report a provider build/variant of the requested model (grok-4.7 -> grok-4.7-build).
+    if model.startswith(expected + "-"):
+        return None
+    return model
 
 
 def limit_reset(event: dict) -> float | None:

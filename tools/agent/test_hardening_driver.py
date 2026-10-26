@@ -35,6 +35,8 @@ class HardeningDriverTests(unittest.TestCase):
             self.assertEqual("ANTHROPIC_BASE_URL" in e, proxy)
             self.assertEqual(e["CLAUDE_CODE_SUBAGENT_MODEL"], model)
         self.assertIsNone(driver.unapproved_model({"message": {"model": "grok-4.7"}}, "grok-4.7"))
+        self.assertIsNone(driver.unapproved_model({"message": {"model": "grok-4.7-build"}}, "grok-4.7"))
+        self.assertEqual(driver.unapproved_model({"message": {"model": "grok-4.70"}}, "grok-4.7"), "grok-4.70")
         self.assertEqual(driver.unapproved_model({"message": {"model": "claude-opus-5-5"}}, "grok-4.7"), "claude-opus-5-5")
 
     def test_rejected_rate_limit_event_sets_cooldown(self):
