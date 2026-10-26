@@ -1,0 +1,20 @@
+{
+  "checked_at_session_start": "2026-10-26",
+  "head": "3087b1bda174f1a078d288de3eef7a45d9506f17",
+  "command": "gh run list --limit 12 --json databaseId,headSha,status,conclusion,name,displayTitle,createdAt,event,url",
+  "runs": [
+    {"conclusion": "skipped", "databaseId": 40328901037, "headSha": "3087b1bda174f1a078d288de3eef7a45d9506f17", "name": "Code Scanning - Action", "status": "completed"},
+    {"conclusion": "success", "databaseId": 40328899585, "headSha": "3087b1bda174f1a078d288de3eef7a45d9506f17", "name": "PTS", "status": "completed", "url": "https://github.com/bcwongaa/parallelscript/actions/runs/40328899585"},
+    {"conclusion": "cancelled", "databaseId": 40328109964, "headSha": "be3f4188bc7caf0dbafbe7cb2ecd4d0cfc183eca", "name": "PTS", "status": "completed"},
+    {"conclusion": "skipped", "databaseId": 40328109847, "headSha": "be3f4188bc7caf0dbafbe7cb2ecd4d0cfc183eca", "name": "Code Scanning - Action", "status": "completed"},
+    {"conclusion": "skipped", "databaseId": 40327670103, "headSha": "b4a2bf06a6cf1d40712f90b476c8e0b92c9dd6bc", "name": "Code Scanning - Action", "status": "completed"},
+    {"conclusion": "cancelled", "databaseId": 40327669865, "headSha": "b4a2bf06a6cf1d40712f90b476c8e0b92c9dd6bc", "name": "PTS", "status": "completed"},
+    {"conclusion": "cancelled", "databaseId": 40327631527, "headSha": "2e3f8f32bfbeca55c6f23aa554671bc70a5de434", "name": "PTS", "status": "completed"},
+    {"conclusion": "skipped", "databaseId": 40327631506, "headSha": "2e3f8f32bfbeca55c6f23aa554671bc70a5de434", "name": "Code Scanning - Action", "status": "completed"},
+    {"conclusion": "skipped", "databaseId": 40317291722, "headSha": "d5250355b0a3fe60683fec8ab86b45ab28c85689", "name": "Code Scanning - Action", "status": "completed"},
+    {"conclusion": "success", "databaseId": 40317290969, "headSha": "d5250355b0a3fe60683fec8ab86b45ab28c85689", "name": "PTS", "status": "completed"},
+    {"conclusion": "cancelled", "databaseId": 40316210115, "headSha": "72968955fa837e3f0abdf3e201245804802de2fa", "name": "PTS", "status": "completed"},
+    {"conclusion": "skipped", "databaseId": 40316210110, "headSha": "72968955fa837e3f0abdf3e201245804802de2fa", "name": "Code Scanning - Action", "status": "completed"}
+  ],
+  "interpretation": "No failed recent run. HEAD 3087b1bda passed PTS run 40328899585 (all jobs that the workflow ran). H14a implementation 2e3f8f32b (40327631527) and acceptance be3f4188b (40328109964) were cancelled, superseded by later pushes, not failed. H13b's provider refusal and H36's blocked acceptance are unchanged. These receipts certify only their own immutable SHAs. No later query, wait, or poll."
+}
