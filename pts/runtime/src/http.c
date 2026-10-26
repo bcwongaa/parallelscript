@@ -325,7 +325,7 @@ typedef struct request {
   const char *head_end;   /* past the blank line */
   pts_array *headers;     /* names (lowercase) and values, in turn */
   bool chunked, keep_alive, expect_continue;
-  int64_t content_length; /* -1 if not given */
+  int64_t content_length; /* -1 if not given; lengths above MAX_BODY capped at MAX_BODY + 1 */
 } request;
 
 static bool is_token_char(char ch) {
@@ -423,20 +423,28 @@ static bool parse_head(const char *bytes, const char *head_end, request *r) {
       return false; /* RFC 9112 asks to reject these; pts:http's Headers take the rest as they are */
     }
     if (pts_http_equals_ignoring_case(p, name_len, "content-length")) {
-      char *digits_end;
-      char digits[24];
-      if (value_len == 0 || value_len >= sizeof digits) {
+      if (value_len == 0 || r->content_length >= 0) {
         return false;
       }
-      memcpy(digits, value, value_len);
-      digits[value_len] = '\0';
-      long long n = strtoll(digits, &digits_end, 10);
-      if (*digits_end != '\0' || n < 0 || (r->content_length >= 0 && r->content_length != n)) {
-        return false;
+      int64_t length = 0;
+      for (size_t i = 0; i < value_len; i++) {
+        if (value[i] < '0' || value[i] > '9') {
+          return false;
+        }
+        /* Keep checking syntax after saturation: an oversized length with junk is still 400, not 413. */
+        if (length <= MAX_BODY) {
+          length = length * 10 + (value[i] - '0');
+          if (length > MAX_BODY) {
+            length = MAX_BODY + 1;
+          }
+        }
       }
-      r->content_length = n;
+      r->content_length = length;
     } else if (pts_http_equals_ignoring_case(p, name_len, "transfer-encoding")) {
-      r->chunked = pts_http_lists(value, value_len, "chunked");
+      if (r->chunked || !pts_http_equals_ignoring_case(value, value_len, "chunked")) {
+        return false; /* Only one coding is supported, not a chain or repeated field. */
+      }
+      r->chunked = true;
     } else if (pts_http_equals_ignoring_case(p, name_len, "connection")) {
       if (pts_http_lists(value, value_len, "close")) {
         r->keep_alive = false;
@@ -450,7 +458,7 @@ static bool parse_head(const char *bytes, const char *head_end, request *r) {
     pts_array_push(r->headers, pair, 2);
     p = end + 1;
   }
-  return true;
+  return !(r->chunked && r->content_length >= 0); /* No ambiguous boundary, in either field order, even with Content-Length: 0. */
 }
 
 int pts_http_dechunk(const char *body, const char *end, char **out, size_t *out_len, size_t *used) {

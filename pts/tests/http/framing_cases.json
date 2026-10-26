@@ -1,0 +1,658 @@
+[
+  {
+    "name": "unframed-empty",
+    "headers": "",
+    "body": "",
+    "status": 200,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-zero",
+    "headers": "Content-Length: 0\r\n",
+    "body": "",
+    "status": 200,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-two",
+    "headers": "Content-Length: 2\r\n",
+    "body": "ab",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-case-and-ows",
+    "headers": "cOnTeNt-LeNgTh:\t 002 \t\r\n",
+    "body": "ab",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-many-leading-zeroes",
+    "headers": "Content-Length: 0000000000000000000000000000000000000000000000002\r\n",
+    "body": "ab",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-many-zeroes",
+    "headers": "Content-Length: 000000000000000000000000000000000000000000000000\r\n",
+    "body": "",
+    "status": 200,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "chunked",
+    "headers": "Transfer-Encoding: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "chunked-mixed-case",
+    "headers": "Transfer-Encoding: ChUnKeD\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "chunked-leading-ows",
+    "headers": "Transfer-Encoding:\t chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "chunked-trailing-spaces",
+    "headers": "Transfer-Encoding: chunked  \r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "chunked-trailing-tab",
+    "headers": "Transfer-Encoding: chunked\t\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "chunked-case-and-ows",
+    "headers": "tRaNsFeR-EnCoDiNg:\t ChUnKeD \t\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 200,
+    "decoded": "ab",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-empty",
+    "headers": "Content-Length: \r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-ows-only",
+    "headers": "Content-Length:  \t\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-plus",
+    "headers": "Content-Length: +2\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-minus",
+    "headers": "Content-Length: -2\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-negative-zero",
+    "headers": "Content-Length: -0\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-positive-zero",
+    "headers": "Content-Length: +0\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-decimal-point",
+    "headers": "Content-Length: 2.0\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-exponent",
+    "headers": "Content-Length: 2e0\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-hex",
+    "headers": "Content-Length: 0x2\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-embedded-space",
+    "headers": "Content-Length: 0 2\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-embedded-tab",
+    "headers": "Content-Length: 0\t2\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-suffix",
+    "headers": "Content-Length: 2x\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-unicode-digit",
+    "headers": "Content-Length: \uff12\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-vertical-tab",
+    "headers": "Content-Length: \u000b2\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-form-feed",
+    "headers": "Content-Length: \f2\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-comma-equal",
+    "headers": "Content-Length: 2, 2\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-comma-conflict",
+    "headers": "Content-Length: 2, 3\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-huge-with-suffix",
+    "headers": "Content-Length: 999999999999999999999999999999999999999999999999x\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-above-cap-with-suffix",
+    "headers": "Content-Length: 67108865x\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-same",
+    "headers": "Content-Length: 2\r\ncOnTeNt-LeNgTh: 2\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-same-numeric",
+    "headers": "Content-Length: 2\r\ncOnTeNt-LeNgTh: 02\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-zero",
+    "headers": "Content-Length: 0\r\ncOnTeNt-LeNgTh: 0\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-conflict",
+    "headers": "Content-Length: 2\r\ncOnTeNt-LeNgTh: 3\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-conflict-reverse",
+    "headers": "Content-Length: 3\r\ncOnTeNt-LeNgTh: 2\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-case-conflict",
+    "headers": "Content-Length: 0\r\ncOnTeNt-LeNgTh: 2\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-above-cap-same",
+    "headers": "Content-Length: 67108865\r\ncOnTeNt-LeNgTh: 67108865\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-duplicate-above-cap-conflict",
+    "headers": "Content-Length: 67108865\r\ncOnTeNt-LeNgTh: 0\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-empty",
+    "headers": "Transfer-Encoding: \r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-ows-only",
+    "headers": "Transfer-Encoding:  \t\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-unsupported",
+    "headers": "Transfer-Encoding: gzip\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-identity",
+    "headers": "Transfer-Encoding: identity\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-nonfinal-chunked",
+    "headers": "Transfer-Encoding: chunked, gzip\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-unsupported-prefix",
+    "headers": "Transfer-Encoding: gzip, chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-unknown-prefix",
+    "headers": "Transfer-Encoding: unknown, chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-duplicate-list",
+    "headers": "Transfer-Encoding: chunked, chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-leading-comma",
+    "headers": "Transfer-Encoding: ,chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-trailing-comma",
+    "headers": "Transfer-Encoding: chunked,\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-double-comma",
+    "headers": "Transfer-Encoding: gzip,,chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-parameter",
+    "headers": "Transfer-Encoding: chunked; q=1\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-quoted",
+    "headers": "Transfer-Encoding: \"chunked\"\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-token-suffix",
+    "headers": "Transfer-Encoding: chunkedX\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-duplicate-same",
+    "headers": "Transfer-Encoding: chunked\r\ntRaNsFeR-EnCoDiNg: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-duplicate-unsupported-first",
+    "headers": "Transfer-Encoding: gzip\r\ntRaNsFeR-EnCoDiNg: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-duplicate-unsupported-last",
+    "headers": "Transfer-Encoding: chunked\r\ntRaNsFeR-EnCoDiNg: gzip\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-duplicate-empty-first",
+    "headers": "Transfer-Encoding: \r\ntRaNsFeR-EnCoDiNg: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-duplicate-empty-last",
+    "headers": "Transfer-Encoding: chunked\r\ntRaNsFeR-EnCoDiNg: \r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-te",
+    "headers": "Content-Length: 2\r\nTransfer-Encoding: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-cl",
+    "headers": "Transfer-Encoding: chunked\r\nContent-Length: 2\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-zero-te",
+    "headers": "Content-Length: 0\r\nTransfer-Encoding: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-cl-zero",
+    "headers": "Transfer-Encoding: chunked\r\nContent-Length: 0\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-unsupported-te",
+    "headers": "Content-Length: 2\r\nTransfer-Encoding: gzip\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "unsupported-te-cl",
+    "headers": "Transfer-Encoding: gzip\r\nContent-Length: 2\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-empty-te",
+    "headers": "Content-Length: 0\r\nTransfer-Encoding: \r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "empty-te-cl",
+    "headers": "Transfer-Encoding: \r\nContent-Length: 0\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-huge-te",
+    "headers": "Content-Length: 999999999999999999999999999999999999999999999999\r\nTransfer-Encoding: chunked\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "te-cl-huge",
+    "headers": "Transfer-Encoding: chunked\r\nContent-Length: 999999999999999999999999999999999999999999999999\r\n",
+    "body": "2\r\nab\r\n0\r\n\r\n",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-above-cap-unsupported-te",
+    "headers": "Content-Length: 67108865\r\nTransfer-Encoding: gzip\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "unsupported-te-cl-above-cap",
+    "headers": "Transfer-Encoding: gzip\r\nContent-Length: 67108865\r\n",
+    "body": "ab",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-above-cap",
+    "headers": "Content-Length: 67108865\r\n",
+    "body": "",
+    "status": 413,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-int64-max",
+    "headers": "Content-Length: 9223372036854775807\r\n",
+    "body": "",
+    "status": 413,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-int64-overflow",
+    "headers": "Content-Length: 9223372036854775808\r\n",
+    "body": "",
+    "status": 413,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-huge",
+    "headers": "Content-Length: 999999999999999999999999999999999999999999999999\r\n",
+    "body": "",
+    "status": 413,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "cl-leading-zeroes-above-cap",
+    "headers": "Content-Length: 00000000000000000000000000000000000000000000000067108865\r\n",
+    "body": "",
+    "status": 413,
+    "decoded": "",
+    "headerOnly": false
+  },
+  {
+    "name": "expect-cl-above-cap",
+    "headers": "Content-Length: 67108865\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 413,
+    "decoded": "",
+    "headerOnly": true
+  },
+  {
+    "name": "expect-cl-te",
+    "headers": "Content-Length: 2\r\nTransfer-Encoding: chunked\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": true
+  },
+  {
+    "name": "expect-te-cl",
+    "headers": "Transfer-Encoding: chunked\r\nContent-Length: 2\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": true
+  },
+  {
+    "name": "expect-cl-plus",
+    "headers": "Content-Length: +2\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": true
+  },
+  {
+    "name": "expect-cl-duplicate",
+    "headers": "Content-Length: 2\r\nContent-Length: 2\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": true
+  },
+  {
+    "name": "expect-te-order",
+    "headers": "Transfer-Encoding: chunked, gzip\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": true
+  },
+  {
+    "name": "expect-unsupported-te",
+    "headers": "Transfer-Encoding: gzip\r\nExpect: 100-continue\r\n",
+    "body": "",
+    "status": 400,
+    "decoded": "",
+    "headerOnly": true
+  }
+]

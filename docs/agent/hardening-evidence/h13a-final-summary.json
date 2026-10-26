@@ -1,0 +1,59 @@
+{
+  "exit": 0,
+  "command": [
+    "go",
+    "test",
+    "-count=1",
+    "-json",
+    "-p",
+    "4",
+    "-parallel",
+    "4",
+    "-timeout",
+    "40m",
+    "./pts/...",
+    "./cmd/pts/"
+  ],
+  "testEvents": {
+    "pass": 6531,
+    "skip": 406
+  },
+  "packageResults": {
+    "github.com/microsoft/typescript-go/pts/bench/fan_out": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fib": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/binary_trees": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fib_int": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/file_io": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/http_hello": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/http_json": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/json": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/mandelbrot": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/nbody": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/spectral_norm": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/startup": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/string_building": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/sum_reduce": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/word_count": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/word_freq": "skip",
+    "github.com/microsoft/typescript-go/pts/cgen": "pass",
+    "github.com/microsoft/typescript-go/pts/diagnostic": "pass",
+    "github.com/microsoft/typescript-go/pts/check": "pass",
+    "github.com/microsoft/typescript-go/pts/ir": "skip",
+    "github.com/microsoft/typescript-go/pts/lib": "skip",
+    "github.com/microsoft/typescript-go/pts/frontend": "pass",
+    "github.com/microsoft/typescript-go/pts/lsp": "pass",
+    "github.com/microsoft/typescript-go/pts/numeric": "skip",
+    "github.com/microsoft/typescript-go/pts/toolchain": "pass",
+    "github.com/microsoft/typescript-go/cmd/pts": "pass",
+    "github.com/microsoft/typescript-go/pts/driver": "pass",
+    "github.com/microsoft/typescript-go/pts/lower": "pass",
+    "github.com/microsoft/typescript-go/pts/tests": "pass"
+  },
+  "corpusEvents": {
+    "pass": 264,
+    "skip": 36
+  },
+  "monitoredFiles": 7123,
+  "hashesUnchanged": true,
+  "stderrBytes": 0
+}

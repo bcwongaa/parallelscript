@@ -1121,6 +1121,8 @@ console.log(server.url); // https://localhost:8443/
 
 A certificate or key that can't be read or doesn't fit throws when `serve` is called, before it listens. For a development server, make a certificate authority of your own (`mkcert`, or `openssl`), and `fetch` trusts it with `NODE_EXTRA_CA_CERTS=ca.pem`. Every loop with `reusePort: true` serves HTTPS too, each with its own copy of the key, so handshakes run in parallel. A client must speak HTTP/1.1 over TLS (ALPN `http/1.1`); client certificates, several certificates by server name and session resumption aren't supported yet.
 
+Request framing is strict (D-229), over HTTP and HTTPS alike. Content-Length must be one nonempty ASCII-decimal value in one field (leading zeros and surrounding spaces/tabs are fine); repeated fields, comma lists, signs, and CL together with Transfer-Encoding get 400. Transfer-Encoding must be exactly one `chunked` value in one field, ignoring case and surrounding spaces/tabs: coding chains aren't supported. These errors close the connection without calling the handler or sending 100 Continue, and a pipelined request after the error isn't handled. A valid decimal length above 64 MiB gets 413, even if it exceeds an integer's range (Node instead rejects an overflowing length with 400). Chunk-size, trailer and line-ending hardening is tracked separately as H13b; this is not a claim of complete Node HTTP parser parity.
+
 Bodies are text, read whole (up to 64 MB): the server has no streaming and no WebSocket yet. [examples/api-server](../examples/api-server/main.pts) is a whole JSON API built on `serve`: shared state behind a `Mutex`, atomic counters, `request.signal`, and JSON errors through `serve`'s `error` option.
 
 ### `fetch`

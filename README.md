@@ -521,6 +521,8 @@ server.stop(); // a real server keeps serving; this sample stops so that it ends
 200 application/json { greeting: 'hello, Ada' }
 ```
 
+The server rejects invalid or ambiguous request framing with 400 and closes the connection before calling the handler: Content-Length must be one decimal value in one field, and cannot accompany Transfer-Encoding. Only a single `Transfer-Encoding: chunked` is supported, not coding chains. A valid decimal length above 64 MiB gets 413. See [the framing policy](docs/SPEC.md#73-pts-modules) (D-229); chunk-decoder and line-grammar hardening remain H13b.
+
 ### Also there
 
 Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, and the `pts:fs` (sync and promises, text and bytes), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules, and tests written with `pts:test` and `pts:assert` as for `node:test` and `node:assert/strict`, run by `pts test`. The full list is [docs/SPEC.md](docs/SPEC.md).

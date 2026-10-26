@@ -1,0 +1,23 @@
+// H13's raw-wire fixture: /count observes dispatch without changing it.
+import { serve } from "pts:http";
+
+let dispatched = 0;
+const certificate = process.env.H13_TLS_CERT_FILE;
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  tls: certificate === undefined ? undefined : { certFile: certificate, keyFile: process.env.H13_TLS_KEY_FILE },
+  async fetch(request, server) {
+    const path = request.url.slice(request.url.indexOf("/", request.url.indexOf("://") + 3));
+    if (path === "/count") {
+      return new Response(String(dispatched));
+    }
+    if (path === "/stop") {
+      server.stop();
+      return new Response("bye");
+    }
+    dispatched++;
+    return new Response(path + ":" + await request.text());
+  },
+});
+console.log("listening", server.port);
