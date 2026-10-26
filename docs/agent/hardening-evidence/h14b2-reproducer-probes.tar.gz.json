@@ -1,0 +1,90 @@
+{
+  "sha256": "30cd161b6cdce6133ba4429483762a1de7a215dde65217797153cf70a528e087",
+  "members": [
+    {
+      "path": "new-tests.patch",
+      "bytes": 26450,
+      "sha256": "0a3c1c481302d47f258e55333d388d5e35f96306eaf40f9a31ee50dedada17fd"
+    },
+    {
+      "path": "original-red/after.sha256",
+      "bytes": 694,
+      "sha256": "31ae1558032960181bd1f73cb2981b2d57f6790ca6ed9776e0963b5ed66c81b1"
+    },
+    {
+      "path": "original-red/base.txt",
+      "bytes": 41,
+      "sha256": "c169889349414d22c756d88fdf66c8fac3aa443db883343181cbfd3fef731341"
+    },
+    {
+      "path": "original-red/before.sha256",
+      "bytes": 694,
+      "sha256": "31ae1558032960181bd1f73cb2981b2d57f6790ca6ed9776e0963b5ed66c81b1"
+    },
+    {
+      "path": "original-red/command.txt",
+      "bytes": 321,
+      "sha256": "dfe258864300aada23fb51712734f8821339409ad1c2010421dca66c3528da70"
+    },
+    {
+      "path": "original-red/counts.json",
+      "bytes": 6623,
+      "sha256": "14bdebbe3fb36e1627156d837353c6f059e7d338547f4c5b7b8d3efe6bf14daf"
+    },
+    {
+      "path": "original-red/exit.txt",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "path": "original-red/sources/http_request_deadlines_test.go",
+      "bytes": 21393,
+      "sha256": "346815c57fcf451f258acd3871de60ffaaa131b0e10aacc14bceb22ec0ad9a74"
+    },
+    {
+      "path": "original-red/sources/request_deadlines.pts",
+      "bytes": 3988,
+      "sha256": "80f3ffc7be450bb165abdb97402b9594506e3c3d66be1a5f090f7c5bcdbd0e59"
+    },
+    {
+      "path": "original-red/stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "original-red/stdout.jsonl",
+      "bytes": 281280,
+      "sha256": "5502918fe5f3101f70e69ec6205fc1a795af6439ac781ea17ae45ce21e7fa00a"
+    },
+    {
+      "path": "package-evidence.py",
+      "bytes": 2295,
+      "sha256": "7f0bdfb17fd6605b7c5eb16a49b9c58858d90ff1cae57831733f425b9f2b5344"
+    },
+    {
+      "path": "packaging-guard.txt",
+      "bytes": 1466,
+      "sha256": "9648d6a971ad85804d584655b700859c9a32f50b96095f98d6cf182e5e833085"
+    },
+    {
+      "path": "run-red.sh",
+      "bytes": 1483,
+      "sha256": "1eb8456f96626f5cceacb8bcefc160a1dd9333a88fd3665dbbe1c991762fdf83"
+    },
+    {
+      "path": "setup-receipt.txt",
+      "bytes": 2117,
+      "sha256": "6e1ff6048a25589a0788868b30c7ac52f7f3bb7142fb7b48507066fd1c5c4852"
+    },
+    {
+      "path": "test-fixture.patch",
+      "bytes": 4319,
+      "sha256": "708b167c21a80a149c67e1a74383f308f4dcbcd3eeb3e510fa816106cc43a51f"
+    },
+    {
+      "path": "test-go.patch",
+      "bytes": 22131,
+      "sha256": "56d2a8cc350f274a36c4dbd92a55b221354847a801227bae00fc0d750b141a0e"
+    }
+  ]
+}

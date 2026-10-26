@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-27",
+  "repository": "bcwongaa/parallelscript",
+  "command": "gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId",
+  "runs": [
+    {"conclusion":"skipped","databaseId":40364867735,"headSha":"426c91c95fd2f84f2b32ab695c3c06e26bc5e7d1","status":"completed"},
+    {"conclusion":"","databaseId":40364867628,"headSha":"426c91c95fd2f84f2b32ab695c3c06e26bc5e7d1","status":"queued"},
+    {"conclusion":"cancelled","databaseId":40361029050,"headSha":"2fa995062961cb34b6c70ac9a9ad93ffd0be67a8","status":"completed"},
+    {"conclusion":"skipped","databaseId":40361028985,"headSha":"2fa995062961cb34b6c70ac9a9ad93ffd0be67a8","status":"completed"},
+    {"conclusion":"skipped","databaseId":40337811060,"headSha":"4dba0fc57e451e90f891806e2e0a32a5353cafc1","status":"completed"},
+    {"conclusion":"failure","databaseId":40337811057,"headSha":"4dba0fc57e451e90f891806e2e0a32a5353cafc1","status":"completed"},
+    {"conclusion":"skipped","databaseId":40328901037,"headSha":"3087b1bda174f1a078d288de3eef7a45d9506f17","status":"completed"},
+    {"conclusion":"success","databaseId":40328899585,"headSha":"3087b1bda174f1a078d288de3eef7a45d9506f17","status":"completed"},
+    {"conclusion":"cancelled","databaseId":40328109964,"headSha":"be3f4188bc7caf0dbafbe7cb2ecd4d0cfc183eca","status":"completed"},
+    {"conclusion":"skipped","databaseId":40328109847,"headSha":"be3f4188bc7caf0dbafbe7cb2ecd4d0cfc183eca","status":"completed"}
+  ],
+  "interpretation": {
+    "40337811057": "Already diagnosed and fixed by the previous session's pushed test-only 2fa995062; see h14a-ci-closure.md and h14b1.md. No new unresolved failed run in this startup list.",
+    "40361029050": "Cancelled/superseded, not a green exact-SHA receipt.",
+    "40364867628": "Queued at startup, left for a later session; no CI polling or waiting.",
+    "40328899585": "Success for 3087b1bda, backfilled here; does not certify later SHAs."
+  }
+}
