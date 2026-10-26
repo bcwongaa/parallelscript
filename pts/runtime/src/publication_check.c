@@ -2,7 +2,7 @@
  * The publication checker (H35b), a test-only dynamic check of ARCHITECTURE §4.13 rule 6
  * that runs on x86-64: a new object must be filled before any other thread can reach it.
  * x86-64 keeps stores in order by itself, aarch64 only behind a store-store barrier
- * (PTS_PUBLISH), so the checker reports each place where a thread makes an object it
+ * (pts_publish), so the checker reports each place where a thread makes an object it
  * allocated reachable from memory other threads can read while words of it were written
  * since the thread's last barrier (C356).
  *

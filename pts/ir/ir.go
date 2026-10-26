@@ -518,6 +518,10 @@ type Func struct {
 	// Listens marks an extern function that starts I/O the event loop serves (pts:http's
 	// listen, D-136): a program that calls it runs the loop after its top-level code.
 	Listens bool
+	// Builds marks a function the lowering writes to make a new object and fill it (a
+	// callback method's result, Map.of's map, Array.from's array): it publishes the result
+	// before each return (D-226), as the end of the object's construction.
+	Builds bool
 	// Generator marks a generator function (`function*`, D-109). A call makes a generator
 	// object, a Value (Result), binds the parameters (Prologue) and returns it without
 	// running the rest of Body, which runs when the object is resumed, holding every local
@@ -1142,6 +1146,10 @@ type IsNullish struct {
 // RestArgs is the array X, a rest parameter (of type Rest), holds.
 type RestArgs struct{ X Expr }
 
+// Published is X, a new object that X made and changed after its maker returned it (a
+// copy sorted in place), published to other threads as the end of its construction (D-226).
+type Published struct{ X Expr }
+
 // SpreadArg is an argument `...X` of a console method or of a call through `any`: X, an
 // array (or for a call through `any`, ValueSpreadItems' value), passes its elements as
 // arguments (D-057, D-075). It only appears among those calls' arguments.
@@ -1597,6 +1605,7 @@ func (*HasKey) Type() Type          { return Bool }
 func (e *SetField) Type() Type      { return e.Field.Type }
 func (*Box) Type() Type             { return Value }
 func (e *RestArgs) Type() Type      { return e.X.Type().(*Rest).Array }
+func (e *Published) Type() Type     { return e.X.Type() }
 func (*SpreadArg) Type() Type       { return Value }
 func (e *CallBuiltin) Type() Type   { return e.Builtin.Result }
 func (e *Call) Type() Type          { return e.Func.Result }

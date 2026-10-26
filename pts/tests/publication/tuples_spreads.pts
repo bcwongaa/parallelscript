@@ -1,5 +1,6 @@
 // Tuples, and objects and arrays made by spreads, published into module-scope bindings a
 // task on another loop reads (H35b).
+// publication: strict
 // threads: 1 2 4
 type Base = { a: number; b: string };
 type Wide = { a: number; b: string; c: boolean };

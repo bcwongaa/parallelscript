@@ -623,18 +623,26 @@ func (e *emitter) returnStatement(s *ir.Return, depth int) {
 		e.generatorReturn(s, depth)
 		return
 	}
+	value := ""
+	if s.Value != nil {
+		value = e.expr(s.Value)
+		if e.current.Builds { // the end of the result's construction (D-226)
+			published := e.temporary()
+			value = fmt.Sprintf("({ %s%s = %s; pts_publish(); %s; })", e.declarator(e.current.Result), published, value, published)
+		}
+	}
 	switch {
 	case len(e.tries) == 0 && s.Value == nil:
 		e.line(depth, "return;")
 	case len(e.tries) == 0:
-		e.line(depth, "return %s;", e.expr(s.Value))
+		e.line(depth, "return %s;", value)
 	case s.Value == nil:
 		e.line(depth, "pts_try_leave(&%s);", e.tries[0])
 		e.line(depth, "return;")
 	default:
 		result := e.temporary()
 		e.line(depth, "{")
-		e.line(depth+1, "%s%s = %s;", e.declarator(e.current.Result), result, e.expr(s.Value))
+		e.line(depth+1, "%s%s = %s;", e.declarator(e.current.Result), result, value)
 		e.line(depth+1, "pts_try_leave(&%s);", e.tries[0])
 		e.line(depth+1, "return %s;", result)
 		e.line(depth, "}")
@@ -919,6 +927,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return "pts_value_is_nullish(" + e.expr(x.X) + ")"
 	case *ir.RestArgs:
 		return e.expr(x.X)
+	case *ir.Published:
+		published := e.temporary()
+		return fmt.Sprintf("({ %s%s = %s; pts_publish(); %s; })", e.declarator(x.Type()), published, e.expr(x.X), published)
 	case *ir.SpreadArg:
 		if e.copiedSpreads[x] {
 			return e.spreadCopy(x.X)
@@ -1399,9 +1410,18 @@ func (e *emitter) operands(exprs []ir.Expr) (args []string, prelude string) {
 		return args, ""
 	}
 	var declarations strings.Builder
+	var escaping []int // reads of `this` that let it leave a constructor: last, so they publish what the others store (D-226)
 	for i, x := range exprs {
+		if ref, ok := x.(*ir.LocalRef); ok && e.escapingThis[ref] {
+			escaping = append(escaping, i)
+			continue
+		}
 		args[i] = e.temporary()
 		fmt.Fprintf(&declarations, "%s%s = %s; ", e.declarator(x.Type()), args[i], e.expr(x))
+	}
+	for _, i := range escaping { // a read of a parameter, which nothing before it can change
+		args[i] = e.temporary()
+		fmt.Fprintf(&declarations, "%s%s = %s; ", e.declarator(exprs[i].Type()), args[i], e.expr(exprs[i]))
 	}
 	return args, declarations.String()
 }

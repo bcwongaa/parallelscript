@@ -1,5 +1,6 @@
 // An object literal, nested, published by a store into a module-scope binding that a
 // task on another loop reads (H35b): the literal must be filled before the store.
+// publication: strict
 // threads: 1 2 4
 type Inner = { b: number; tag: string };
 type Outer = { a: number; label: string; inner: Inner };

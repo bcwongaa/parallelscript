@@ -1,0 +1,76 @@
+// Construction only (H35b, D-226): objects the runtime makes (strings, results of methods
+// through `any`, split, copies, JSON, RegExp results, errors, dates, bound functions,
+// boxed integers), each stored into a field of a shared object as it is made and never
+// changed after. The publication checker runs it in strict mode (every store into a new
+// object is part of its construction), so a runtime maker whose last fill no barrier
+// follows is reported.
+// publication: strict
+// threads: 1 2 4
+const box: { v: unknown } = { v: 0 };
+let made = 0;
+function keep(value: unknown): void {
+  box.v = value;
+  made++;
+}
+const word = "parallel";
+const dyn: any = [3, 1, 2];
+const record: any = { a: 1, b: [2, 3] };
+const m = new Map<string, number>([["a", 1], ["b", 2]]);
+const st = new Set<string>(["x", "y"]);
+keep(word + "Script" + made);
+keep(`${word}:${made}`);
+keep(word.slice(2, 6));
+keep(word.toUpperCase());
+keep(word.repeat(3));
+keep(word.padStart(12, "-"));
+keep(word.replace("l", "L"));
+keep(word.replaceAll("l", "L"));
+keep(word.split(""));
+keep(word.split(/l+/));
+keep("a,b,c".split(","));
+keep(Array.from(word));
+keep([...word]);
+keep(dyn.map((x: number) => x * 2));
+keep(dyn.filter((x: number) => x > 1));
+keep(dyn.concat([4]));
+keep(dyn.slice(1));
+keep(dyn.toSorted());
+keep(dyn.toReversed());
+keep(dyn.flat());
+keep(Object.keys(record));
+keep(Object.values(record));
+keep(Object.entries(record));
+keep(new Map(m));
+keep(new Set(st));
+keep(new Float64Array([1.5, 2.5]));
+keep(new Uint8Array(new Float64Array([1, 2, 300])));
+keep(Float64Array.from([1, 2, 3]).map((x) => x + 1));
+keep(JSON.parse('{"a": [1, {"b": "c"}], "d": null}'));
+keep(JSON.parse('[1, 2, 3]', (_k, v) => (typeof v === "number" ? v * 2 : v)));
+keep(JSON.stringify({ a: [1, 2] }));
+keep(/(a)(l+)/.exec(word));
+keep(/l+/g);
+keep(new RegExp("a+", "gi"));
+keep(word.match(/l/g));
+keep([...word.matchAll(/l/g)]);
+keep(new Error("plain"));
+keep(new RangeError("range", { cause: "why" }));
+keep(new Date(0));
+keep(((a: number, b: number) => a + b).bind(null, 1));
+keep(String(2 ** 60));
+keep(new Map([[1, "one"]]).entries());
+class Counter {
+  count = 1;
+  next(): number {
+    return ++this.count;
+  }
+}
+const counter: any = new Counter();
+keep(counter.next);
+function peek(): unknown {
+  return box.v;
+}
+console.log(made, await parallel peek() !== undefined);
+
+// expect:
+// 43 true

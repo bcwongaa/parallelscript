@@ -1,8 +1,46 @@
-// A constructor that lets `this` out before it has set every field: it registers the
-// object in a list other loops read, then goes on filling it (H35b). What it set before
-// `this` escaped must reach other threads with it; the rest may come later, as in JS.
+// Constructors that let `this` out before they have set every field: one registers the
+// object in a list other loops read, one stores it into a field of a shared object by a
+// plain store after setting numbers, then each goes on filling it (H35b, D-226). What a
+// constructor set before `this` escaped must reach other threads with it (the checker
+// reports the numbers otherwise); the rest may come later, as in a race.
+// publication: strict
 // threads: 1 2 4
 const registry: Node[] = [];
+const holder: { last: Leaf | null; tagged: Tagged | null; alias: Aliased | null } = { last: null, tagged: null, alias: null };
+
+function tag(tagged: Tagged, id: number): void {
+  holder.tagged = tagged;
+}
+
+// `this` passed before an argument that stores into it: published after that store.
+class Tagged {
+  id: number;
+  constructor(n: number) {
+    tag(this, (this.id = n * 3));
+  }
+}
+
+// `this` published through a local declared as it, after more stores.
+class Aliased {
+  score: number;
+  constructor(n: number) {
+    const self = this;
+    this.score = n * 7;
+    holder.alias = self;
+  }
+}
+
+class Leaf {
+  readonly id: number;
+  readonly weight: number;
+  late: number;
+  constructor(id: number) {
+    this.id = id;
+    this.weight = id * 2;
+    holder.last = this;
+    this.late = id * 100;
+  }
+}
 
 class Node {
   readonly id: number;
@@ -17,12 +55,17 @@ class Node {
 }
 
 function describe(): string {
-  return registry.map((n) => `${n.id}:${n.name}:${n.late}`).join(" ");
+  const leaf = holder.last;
+  const tagged = holder.tagged, alias = holder.alias;
+  return `${registry.map((n) => `${n.id}:${n.name}:${n.late}`).join(" ")} ${leaf === null ? "none" : `${leaf.id}:${leaf.weight}:${leaf.late}`} ${tagged?.id} ${alias?.score}`;
 }
 
 const first = new Node(1);
 const second = new Node(2);
-console.log(first.late + second.late, await parallel describe());
+const leaf = new Leaf(3);
+new Tagged(4);
+new Aliased(5);
+console.log(first.late + second.late + leaf.late, await parallel describe());
 
 // expect:
-// 30 1:node1:10 2:node2:20
+// 330 1:node1:10 2:node2:20 3:6:300 12 35

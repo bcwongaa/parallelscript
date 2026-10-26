@@ -1,6 +1,7 @@
 // A generator object, already started, and a runtime iterator, published into module-scope
 // bindings a task on another loop resumes (H35b): the frame and its locals must reach the
 // other thread before the generator does.
+// publication: strict
 // threads: 1 2 4
 function* count(from: number, label: string): Generator<string> {
   const prefix = `${label}:`;

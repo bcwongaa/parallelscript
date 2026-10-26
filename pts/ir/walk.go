@@ -61,6 +61,8 @@ func children(x Expr) []Expr {
 	switch x := x.(type) {
 	case *RestArgs:
 		return []Expr{x.X}
+	case *Published:
+		return []Expr{x.X}
 	case *SpreadArg:
 		return []Expr{x.X}
 	case *Box:

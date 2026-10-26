@@ -26,7 +26,7 @@ func TestBuildProfileNamesAProfileOrReleaseWhenUnset(t *testing.T) {
 	}
 	t.Setenv(BuildProfileVar, "fast")
 	_, err := BuildProfile()
-	assert.ErrorContains(t, err, `PTS_BUILD_PROFILE="fast": want release, sanitize, tsan or publication`)
+	assert.ErrorContains(t, err, `PTS_BUILD_PROFILE: unknown profile "fast": pts builds with release, sanitize, tsan or publication`)
 }
 
 // The publication checker sees only the allocations it wraps (H35b), so every bdwgc

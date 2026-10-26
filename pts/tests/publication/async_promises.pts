@@ -1,6 +1,7 @@
 // What async functions and promises make: an object made after an await, a promise held
 // in a module-scope binding that a task on another loop awaits, and Promise.all's array
 // (H35b).
+// publication: strict
 // threads: 1 2 4
 type Result = { value: number; note: string };
 

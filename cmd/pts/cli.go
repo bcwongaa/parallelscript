@@ -56,6 +56,8 @@ Environment:
   PTS_CACHE_DIR     Where the built runtime is cached (default: ~/.cache/pts)
   PTS_CC, PTS_AR    The C compiler and archiver (default: clang and ar)
   PTS_TARGET        The platform builds are for, as build's --target (default: this machine)
+  PTS_BUILD_PROFILE How builds compile, for testing pts: release (default), sanitize (ASan and
+                    UBSan), tsan (ThreadSanitizer) or publication (the publication checker)
   PTS_DEBUG=1       Internal compiler errors show what a bug report needs: the compiler's
                     stack, or the C compiler's output
 

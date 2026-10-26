@@ -1,5 +1,6 @@
 // Objects sent through a pts:sync Channel to tasks on other loops, and the channel itself
 // made at run time and published into a module-scope binding (H35b).
+// publication: strict
 // threads: 1 2 4
 import { Channel } from "pts:sync";
 

@@ -67,6 +67,36 @@ func TestNewObjectsReachOtherThreadsFilled(t *testing.T) {
 	}
 }
 
+// TestConstructionsReachOtherThreadsWhole runs the programs of publication/ that only make
+// objects and publish them (`// publication: strict`: none is changed after its
+// construction) under the checker's strict mode, where every store into a new object
+// before its publication is part of its construction, with release stores ordering
+// nothing for other paths (partial): a construction whose last store no barrier follows,
+// in generated code or the runtime, is reported (D-226). The default mode lets later
+// changes reach other threads late, which a program that changes objects may.
+func TestConstructionsReachOtherThreadsWhole(t *testing.T) {
+	t.Parallel()
+	for _, path := range testFiles(t, "publication") {
+		spec, err := readSpec(path)
+		assert.NilError(t, err)
+		if spec.publication == "" {
+			continue
+		}
+		t.Run(testName(path), func(t *testing.T) {
+			t.Parallel()
+			exe := buildPublicationChecked(t, path)
+			for _, threads := range spec.threads {
+				t.Run("threads="+threads, func(t *testing.T) {
+					got := execute(t, filepath.Dir(path), []string{"PTS_THREADS=" + threads, "PTS_PUBLICATION_CHECK=" + spec.publication + ",partial"}, exe)
+					assert.Assert(t, !strings.Contains(got.stderr, publicationReport), "stderr:\n%s", got.stderr)
+					assert.Equal(t, got.stdout, *spec.stdout)
+					assert.Equal(t, got.exitCode, spec.exitCode, "stderr:\n%s", got.stderr)
+				})
+			}
+		})
+	}
+}
+
 // TestPublicationCheckerAcceptsObjectsNoOtherThreadSees pins that the checker doesn't
 // report new objects of every kind of construction that are stored only into locals and
 // into other new objects, which no other thread can reach (publication/private_objects.pts;

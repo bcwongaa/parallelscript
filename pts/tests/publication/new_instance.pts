@@ -1,5 +1,7 @@
-// `new C(...)` of a class whose constructor doesn't let `this` out, published by a store
-// into a field of an object a task on another loop reads (H35b).
+// `new C(...)` of classes whose constructors don't let `this` out, published by a store
+// into a field of an object a task on another loop reads (H35b): one sets numbers only,
+// whose stores nothing but `new`'s barrier orders before the publishing one.
+// publication: strict
 // threads: 1 2 4
 class Point {
   readonly label: string;
@@ -14,15 +16,23 @@ class Point {
   }
 }
 
-const holder: { point: Point | null } = { point: null };
+class Vec {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
+
+const holder: { point: Point | null; vec: Vec | null } = { point: null, vec: null };
 
 function describe(): string {
-  const p = holder.point;
-  return p === null ? "none" : `${p.label} ${p.sum()} ${p instanceof Point}`;
+  const p = holder.point, v = holder.vec;
+  return `${p === null ? "none" : `${p.label} ${p.sum()} ${p instanceof Point}`} ${v === null ? "none" : `${v.x},${v.y}`}`;
 }
 
 holder.point = new Point(3, 4);
+holder.vec = new Vec(5, 6);
 console.log(await parallel describe());
 
 // expect:
-// (3, 4) 7 true
+// (3, 4) 7 true 5,6

@@ -133,5 +133,5 @@ func (l *lowerer) enumObject(enum *ast.Node) ir.Expr {
 			set(name, &ir.StringConst{Value: value})
 		}
 	}
-	return record
+	return &ir.Published{X: record} // set after pts_map_new returned it (D-226)
 }

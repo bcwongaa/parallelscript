@@ -165,7 +165,7 @@ func (e *emitter) spread(call *ir.ArrayCall) string {
 }
 
 // appended writes a copy of args[0] with each later operand's elements (appendArray) or
-// the operand itself appended, as statements in order.
+// the operand itself appended, as statements in order, then publishes the copy (D-226).
 func (e *emitter) appended(call *ir.ArrayCall, args []string, appendArray string) string {
 	result := e.temporary()
 	var c strings.Builder
@@ -177,7 +177,7 @@ func (e *emitter) appended(call *ir.ArrayCall, args []string, appendArray string
 			fmt.Fprintf(&c, "pts_array_push(%s, %s); ", result, elements(e.elementType(call.Args[0]), args[i+1:i+2]))
 		}
 	}
-	fmt.Fprintf(&c, "%s; })", result)
+	fmt.Fprintf(&c, "pts_publish(); %s; })", result)
 	return c.String()
 }
 

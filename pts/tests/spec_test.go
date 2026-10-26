@@ -18,9 +18,13 @@ type testSpec struct {
 	noDiff   string   // why the test must not be compared with Node; empty to compare when it is plain TypeScript
 	skip     string   // why the test is skipped: a known issue it reproduces
 	threads  []string // PTS_THREADS values to run the program with, each expecting the same; none to run it once with the default
+	// publication is the publication checker's options a program runs with in
+	// TestConstructionsReachOtherThreadsWhole ("strict"): it only makes and publishes
+	// objects, never changing one after its construction (publication_test.go).
+	publication string
 }
 
-var directivePattern = regexp.MustCompile(`^//\s*(expect|exit|stderr|error|no-diff|skip|threads):\s?(.*)$`)
+var directivePattern = regexp.MustCompile(`^//\s*(expect|exit|stderr|error|no-diff|skip|threads|publication):\s?(.*)$`)
 
 // readSpec reads the spec of the test at path, including its .out file if there is one.
 func readSpec(path string) (testSpec, error) {
@@ -87,6 +91,11 @@ func parseSpec(source string) (testSpec, error) {
 				return testSpec{}, fmt.Errorf("line %d: // skip: needs a reason", i+1)
 			}
 			spec.skip = value
+		case "publication":
+			if value != "strict" {
+				return testSpec{}, fmt.Errorf("line %d: // publication: takes strict", i+1)
+			}
+			spec.publication = value
 		case "threads":
 			for _, count := range strings.Fields(value) {
 				if n, err := strconv.Atoi(count); err != nil || n < 1 {

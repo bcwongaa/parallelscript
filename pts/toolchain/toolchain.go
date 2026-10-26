@@ -68,7 +68,7 @@ func BuildProfile() (Profile, error) {
 			return p, nil
 		}
 	}
-	return Release, fmt.Errorf("%s=%q: want release, sanitize, tsan or publication", BuildProfileVar, name)
+	return Release, fmt.Errorf("%s: unknown profile %q: pts builds with release, sanitize, tsan or publication", BuildProfileVar, name)
 }
 
 // flags compile the runtime and programs. -ffp-contract=off keeps clang from fusing

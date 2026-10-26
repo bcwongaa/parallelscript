@@ -336,6 +336,7 @@ static bool finish(job *j, pts_array *out, pts_value *result) {
     }
   }
   free_job(j);
+  pts_publish(); /* the result it made and filled: bytes copied into a new array, the names pushed */
   return ok;
 }
 
@@ -526,5 +527,6 @@ pts_error *pts_fs_rm_directory_error(pts_string *path) {
   pts_system_error *error = (pts_system_error *)pts_value_as_object(pts_system_error_new(UV_EISDIR, message, "rm", path, NULL));
   error->errno_value = pts_value_from_number(-UV_EISDIR);
   error->code = pts_value_from_string(pts_string_from_cstr("ERR_FS_EISDIR"));
+  pts_publish();
   return (pts_error *)error;
 }

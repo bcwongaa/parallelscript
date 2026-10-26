@@ -156,6 +156,8 @@ func effectsOf(expr ir.Expr) effects {
 		return effectsOf(x.X)
 	case *ir.RestArgs:
 		return effectsOf(x.X)
+	case *ir.Published:
+		return effectsOf(x.X)
 	case *ir.SpreadArg:
 		return effectsOf(x.X)
 	case *ir.ToString:

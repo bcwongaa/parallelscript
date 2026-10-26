@@ -1,5 +1,6 @@
 // What JSON.parse makes (hash-map objects, arrays, strings, numbers), held as `any` and as
 // a typed copy, published into module-scope bindings a task on another loop reads (H35b).
+// publication: strict
 // threads: 1 2 4
 type Config = { name: string; sizes: number[]; nested: { on: boolean } };
 

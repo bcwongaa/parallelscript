@@ -924,5 +924,7 @@ static pts_value revive(pts_closure *reviver, pts_string *name, pts_value value)
 
 pts_value pts_json_parse_revived(const pts_string *text, pts_value reviver) {
   pts_value root = pts_json_parse(text);
-  return revive((pts_closure *)pts_value_as_object(reviver), pts_string_from_cstr(""), root);
+  pts_value revived = revive((pts_closure *)pts_value_as_object(reviver), pts_string_from_cstr(""), root);
+  pts_publish(); /* the reviver's values, stored into the parsed objects after pts_json_parse published them */
+  return revived;
 }

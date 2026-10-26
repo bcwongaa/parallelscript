@@ -1,0 +1,77 @@
+// Construction only (H35b, D-226): the results of typed code's constructions, each stored
+// into a field of a shared object as it is made and never changed after. The publication
+// checker runs it in strict mode (every store into a new object is part of its
+// construction), so a builder whose last fill no barrier follows is reported: callback
+// methods' results, spreads, concat, the copying methods, Object's functions, maps and
+// sets from entries, typed arrays, records.
+// publication: strict
+// threads: 1 2 4
+type Item = { n: number };
+const box: { v: unknown } = { v: 0 };
+const nums = [5, 3, 9, 1, 7];
+const strs = ["b", "a", "c"];
+const items: Item[] = [{ n: 1 }, { n: 2 }];
+const rec: Record<string, number> = { a: 1, b: 2 };
+const m = new Map<string, number>([["a", 1]]);
+const st = new Set<number>([1, 2]);
+const ta = new Float64Array([1, 2, 3]);
+function* gen(): Generator<number> {
+  yield 1;
+  yield 2;
+}
+let made = 0;
+function keep(value: unknown): void {
+  box.v = value;
+  made++;
+}
+keep(nums.map((n) => n * 2));
+keep(strs.map((s) => s + "!"));
+keep(items.map((i) => ({ n: i.n + 1 })));
+keep(nums.filter((n) => n > 3));
+keep(items.filter((i) => i.n > 1));
+keep(nums.flatMap((n) => [n, n]));
+keep(Array.from({ length: 3 }, (_, i) => i));
+keep([...nums, ...strs.map((s) => s.length)]);
+keep(nums.concat([1, 2]));
+keep(nums.toSorted((a, b) => a - b));
+keep(nums.toSorted());
+keep(nums.toReversed());
+keep(nums.toSpliced(1, 1));
+keep(nums.with(0, 1));
+keep(nums.slice(1));
+keep(Object.keys(rec));
+keep(Object.values(rec));
+keep(Object.entries(rec));
+const pairs: [string, number][] = [["x", 1], ["y", 2]];
+keep(Object.fromEntries(pairs));
+keep({ ...items[0], c: 3 });
+keep({ alpha: 1, beta: 2, ["g" + "amma"]: 3 } as Record<string, number>);
+keep(new Map([["x", 1], ["y", 2]]));
+keep(new Map(m));
+keep(new Set(nums));
+keep(new Set(st));
+keep([...m.keys()]);
+keep(Array.from(m.values()));
+keep([...m.entries()]);
+keep([...st]);
+keep([...gen()]);
+keep(Array.from(gen()));
+keep(ta.map((x) => x * 2));
+keep(ta.filter((x) => x > 1));
+keep(ta.slice(1));
+keep(Float64Array.from(nums));
+keep(new Float64Array(nums));
+keep(strs.join("-").split("-"));
+keep(nums.map(String));
+keep([nums, strs]);
+keep({ list: nums.map((n) => n + 1) });
+keep(nums.entries());
+const [head, ...tail] = nums;
+keep(tail);
+function peek(): unknown {
+  return box.v;
+}
+console.log(made, head, await parallel peek() !== undefined);
+
+// expect:
+// 42 5 true

@@ -25,19 +25,28 @@ func (l *lowerer) copyingMethodCall(call *ast.CallExpression, name string, array
 	switch name {
 	case "toSorted":
 		if len(args) > 0 {
-			return l.sortWith(array, args[0], l.arraySortSteps(arrayType, true))
+			return published(l.sortWith(array, args[0], l.arraySortSteps(arrayType, true)))
 		}
-		return &ir.ArrayCall{Op: ir.ArraySort, Args: []ir.Expr{copied}}
+		return &ir.Published{X: &ir.ArrayCall{Op: ir.ArraySort, Args: []ir.Expr{copied}}}
 	case "toReversed":
-		return &ir.ArrayCall{Op: ir.ArrayReverse, Args: []ir.Expr{copied}}
+		return &ir.Published{X: &ir.ArrayCall{Op: ir.ArrayReverse, Args: []ir.Expr{copied}}}
 	case "toSpliced":
-		return l.toSpliced(array, args)
+		return published(l.toSpliced(array, args))
 	}
 	operands := l.arrayOperands(args, []arrayParam{{ir.Number, nil}, elementParam}, arrayType) // with(index, value)
 	if operands == nil {
 		return nil
 	}
 	return &ir.ArrayCall{Op: ir.ArrayWith, Args: append([]ir.Expr{array}, operands...)}
+}
+
+// published is the copy x, an expression a copying method's lowering made, published once
+// changed (D-226); nil if the lowering failed (reported).
+func published(x ir.Expr) ir.Expr {
+	if x == nil {
+		return nil
+	}
+	return &ir.Published{X: x}
 }
 
 // toSpliced lowers a.toSpliced(…): splice on a copy of a, made after the arguments are
@@ -192,7 +201,7 @@ func (l *lowerer) lengthMapHelper(ft *ir.FuncType, node *ast.Node) *ir.Func {
 	}
 	h := &helperBuilder{l: l, key: key, node: node}
 	resultType := l.arrayOf(ft.Result)
-	h.fn = &ir.Func{Name: "Array.from", Module: l.function.Module, Pos: l.pos(node), Result: resultType}
+	h.fn = &ir.Func{Name: "Array.from", Module: l.function.Module, Pos: l.pos(node), Result: resultType, Builds: true}
 	l.inFunction(h.fn, func() {
 		count, index, result := l.newLocal("count", ir.Number), l.newLocal("index", ir.Number), l.newLocal("result", resultType)
 		h.callback = l.newLocal("mapper", ft)
@@ -275,7 +284,7 @@ func (l *lowerer) entriesHelper(at *ir.Array, node *ast.Node) *ir.Func {
 	pair := l.tupleOf([]ir.Type{ir.Number, at.Elem})
 	resultType := l.arrayOf(pair)
 	h := &helperBuilder{l: l, key: key, node: node}
-	h.fn = &ir.Func{Name: "Array.entries", Module: l.function.Module, Pos: l.pos(node), Result: resultType}
+	h.fn = &ir.Func{Name: "Array.entries", Module: l.function.Module, Pos: l.pos(node), Result: resultType, Builds: true}
 	l.inFunction(h.fn, func() {
 		h.array = l.newLocal("array", at)
 		h.fn.Params = []*ir.Local{h.array}

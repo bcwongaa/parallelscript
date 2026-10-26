@@ -193,7 +193,7 @@ func (l *lowerer) mapOfEntries(mt *ir.MapType, node *ast.Node) *ir.Func {
 		return helper
 	}
 	at, pair := l.pos(node), l.pairOf(mt)
-	fn := &ir.Func{Name: "Map.of", Module: l.function.Module, Pos: at, Result: mt}
+	fn := &ir.Func{Name: "Map.of", Module: l.function.Module, Pos: at, Result: mt, Builds: true}
 	l.inFunction(fn, func() {
 		entries := l.newLocal("entries", l.arrayOf(pair))
 		fn.Params = []*ir.Local{entries}
@@ -554,7 +554,8 @@ func (l *lowerer) mapHelper(key helperKey, node *ast.Node, result ir.Type, args 
 	if i := slices.Index([]byte(name), ' '); i >= 0 {
 		name = name[:i]
 	}
-	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: at, Result: result}
+	_, collects := result.(*ir.Array)
+	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: at, Result: result, Builds: collects}
 	failed := false
 	l.inFunction(fn, func() {
 		fn.Params = []*ir.Local{l.newLocal("map", mt)}

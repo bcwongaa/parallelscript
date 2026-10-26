@@ -1,5 +1,6 @@
 // Bound functions and a method taken as a value, published into module-scope bindings a
 // task on another loop calls (H35b).
+// publication: strict
 // threads: 1 2 4
 class Greeter {
   constructor(readonly greeting: string) {}

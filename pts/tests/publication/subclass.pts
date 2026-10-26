@@ -1,5 +1,6 @@
 // A subclass's instance, whose fields its parent's constructor and its own set, with a
 // virtual method, published into an array element another loop reads (H35b).
+// publication: strict
 // threads: 1 2 4
 abstract class Shape {
   readonly kind: string;

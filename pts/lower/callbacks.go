@@ -204,7 +204,8 @@ func (h *helperBuilder) build() *ir.Func {
 	if key.typed != nil {
 		name = key.typed.Name + "." + baseMethod(key.method)
 	}
-	h.fn = &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(h.node), Result: result}
+	base := baseMethod(key.method)
+	h.fn = &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(h.node), Result: result, Builds: base == "map" || base == "flatMap" || base == "filter"}
 	l.inFunction(h.fn, func() {
 		h.array, h.callback = l.newLocal("array", key.source()), l.newLocal("callback", key.callback)
 		h.fn.Params = []*ir.Local{h.array, h.callback}

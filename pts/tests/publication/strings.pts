@@ -1,6 +1,7 @@
 // Strings made at run time (concatenation, which builds in an append buffer, a template,
 // slice, repeat, toUpperCase, String(number)) published into module-scope bindings a task
 // on another loop reads (H35b): a string's header and bytes must reach other threads first.
+// publication: strict
 // threads: 1 2 4
 let built = "";
 let parts: string[] = [];

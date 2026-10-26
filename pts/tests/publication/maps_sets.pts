@@ -1,6 +1,7 @@
-// Maps and sets made from entries and by sets into new ones, and a Record, published into
-// module-scope bindings a task on another loop reads (H35b): their tables and entries must
-// reach other threads first.
+// Maps and sets made from entries, and a map and a Record filled by sets after they were
+// made, published into module-scope bindings a task on another loop reads (H35b, D-226):
+// each construction must reach other threads before the store that publishes it; the sets
+// are changes, whose entries the map's own release stores order.
 // threads: 1 2 4
 let byName = new Map<string, number>();
 let seen = new Set<string>();

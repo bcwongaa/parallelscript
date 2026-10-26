@@ -1,10 +1,12 @@
-// Fresh objects published to other threads by one store (H35; D-130's known gap,
-// ARCHITECTURE §4.13 rule 6): a thread that loads a new object from a shared slot (a
-// field, an array element, a map entry's value, a captured variable) must see it whole,
-// its class (method calls, instanceof), fields, string and closure, never half built, which
-// the race-safety invariant promises (no garbage, no crash). x86-64 keeps stores in order by
-// itself; arm64 (a weakly ordered CPU) does only with barriers where objects are published,
-// so this is a litmus test for arm64 hardware. qemu-user on x86-64 can't show the reordering.
+// Fresh objects published to other threads by one store (H35b, D-226, ARCHITECTURE §4.13
+// rule 6): a thread that loads a new object from a shared slot (a field, an array element,
+// a map entry's value, a captured variable) must see it whole, its class (method calls,
+// instanceof), fields, strings the runtime made, a callback method's array, a map and a
+// record made from entries, a nested object and a closure, never half built, which the
+// race-safety invariant promises (no garbage, no crash). x86-64 keeps stores in order by
+// itself; arm64 (a weakly ordered CPU) does only with the barrier that ends each object's
+// construction, so this is a litmus test for arm64 hardware (the arm64 CI job runs it ten
+// times, the nightly 100). qemu-user on x86-64 can't show the reordering.
 // threads: 2 4 8
 import { AtomicInt } from "pts:sync";
 import { range } from "pts:parallel";
@@ -26,6 +28,10 @@ class Payload {
   g: number;
   h: number;
   label: string;
+  text: string;
+  doubled: number[];
+  table: Map<string, number>;
+  record: Record<string, number>;
   inner: Inner;
   twice: () => number;
   constructor(n: number) {
@@ -38,6 +44,10 @@ class Payload {
     this.g = n + 6;
     this.h = n + 7;
     this.label = LABELS[n % 4];
+    this.text = this.label + n; // made by the runtime (a concatenation)
+    this.doubled = [n, n + 1].map((x) => x * 2); // a callback method's result, filled after it was made
+    this.table = new Map([["n", n]]);
+    this.record = { n: n, m: n + 1 } as Record<string, number>;
     this.inner = new Inner(n);
     this.twice = () => 2 * n;
   }
@@ -45,7 +55,8 @@ class Payload {
     const n = this.a;
     return (
       this.b === n + 1 && this.c === n + 2 && this.d === n + 3 && this.e === n + 4 && this.f === n + 5 && this.g === n + 6 &&
-      this.h === n + 7 && this.label === LABELS[n % 4] && this.inner.n === n && this.twice() === 2 * n
+      this.h === n + 7 && this.label === LABELS[n % 4] && this.text === LABELS[n % 4] + n && this.doubled.length === 2 &&
+      this.doubled[1] === 2 * n + 2 && this.table.get("n") === n && this.record["m"] === n + 1 && this.inner.n === n && this.twice() === 2 * n
     );
   }
 }

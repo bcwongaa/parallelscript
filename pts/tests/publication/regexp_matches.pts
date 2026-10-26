@@ -1,6 +1,7 @@
 // RegExp objects and what matching makes (a match array with groups, match's and split's
 // arrays, replace's string), published into module-scope bindings a task on another loop
 // reads (H35b).
+// publication: strict
 // threads: 1 2 4
 let match: RegExpExecArray | null = null;
 let found: RegExpMatchArray | null = null;

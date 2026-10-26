@@ -1289,6 +1289,7 @@ pts_value pts_value_values(pts_value value) {
   for (double i = 0; i < pts_array_length(keys); i++) {
     push_any(values, pts_dynamic_get(value, pts_array_element(keys, i)));
   }
+  pts_publish();
   return pts_value_from_object(values);
 }
 

@@ -220,7 +220,7 @@ func (l *lowerer) fromEntriesHelper(pairs *ir.Array, record *ir.MapType, node *a
 		return helper
 	}
 	h := &helperBuilder{l: l, key: key, node: node}
-	h.fn = &ir.Func{Name: "Object.fromEntries", Module: l.function.Module, Pos: l.pos(node), Result: record}
+	h.fn = &ir.Func{Name: "Object.fromEntries", Module: l.function.Module, Pos: l.pos(node), Result: record, Builds: true}
 	l.inFunction(h.fn, func() {
 		h.array = l.newLocal("pairs", pairs)
 		h.fn.Params = []*ir.Local{h.array}

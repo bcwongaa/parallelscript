@@ -272,6 +272,8 @@ func FormatExpr(expr Expr) string {
 		return "nullish(" + FormatExpr(e.X) + ")"
 	case *RestArgs:
 		return FormatExpr(e.X)
+	case *Published:
+		return "published(" + FormatExpr(e.X) + ")"
 	case *SpreadArg:
 		return "..." + FormatExpr(e.X)
 	case *ToString:

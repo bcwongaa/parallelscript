@@ -338,6 +338,7 @@ func (e *emitter) dynamicArguments(params []ir.Type) []string {
 			e.line(2, "%selement = %s;", e.declarator(rest.Array.Elem), e.fromValue("argv[i]", rest.Array.Elem))
 			e.line(2, "pts_array_push(%s, &element, 1);", name)
 			e.line(1, "}")
+			e.line(1, "pts_publish();") // the rest array, filled (D-226)
 			args = append(args, name)
 			continue
 		}

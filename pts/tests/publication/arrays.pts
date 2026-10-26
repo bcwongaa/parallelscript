@@ -1,6 +1,8 @@
-// Arrays made by a literal, by pushes into a new array, by map and by Array.from, of
-// numbers, strings and objects, published into a module-scope binding a task on another
-// loop reads (H35b): their buffers and elements must reach other threads first.
+// Arrays made by a literal, by map and by Array.from, of numbers, strings and objects, and
+// one filled by pushes after it was made, published into module-scope bindings a task on
+// another loop reads (H35b, D-226): each construction must reach other threads before the
+// store that publishes it; the pushes are changes, whose elements the array's own release
+// stores order (strict mode, which counts them as construction, reports them).
 // threads: 1 2 4
 type Item = { n: number };
 

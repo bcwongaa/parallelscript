@@ -401,7 +401,7 @@ func (l *lowerer) recordLiteral(node *ast.Node, mt *ir.MapType) ir.Expr {
 			return nil
 		}
 	}
-	return record
+	return &ir.Published{X: record} // set after pts_map_new returned it (D-226)
 }
 
 // recordLiteralProperty sets the property of a hash-map object literal in record, the

@@ -219,6 +219,7 @@ static void fail_system(client *c, int error, const char *syscall, const char *c
   pts_value failure = pts_system_error_new(error, pts_string_from_cstr(message), syscall, NULL, NULL);
   free(message);
   ((pts_system_error *)pts_value_as_object(failure))->code = pts_value_from_string(pts_string_from_cstr(code));
+  pts_publish();
   finish(c, NULL, failure);
 }
 
