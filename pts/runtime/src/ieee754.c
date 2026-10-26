@@ -51,6 +51,11 @@
 #include <stdint.h>
 #include <string.h>
 
+/* Node's macOS build is Apple clang's, which fuses a multiply and an add of one expression into an FMA (-ffp-contract=on), as aarch64 has it (C362). */
+#if defined(__aarch64__) && defined(__APPLE__)
+#pragma STDC FP_CONTRACT ON
+#endif
+
 static inline uint64_t bits_of(double d) {
   uint64_t bits;
   memcpy(&bits, &d, sizeof bits);

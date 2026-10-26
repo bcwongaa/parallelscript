@@ -6,11 +6,13 @@
 #include "pts.h"
 
 #include <errno.h>
+#include <gc.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <uv.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
@@ -91,6 +93,15 @@ pts_array *pts_process_environ(void) {
 }
 
 double pts_process_pid(void) { return (double)getpid(); }
+
+double pts_process_resident_memory(void) {
+  size_t rss = 0;
+  return uv_resident_set_memory(&rss) == 0 ? (double)rss : 0;
+}
+
+double pts_process_heap_size(void) { return (double)GC_get_heap_size(); }
+
+double pts_process_heap_free(void) { return (double)GC_get_free_bytes(); }
 
 pts_string *pts_process_arch(void) {
 #if defined(__aarch64__)

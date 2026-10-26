@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -842,9 +843,17 @@ func TestHTTPSServerEveryLoop(t *testing.T) {
 
 // ---------------------------------------------------------------- the lifecycle
 
-// statusKB is the value, in kB, of a field of /proc/pid/status, such as VmRSS or VmData.
+// statusKB is the value, in kB, of a field of /proc/pid/status, such as VmRSS or VmData. On
+// macOS, which has no /proc, VmRSS is ps's resident size, and VmData, which it has no
+// measure of, is 0.
 func statusKB(t *testing.T, pid int, field string) int {
 	t.Helper()
+	if runtime.GOOS == "darwin" {
+		if field == "VmRSS" {
+			return residentKBOnMacOS(t, pid)
+		}
+		return 0
+	}
 	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	assert.NilError(t, err)
 	for line := range strings.Lines(string(status)) {

@@ -33,7 +33,9 @@ jobs:
         run: |
           sw_vers; uname -a; sysctl -n hw.ncpu hw.memsize machdep.cpu.brand_string
           clang --version; which clang ar dsymutil; node --version; node -p 'process.arch + " " + process.platform'
-          ls -l /etc/ssl/cert.pem || true; ulimit -s
+          ls -l /etc/ssl/cert.pem /etc/ssl/certs || true; ulimit -s; ulimit -n; ulimit -Hn; sysctl kern.maxfilesperproc kern.ipc.somaxconn
+          node -p 'JSON.stringify(require("fs").constants)'
+          node -p 'process.memoryUsage()' 
       - run: make build
       - name: Smoke
         run: |
@@ -55,7 +57,8 @@ jobs:
         if: always()
         run: |
           set -o pipefail
-          PTS_REQUIRE_NODE=1 GOMAXPROCS=3 go test -count=1 -json -p 3 -parallel 3 -timeout 80m ./pts/... ./cmd/pts/ > /tmp/suite.jsonl 2>/tmp/suite.stderr; status=$?
+          status=0
+          PTS_REQUIRE_NODE=1 GOMAXPROCS=3 go test -count=1 -json -p 3 -parallel 3 -timeout 80m ./pts/... ./cmd/pts/ > /tmp/suite.jsonl 2>/tmp/suite.stderr || status=$?
           python3 - <<'PY'
           import json, collections
           res = collections.Counter(); fails = []

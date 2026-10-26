@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/resource.h>
 
 /* The collector runs once the program has allocated as much as the heap holds (D-060), as
  * Go's default GOGC=100 does; bdwgc's own default (3) collects three times as often. The
@@ -22,8 +23,34 @@ enum { INITIAL_HEAP_SIZE = 4 << 20 };
  * for one thread. The GC_MARKERS environment variable still overrides it. */
 enum { GC_MARKER_THREADS = 2 };
 
+/*
+ * Raises the limit of open files to the most the system allows, as Node does at its start
+ * (PlatformInit): macOS's default is 256, which a server or a program fetching in parallel
+ * soon reaches. A hard limit of RLIM_INFINITY isn't what setrlimit takes on macOS, so the
+ * most it takes up to 2^20 is searched for.
+ */
+static void raise_open_files_limit(void) {
+  struct rlimit limit;
+  if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur == limit.rlim_max) {
+    return;
+  }
+  rlim_t low = limit.rlim_cur, high = (rlim_t)1 << 20;
+  if (limit.rlim_max != RLIM_INFINITY) {
+    low = high = limit.rlim_max;
+  }
+  do {
+    limit.rlim_cur = low + (high - low) / 2;
+    if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
+      high = limit.rlim_cur;
+    } else {
+      low = limit.rlim_cur;
+    }
+  } while (low + 1 < high);
+}
+
 void pts_runtime_init(int argc, char **argv) {
   signal(SIGPIPE, SIG_IGN);
+  raise_open_files_limit();
   pts_process_init(argc, argv);
   GC_set_markers_count(GC_MARKER_THREADS);
   GC_INIT();

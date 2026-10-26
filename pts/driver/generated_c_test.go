@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -64,6 +65,34 @@ func TestGeneratedCThatDoesNotLinkIsAnInternalError(t *testing.T) {
 	assert.Equal(t, internal.Format("/p"), "error PTS9001: internal compiler error: the generated C doesn't link: undefined reference to `pts_no_such_function'")
 }
 
+// Apple's linker words an undefined function its own way (H36); the internal error names it as GNU ld does.
+func TestApplesLinkerFailureForTheGeneratedCIsAnInternalError(t *testing.T) {
+	t.Parallel()
+	failure := linkFailure("ld: warning: REFERENCED_DYNAMICALLY flag on symbol '_catch_exception_raise' is deprecated\n" +
+		"Undefined symbols for architecture arm64:\n  \"_pts_no_such_function\", referenced from:\n      _main in main-986cba.o\n" +
+		"ld: symbol(s) not found for architecture arm64\n")
+
+	internal := internalError(t, generatedCFailure(failure, "/tmp/main.c"))
+
+	assert.Equal(t, internal.Format("/p"), "error PTS9001: internal compiler error: the generated C doesn't link: undefined reference to `pts_no_such_function'")
+}
+
+func TestApplesLinkerFailureInARuntimeArchiveIsNotACompilerBug(t *testing.T) {
+	t.Parallel()
+	for _, member := range []string{"libptsrt.a[33](031-scheduler.o)", "libptsrt.a(scheduler.o)"} {
+		failure := linkFailure("Undefined symbols for architecture arm64:\n  \"_uv_async_init\", referenced from:\n      _new_slot in " + member + "\n")
+
+		err := generatedCFailure(failure, "/tmp/main.c")
+
+		assert.Equal(t, err, error(failure), member)
+	}
+}
+
+// linkFailure is clang failing to link, having printed output.
+func linkFailure(output string) *toolchain.CommandError {
+	return &toolchain.CommandError{Command: []string{"clang", "main.c"}, Err: errors.New("exit status 1"), Output: output}
+}
+
 func TestAnUndefinedReferenceInTheRuntimeIsNotACompilerBug(t *testing.T) {
 	t.Parallel()
 	tc, err := toolchain.New()
@@ -82,5 +111,9 @@ func TestAnUndefinedReferenceInTheRuntimeIsNotACompilerBug(t *testing.T) {
 
 	var internal *diagnostic.InternalError
 	assert.Assert(t, !errors.As(err, &internal), "a broken runtime archive was reported as a compiler bug: %v", err)
-	assert.ErrorContains(t, err, "undefined reference to `uv_")
+	if runtime.GOOS == "darwin" {
+		assert.ErrorContains(t, err, `"_uv_`) // Apple's linker: `"_uv_async_init", referenced from:`
+	} else {
+		assert.ErrorContains(t, err, "undefined reference to `uv_")
+	}
 }

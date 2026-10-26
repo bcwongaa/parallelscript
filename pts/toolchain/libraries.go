@@ -41,9 +41,11 @@ var bdwgcLibrary = library{
 
 // bdwgcDarwinLibrary is bdwgc for macOS, which has no dl_iterate_phdr: the collector finds
 // the program's data through dyld, and stops threads with Mach's calls (darwin_stop_world.c).
+// The runtime never makes the collector incremental, so it goes without the Mach exception
+// handler that incremental collection needs (NO_MPROTECT_VDB), whose symbols each link warns of.
 var bdwgcDarwinLibrary = func() library {
 	lib := bdwgcLibrary
-	lib.defines = slices.DeleteFunc(slices.Clone(lib.defines), func(define string) bool { return define == "HAVE_DL_ITERATE_PHDR" })
+	lib.defines = append(slices.DeleteFunc(slices.Clone(lib.defines), func(define string) bool { return define == "HAVE_DL_ITERATE_PHDR" }), "NO_MPROTECT_VDB")
 	return lib
 }()
 

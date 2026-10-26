@@ -33,8 +33,9 @@ function hello(): Response {
   return new Response("hello");
 }
 
+// /dev/fd lists this process's open files on Linux (where it is /proc/self/fd) and macOS.
 function openFiles(): number {
-  return readdirSync("/proc/self/fd").length;
+  return readdirSync("/dev/fd").length;
 }
 
 function pause(ms: number): Promise<void> {

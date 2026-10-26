@@ -2808,6 +2808,10 @@ pts_string *pts_process_arch(void);
 /* Node's name for the system the program was compiled for: "linux" or "darwin" (H36). */
 pts_string *pts_process_platform(void);
 pts_string *pts_process_cwd(void);
+/* process.memoryUsage()'s figures, in bytes: the resident set (libuv's), the collector's heap and what of it is free. */
+double pts_process_resident_memory(void);
+double pts_process_heap_size(void);
+double pts_process_heap_free(void);
 /* process.exit(code): flushes output and exits at once. */
 _Noreturn void pts_process_exit(double code);
 /* process.exitCode = code: the code pts_runtime_exit returns for a program that ends normally. */
@@ -2830,6 +2834,8 @@ void pts_fs_write_file_bytes(pts_string *path, pts_typed_array *data, double fla
 double pts_fs_access(pts_string *path, double mode);
 /* stat or lstat (follow false) into stats: dev, mode, nlink, uid, gid, rdev, blksize, ino, size, blocks, then (seconds, nanoseconds) of atime, mtime, ctime, birthtime. */
 double pts_fs_stat(pts_string *path, bool follow, struct pts_array *stats);
+/* The system's open flags, as its C library defines them, for Node's fs.constants (H36). */
+struct pts_array *pts_fs_open_flags(void);
 double pts_fs_mkdir(pts_string *path, double mode);
 /* The sorted names in a directory; their UV_DIRENT_* types go to types. */
 struct pts_array *pts_fs_scandir(pts_string *path, struct pts_array *types);

@@ -437,6 +437,9 @@ static double power_of_two_digits(const char *s, size_t n, int radix) {
 
 /* The digits in another radix, accumulated in 32-bit parts as V8 does (approximate beyond 2^53, as the spec allows). */
 static double other_radix_digits(const char *s, size_t n, int radix) {
+#if defined(__aarch64__)
+#pragma STDC FP_CONTRACT ON /* `result * multiplier + part` is one FMA in Node's arm64 builds (ieee754.c, C362) */
+#endif
   const uint32_t max_multiplier = 0xFFFFFFFFu / 36;
   double result = 0;
   size_t i = 0;

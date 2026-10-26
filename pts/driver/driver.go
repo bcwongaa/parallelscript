@@ -294,6 +294,24 @@ var undefinedReference = regexp.MustCompile("undefined reference to `[^']*'")
 // from (`…/libptsrt.a(008-runtime.o): in function …`): the runtime's, not the generated C's.
 var archiveMember = regexp.MustCompile(`\.a\([^)]*\): in function`)
 
+// appleUndefinedSymbol is Apple's linker's error for a function nothing defines, with C's
+// underscore before its name, and the first place that refers to it, an object or an
+// archive's member (`_new_slot in libptsrt.a[33](031-scheduler.o)`).
+var appleUndefinedSymbol = regexp.MustCompile(`(?m)^\s*"_([^"]+)", referenced from:\n\s*\S+ in (\S+)`)
+
+// appleArchiveMember is how Apple's linker names an archive's member: `libptsrt.a[33](031-scheduler.o)`, or `libptsrt.a(scheduler.o)`.
+var appleArchiveMember = regexp.MustCompile(`\.a(\[\d+\])?\(`)
+
+// undefinedFunction is the function that the linker says the C calls and nothing defines,
+// as GNU ld words it ("undefined reference to `f'"), and whether a runtime archive's object
+// calls it rather than the generated C.
+func undefinedFunction(output string) (reference string, fromArchive bool) {
+	if match := appleUndefinedSymbol.FindStringSubmatch(output); match != nil {
+		return "undefined reference to `" + match[1] + "'", appleArchiveMember.MatchString(match[2])
+	}
+	return undefinedReference.FindString(output), archiveMember.MatchString(output)
+}
+
 // rejectedC is the C compiler rejecting a program's C (generatedCFailure), which a build
 // and emit-c's check both see, so both try the next of lower.Fallbacks (compileC); a failure
 // to link falls back in neither, since emit-c doesn't link.
@@ -320,7 +338,7 @@ func generatedCFailure(err error, cFile string) error {
 		}
 		return &rejectedC{&diagnostic.InternalError{Diagnostic: at, Detail: command.Error()}}
 	}
-	if reference := undefinedReference.FindString(command.Output); reference != "" && !archiveMember.MatchString(command.Output) {
+	if reference, fromArchive := undefinedFunction(command.Output); reference != "" && !fromArchive {
 		at.Message = "internal compiler error: the generated C doesn't link: " + reference
 		return &diagnostic.InternalError{Diagnostic: at, Detail: command.Error()}
 	}

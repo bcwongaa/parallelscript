@@ -1,7 +1,8 @@
 /*
  * pts:http's server (D-136): HTTP/1.1 over libuv's TCP on the loop that listens, or with
  * reusePort on every loop (D-137), each accepting on a socket of its own bound to the same
- * port with SO_REUSEPORT, so the kernel spreads connections across them. Each connection
+ * port with SO_REUSEPORT, so the kernel spreads connections across them (on macOS, whose
+ * SO_REUSEPORT doesn't, each on a descriptor of one socket). Each connection
  * stays on the loop that accepted it: it reads requests one at a time (pipelined ones wait
  * in its buffer), hands each to the program's request callback with an id, writes the
  * response once pts_http_respond answers that id, and goes on with the next request or
@@ -1011,13 +1012,30 @@ static void stop_listening(void *data) {
 }
 
 /*
+ * The socket of a listener after the first: on Linux one of its own bound to the same port
+ * with SO_REUSEPORT, so the kernel spreads connections across them; macOS's SO_REUSEPORT
+ * doesn't spread them, so there every listener has a descriptor of the first's socket, and
+ * the loop that accepts first takes a connection.
+ */
+static int another_listening_socket(server *s, const struct sockaddr_storage *address, bool reuse_port, int *fd) {
+#if defined(__APPLE__)
+  (void)address, (void)reuse_port;
+  *fd = fcntl(s->listeners[0].fd, F_DUPFD_CLOEXEC, 0);
+  return *fd < 0 ? -errno : 0;
+#else
+  (void)s;
+  return listening_socket(address, reuse_port, fd);
+#endif
+}
+
+/*
  * Binds a socket per listener to the same port (the first one's, if port is 0), before any
  * loop listens, so that every error is the caller's to throw: 0, or a libuv error code
  * with no socket left open.
  */
 static int bind_listeners(server *s, struct sockaddr_storage *address, bool reuse_port) {
   for (uint32_t i = 0; i < s->listener_count; i++) {
-    int error = listening_socket(address, reuse_port, &s->listeners[i].fd);
+    int error = i == 0 ? listening_socket(address, reuse_port, &s->listeners[i].fd) : another_listening_socket(s, address, reuse_port, &s->listeners[i].fd);
     if (error != 0) {
       for (uint32_t j = 0; j < i; j++) {
         close(s->listeners[j].fd);

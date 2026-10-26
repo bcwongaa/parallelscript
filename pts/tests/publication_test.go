@@ -3,6 +3,7 @@ package tests
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -42,6 +43,7 @@ var publicationSample = []string{
 // before its fill, and each must print what it prints without the checker.
 func TestNewObjectsReachOtherThreadsFilled(t *testing.T) {
 	t.Parallel()
+	requirePublicationChecker(t)
 	paths := testFiles(t, "publication")
 	for _, sample := range append([]string{"stress/race_publication.pts"}, publicationSample...) {
 		absolute, err := filepath.Abs(sample)
@@ -76,6 +78,7 @@ func TestNewObjectsReachOtherThreadsFilled(t *testing.T) {
 // changes reach other threads late, which a program that changes objects may.
 func TestConstructionsReachOtherThreadsWhole(t *testing.T) {
 	t.Parallel()
+	requirePublicationChecker(t)
 	for _, path := range testFiles(t, "publication") {
 		spec, err := readSpec(path)
 		assert.NilError(t, err)
@@ -103,6 +106,7 @@ func TestConstructionsReachOtherThreadsWhole(t *testing.T) {
 // pts/toolchain's TestPublicationChecker* pin what it reports), and that it saw them.
 func TestPublicationCheckerAcceptsObjectsNoOtherThreadSees(t *testing.T) {
 	t.Parallel()
+	requirePublicationChecker(t)
 	path, err := filepath.Abs("publication/private_objects.pts")
 	assert.NilError(t, err)
 	exe := buildPublicationChecked(t, path)
@@ -147,4 +151,14 @@ func buildPublicationChecked(t *testing.T, source string) string {
 	exe := filepath.Join(t.TempDir(), "publication_"+strings.TrimSuffix(filepath.Base(source), ".pts"))
 	assert.NilError(t, tc.CompileProgram(t.Context(), rt, []string{cFile}, exe))
 	return exe
+}
+
+// requirePublicationChecker skips the test where the publication checker doesn't build: it
+// links bdwgc's allocators and pthread's locks through GNU ld's --wrap, which Apple's linker
+// doesn't have, so it runs on Linux only (D-226, H36).
+func requirePublicationChecker(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("the publication checker builds on Linux only")
+	}
 }

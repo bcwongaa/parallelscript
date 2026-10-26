@@ -1,6 +1,7 @@
 package toolchain_test
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +20,9 @@ const publicationViolationExit = 70
 // (PTS_PUBLICATION_PRIVATE) are not.
 func TestPublicationCheckerReportsOnlyObjectsPublishedBeforeTheirFill(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("the publication checker links through GNU ld's --wrap, on Linux only")
+	}
 	exe := buildC(t, toolchain.PublicationCheck, runtimeTestSource(t, "publication_cases.c"))
 	for _, c := range []struct {
 		name     string

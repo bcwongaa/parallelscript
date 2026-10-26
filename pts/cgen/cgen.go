@@ -2028,9 +2028,10 @@ func staticString(name string, value string) string {
 // out writes C lines and tracks the source position the C compiler will attribute to the next one.
 type out struct {
 	strings.Builder
-	nextFile string // file and line the next output line has, per the last #line; 0 = none yet
-	nextLine int
-	source   ir.Pos // the position of the IR being written, for an internal error (D-179)
+	nextFile  string // file and line the next output line has, per the last #line; 0 = none yet
+	nextLine  int
+	source    ir.Pos            // the position of the IR being written, for an internal error (D-179)
+	realPaths map[string]string // each source file's path in #line (sourcePath)
 }
 
 func (o *out) line(depth int, format string, args ...any) {
@@ -2051,6 +2052,25 @@ func (o *out) at(pos ir.Pos) {
 	if pos.File == o.nextFile && pos.Line == o.nextLine {
 		return
 	}
-	fmt.Fprintf(&o.Builder, "#line %d %s\n", pos.Line, cString(pos.File))
+	fmt.Fprintf(&o.Builder, "#line %d %s\n", pos.Line, cString(o.sourcePath(pos.File)))
 	o.nextFile, o.nextLine = pos.File, pos.Line
+}
+
+// sourcePath is the path #line names for file, which stack traces show: its real path,
+// without symbolic links, as Node names a module (on macOS /tmp and /var/folders are links
+// into /private, where the program's working directory then is); file itself if it can't
+// be resolved, as a library module's name.
+func (o *out) sourcePath(file string) string {
+	if real, ok := o.realPaths[file]; ok {
+		return real
+	}
+	real, err := filepath.EvalSymlinks(file)
+	if err != nil || !filepath.IsAbs(real) {
+		real = file
+	}
+	if o.realPaths == nil {
+		o.realPaths = map[string]string{}
+	}
+	o.realPaths[file] = real
+	return real
 }

@@ -5,7 +5,7 @@
 // clients have gone, without waiting for their answers, which never come (D-163; which
 // requests get that far depends on timing: TestHTTPServerLifecycle checks it exactly).
 import { serve } from "pts:http";
-import { readdirSync, readFileSync } from "pts:fs";
+import { readdirSync } from "pts:fs";
 
 const held: ((response: Response) => void)[] = [];
 const server = serve({
@@ -20,13 +20,13 @@ const server = serve({
 });
 const base = `http://127.0.0.1:${server.port}`;
 
+// /dev/fd lists this process's open files on Linux (where it is /proc/self/fd) and macOS.
 function openFiles(): number {
-  return readdirSync("/proc/self/fd").length;
+  return readdirSync("/dev/fd").length;
 }
 
 function residentMB(): number {
-  const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync("/proc/self/status", "utf8"));
-  return m === null ? 0 : Number(m[1]) / 1024;
+  return process.memoryUsage().rss / (1024 * 1024);
 }
 
 function pause(ms: number): Promise<void> {
