@@ -1,0 +1,39 @@
+// H14a timeout validation through structural option variables. Each attempt is
+// bounded and every successfully constructed server is stopped immediately.
+import { serve, type ServeOptions, type TLSOptions } from "pts:http";
+
+const tls: TLSOptions | undefined = undefined;
+
+function attempt(name: string, label: string, value: number | undefined): void {
+  const options: ServeOptions & { handshakeTimeout: number | undefined; headersTimeout: number | undefined } = {
+    port: 0,
+    hostname: "127.0.0.1",
+    reusePort: false,
+    tls,
+    handshakeTimeout: name === "handshakeTimeout" ? value : 0,
+    headersTimeout: name === "headersTimeout" ? value : 0,
+    fetch: () => new Response("unused"),
+  };
+  try {
+    const server = serve(options);
+    server.stop(true);
+    console.log(name, label, "accepted");
+  } catch (error) {
+    console.log(name, label, error instanceof RangeError, String(error).includes(name));
+  }
+}
+
+for (const name of ["handshakeTimeout", "headersTimeout"]) {
+  attempt(name, "omitted", undefined);
+  attempt(name, "zero", 0);
+  attempt(name, "negative-zero", -0);
+  attempt(name, "one", 1);
+  attempt(name, "maximum", 2147483647);
+  attempt(name, "negative", -1);
+  attempt(name, "fraction", 1.5);
+  attempt(name, "nan", NaN);
+  attempt(name, "infinity", Infinity);
+  attempt(name, "negative-infinity", -Infinity);
+  attempt(name, "above-maximum", 2147483648);
+  attempt(name, "unsafe-integer", Number.MAX_SAFE_INTEGER);
+}

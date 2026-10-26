@@ -2120,10 +2120,11 @@ pts_value pts_match_groups(const pts_array *array);
  * kind ("cert" for PEM text, "certFile" for a path) and value, the key's ("key",
  * "keyFile"), then the key's passphrase if there is one. Returns the server's id; Error
  * with Node's message (`listen EADDRINUSE: …`) if it can't listen, or serve's if the
- * certificate or key can't be read or taken.
+ * certificate or key can't be read or taken. Handshake/header budgets are validated
+ * milliseconds (0 disables), absolute and pre-dispatch only (D-230).
  */
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_array *tls, struct pts_closure *on_request,
-                       struct pts_closure *on_disconnect);
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_array *tls, double handshake_timeout, double headers_timeout,
+                       struct pts_closure *on_request, struct pts_closure *on_disconnect);
 /* Answers request id (ignored if its connection has closed): headers are names and values in turn. */
 void pts_http_respond(double id, double status, pts_string *status_text, pts_array *headers, pts_string *body);
 /* The port server id listens on. */

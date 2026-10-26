@@ -495,6 +495,8 @@ John Smith
 
 ### HTTP and `fetch`
 
+`serve` has absolute `handshakeTimeout` (10000 ms) and `headersTimeout` (60000 ms) bounds for incomplete handshakes/headers; 0 disables either. Body, idle, handler, write and connection-cap bounds are not included. See the [server guide](docs/GUIDE.md#serving-http-ptshttp) for validation and phase rules.
+
 `pts:http` serves HTTP/1.1 with the Fetch standard's `Request` and `Response`, in the style of Bun's `serve`, and HTTPS with `tls: { certFile, keyFile }` (or the PEM text as `cert` and `key`). With `reusePort: true`, every event loop accepts connections, so requests are handled on every core. `fetch` is global, as in Node, speaks `http://` and `https://` (the server's certificate always verified), and takes an `AbortController`'s signal for cancelling requests.
 
 ```ts

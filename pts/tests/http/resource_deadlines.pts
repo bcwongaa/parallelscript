@@ -1,0 +1,72 @@
+// H14a's bounded loopback fixture. The option variable is structurally compatible
+// with the pre-H14 ServeOptions so the exact base compiles and fails behaviorally.
+import { serve, type Server, type ServeOptions, type TLSOptions } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+const calls = new AtomicInt(0);
+const holds = new AtomicInt(0);
+const aborted = new AtomicInt(0);
+const large = "r".repeat(4 * 1024 * 1024);
+const certFile = process.env.H14_TLS_CERT_FILE ?? "";
+const tls: TLSOptions | undefined = certFile === "" ? undefined : {
+  certFile,
+  keyFile: process.env.H14_TLS_KEY_FILE,
+};
+
+function later(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function pathOf(request: Request): string {
+  return request.url.slice(request.url.indexOf("/", request.url.indexOf("://") + 3));
+}
+
+async function answer(request: Request, server: Server): Promise<Response> {
+  const path = pathOf(request);
+  if (path === "/count") {
+    return new Response(String(calls.load()));
+  }
+  if (path === "/held") {
+    return new Response(`${holds.load()}:${aborted.load()}`);
+  }
+  if (path === "/memory") {
+    return Response.json(process.memoryUsage());
+  }
+  if (path === "/stop") {
+    setTimeout(() => server.stop(true), 20);
+    return new Response("stopping");
+  }
+  calls.add(1);
+  if (path === "/slow") {
+    await later(900);
+    return new Response(`slow:${request.signal.aborted}`);
+  }
+  if (path === "/until-abort") {
+    holds.add(1);
+    await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => {
+      aborted.add(1);
+      resolve();
+    }));
+    return new Response("a late answer is discarded");
+  }
+  if (path === "/large") {
+    return new Response(large);
+  }
+  if (path === "/echo") {
+    return new Response(await request.text());
+  }
+  return new Response("ok");
+}
+
+const options: ServeOptions & { handshakeTimeout: number; headersTimeout: number } = {
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: process.env.H14_REUSE_PORT === "1",
+  tls,
+  handshakeTimeout: Number(process.env.H14_HANDSHAKE_TIMEOUT ?? "600"),
+  headersTimeout: Number(process.env.H14_HEADERS_TIMEOUT ?? "400"),
+  fetch: answer,
+  error: (error: unknown): Response => new Response(String(error), { status: 500 }),
+};
+const server: Server = serve(options);
+console.log("listening", server.port);

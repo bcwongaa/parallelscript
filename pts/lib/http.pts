@@ -10,6 +10,7 @@
 import { AbortController, AbortSignal, type EventListener } from "pts:internal/abort";
 
 declare function pts_http_listen(port: number, hostname: string, everyLoop: boolean, tls: string[],
+    handshakeTimeout: number, headersTimeout: number,
     onRequest: (connection: number, method: string, target: string, headers: string[], body: string) => unknown,
     onDisconnect: (request: unknown) => void): number;
 declare function pts_http_respond(connection: number, status: number, statusText: string, headers: string[], body: string): void;
@@ -393,6 +394,10 @@ export interface ServeOptions {
     reusePort?: boolean;
     // Serve HTTPS with this certificate and key (TLS 1.2 and 1.3, HTTP/1.1 by ALPN).
     tls?: TLSOptions;
+    // Absolute TLS-handshake budget in milliseconds (default 10000; 0 disables).
+    handshakeTimeout?: number;
+    // Absolute request-header budget in milliseconds (default 60000; 0 disables).
+    headersTimeout?: number;
     // The response to each request.
     fetch: (request: Request, server: Server) => Response | Promise<Response>;
     // The response when fetch throws (default: the error on stderr and a 500 response).
@@ -411,6 +416,8 @@ export class Server {
         this.hostname = options.hostname ?? "0.0.0.0";
         this.protocol = options.tls === undefined ? "http" : "https";
         this.#id = pts_http_listen(options.port ?? 3000, this.hostname, options.reusePort ?? false, tlsParts(options.tls),
+            deadlineOption(options.handshakeTimeout, 10000, "handshakeTimeout"),
+            deadlineOption(options.headersTimeout, 60000, "headersTimeout"),
             (connection, method, target, headers, body) => receive(options, this, connection, method, target, headers, body),
             (request) => disconnect(request as Request)); // the runtime keeps what receive returned
         this.port = pts_http_port(this.#id);
@@ -426,6 +433,14 @@ export class Server {
 
 export function serve(options: ServeOptions): Server {
     return new Server(options);
+}
+
+function deadlineOption(value: number | undefined, defaultValue: number, name: string): number {
+    const timeout = value === undefined ? defaultValue : value;
+    if (!Number.isInteger(timeout) || timeout < 0 || timeout > 2147483647) {
+        throw new RangeError(`serve's ${name} must be an integer between 0 and 2147483647 milliseconds`);
+    }
+    return timeout;
 }
 
 // The tls option as pts_http_listen takes it: [] for http; the certificate's option name

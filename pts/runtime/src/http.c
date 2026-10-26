@@ -78,6 +78,7 @@ typedef struct server {
   atomic_bool close_active; /* stop(true): connections with requests in flight close too */
   int port;
   uint32_t listener_count;
+  uint32_t handshake_timeout, headers_timeout; /* absolute millisecond budgets; 0 disables (D-230) */
   atomic_uint turn; /* on macOS, where the loops share a socket: the listener the next connection goes to (hand_off) */
   listener listeners[]; /* the calling loop's first */
 } server;
@@ -95,6 +96,9 @@ typedef struct connection {
   size_t in_len, in_cap;
   connection_roots *roots; /* uncollectable */
   pts_tls *tls;            /* an https connection's session; NULL for http */
+  uv_timer_t *deadline;    /* separately closed/freed: the TCP close callback frees this connection */
+  uint64_t deadline_at;    /* monotonic nanoseconds; 0 while no deadline applies */
+  bool headers_pending;   /* false once headers are complete, including while buffering a body */
   uint32_t slot;
   bool busy;        /* a request is with the program, or its last response is being written */
   bool processing;  /* inside process(): an answer given meanwhile leaves the next request to its loop */
@@ -188,11 +192,26 @@ static void on_closed(uv_handle_t *handle) {
   free(c);
 }
 
+static void stop_deadline(connection *c) {
+  if (c->deadline != NULL) {
+    uv_timer_stop(c->deadline);
+  }
+  c->deadline_at = 0;
+}
+
+static void on_deadline_closed(uv_handle_t *handle) { free(handle); }
+
 static void close_connection(connection *c) {
   if (c->closing) {
     return;
   }
   c->closing = true;
+  stop_deadline(c);
+  if (c->deadline != NULL) {
+    c->deadline->data = NULL;
+    uv_close((uv_handle_t *)c->deadline, on_deadline_closed);
+    c->deadline = NULL;
+  }
   remove_from_table(c);
   if (c->prev != NULL) {
     c->prev->next = c->next;
@@ -203,6 +222,43 @@ static void close_connection(connection *c) {
     c->next->prev = c->prev;
   }
   uv_close((uv_handle_t *)&c->tcp, on_closed);
+}
+
+/* The budget is absolute: neither more bytes nor a late read callback can refresh it. */
+static bool deadline_expired(connection *c) {
+  if (c->deadline_at != 0 && uv_hrtime() >= c->deadline_at) {
+    close_connection(c);
+    return true;
+  }
+  return false;
+}
+
+static void on_deadline(uv_timer_t *timer) {
+  connection *c = timer->data;
+  uint64_t now = uv_hrtime();
+  if (now < c->deadline_at) {
+    /* libuv's millisecond clock can round down; preserve the absolute nanosecond budget. */
+    uint64_t remaining = (c->deadline_at - now + 999999) / 1000000;
+    uv_update_time(pts_uv_loop());
+    uv_timer_start(timer, on_deadline, remaining, 0);
+    return;
+  }
+  close_connection(c); /* no queued 408 or TLS alert: an unread answer must not defer expiry */
+}
+
+static void start_deadline(connection *c, uint32_t milliseconds) {
+  stop_deadline(c);
+  if (milliseconds == 0) {
+    return;
+  }
+  if (c->deadline == NULL) {
+    c->deadline = checked(malloc(sizeof *c->deadline));
+    uv_timer_init(pts_uv_loop(), c->deadline);
+    c->deadline->data = c;
+  }
+  c->deadline_at = uv_hrtime() + (uint64_t)milliseconds * 1000000;
+  uv_update_time(pts_uv_loop()); /* a long callback must not arm against the loop's old time */
+  uv_timer_start(c->deadline, on_deadline, milliseconds, 0);
 }
 
 typedef struct write_request {
@@ -220,6 +276,14 @@ static void send_last(connection *c);
 
 static size_t queued(connection *c) { return uv_stream_get_write_queue_size((uv_stream_t *)&c->tcp); }
 
+/* Idle keepalive is not a header read; buffered followers wait for preceding output. */
+static void next_header_deadline(connection *c) {
+  if (!c->closing && !c->busy && c->headers_pending && c->in_len > 0 &&
+      (c->tls == NULL || c->secured) && c->deadline_at == 0 && queued(c) == 0) {
+    start_deadline(c, c->listener->server->headers_timeout);
+  }
+}
+
 /* Reads what the client sends: an https connection's bytes go to its session first. */
 static void start_reading(connection *c) { uv_read_start((uv_stream_t *)&c->tcp, c->tls != NULL ? on_alloc_sealed : on_alloc, on_read); }
 
@@ -234,6 +298,7 @@ static void on_written(uv_write_t *req, int status) {
     process(c);
     pts_run_microtasks();
   }
+  next_header_deadline(c); /* also when the queue never reached MAX_QUEUED */
   free(w->bytes);
   free(w);
 }
@@ -310,6 +375,7 @@ static const char *date_line(void) {
 static void send_error(connection *c, int status, const char *reason) {
   char text[192];
   int len = snprintf(text, sizeof text, "HTTP/1.1 %d %s\r\n%scontent-length: 0\r\nconnection: close\r\n\r\n", status, reason, date_line());
+  stop_deadline(c);
   c->busy = true; /* nothing more is read from it */
   uv_read_stop((uv_stream_t *)&c->tcp);
   send_bytes(c, text, (size_t)len, true);
@@ -577,6 +643,10 @@ static void process(connection *c) {
   }
   c->processing = true;
   while (!c->busy && !c->closing && !c->draining) {
+    next_header_deadline(c);
+    if (deadline_expired(c)) {
+      break;
+    }
     size_t blank = 0;
     while (blank < c->in_len && (c->in[blank] == '\r' || c->in[blank] == '\n')) {
       blank++; /* empty lines before a request */
@@ -595,6 +665,8 @@ static void process(connection *c) {
       }
       break;
     }
+    c->headers_pending = false;
+    stop_deadline(c); /* the body, 100 Continue and the handler are not header reads */
     request r = {0};
     if (!parse_head(c->in, head_end, &r)) {
       send_error(c, 400, "Bad Request");
@@ -690,7 +762,13 @@ static pts_tls_status unseal(connection *c, const char *bytes, size_t len) {
   pts_tls_status status = PTS_TLS_DONE;
   if (!c->secured) {
     status = pts_tls_handshake(c->tls);
+    if (deadline_expired(c)) {
+      return PTS_TLS_FAILED;
+    }
     c->secured = status == PTS_TLS_DONE;
+    if (c->secured) {
+      start_deadline(c, c->listener->server->headers_timeout);
+    }
   }
   reserve(c); /* process() reads the buffer, decrypted requests or not */
   while (status == PTS_TLS_DONE) {
@@ -738,6 +816,9 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   connection *c = (connection *)stream;
   if (nread < 0) { /* the client closed, or an error */
     lost(c);
+    return;
+  }
+  if (c->closing || deadline_expired(c)) {
     return;
   }
   pts_tls_status status = PTS_TLS_WANT;
@@ -857,6 +938,8 @@ static void start_connection(listener *l, connection *c) {
       return;
     }
   }
+  c->headers_pending = true;
+  start_deadline(c, c->tls != NULL ? l->server->handshake_timeout : l->server->headers_timeout);
   start_reading(c);
 }
 
@@ -980,6 +1063,7 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
     return;
   }
   c->busy = false;
+  c->headers_pending = true;
   if (queued(c) > MAX_QUEUED) {
     c->draining = true; /* the client doesn't read: on_written goes on once it does */
     uv_read_stop((uv_stream_t *)&c->tcp);
@@ -1244,7 +1328,8 @@ static void make_identities(server *s, pts_array *tls) {
   }
 }
 
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_array *tls, pts_closure *on_request, pts_closure *on_disconnect) {
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_array *tls, double handshake_timeout, double headers_timeout,
+                       pts_closure *on_request, pts_closure *on_disconnect) {
   uv_once(&servers_once, init_servers);
   pts_uv_loop(); /* throws on a thread without a loop */
   struct sockaddr_storage address = address_of(hostname, port);
@@ -1253,6 +1338,8 @@ double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_a
   s->on_request = on_request;
   s->on_disconnect = on_disconnect;
   s->listener_count = count;
+  s->handshake_timeout = (uint32_t)handshake_timeout;
+  s->headers_timeout = (uint32_t)headers_timeout;
   for (uint32_t i = 0; i < count; i++) { /* this thread's loop first (where start_listening opens it below), then the loops after it */
     s->listeners[i].server = s;
     s->listeners[i].loop = (uint16_t)((pts_own_loop() + i) % (every_loop ? count : 1u << LOOP_BITS));

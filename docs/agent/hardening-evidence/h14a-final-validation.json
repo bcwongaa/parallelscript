@@ -1,0 +1,9 @@
+{
+  "archive_sha256": "9481ef2a6de845390e4ec783a470f1c5e4ceacff0d92350ef9fd89b981838271",
+  "regular_members": 81,
+  "validated_hashes": 7230,
+  "changed_after_gate": [],
+  "private_keys": 0,
+  "elf_binaries": 0,
+  "symlinks": 0
+}

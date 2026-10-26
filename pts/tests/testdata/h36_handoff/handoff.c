@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
   if (setenv("PTS_THREADS", "3", 1) != 0) fail("setenv");
   pts_runtime_init(argc, argv);
   pts_array *tls = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
-  double id = pts_http_listen(0, pts_string_from_cstr("127.0.0.1"), true, tls, NULL, NULL);
+  double id = pts_http_listen(0, pts_string_from_cstr("127.0.0.1"), true, tls, 10000, 60000, NULL, NULL);
   if (stopped_mode) {
     pts_http_stop(id, true);
     /* A queued malloc envelope has only an interior server pointer. This tests

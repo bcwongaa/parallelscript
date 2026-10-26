@@ -1080,6 +1080,8 @@ server.stop(); // a real server keeps serving; this sample stops so that it ends
 
 It prints `true` (`docs/examples/guide_http.pts`).
 
+`serve` bounds incomplete TLS handshakes with `handshakeTimeout: 10000` and incomplete request headers with `headersTimeout: 60000` (D-230). Both are **milliseconds**, finite integers from 0 to 2147483647; 0 disables that bound, and an invalid value throws `RangeError` before listening. These are absolute deadlines: sending another byte does not extend them. The handshake clock starts when the accepted HTTPS connection is adopted on its assigned event loop. The first header clock starts at that adoption for HTTP, or after HTTPS completes its handshake. For later requests it starts with their first byte, after any preceding response's queued output drains; idle keepalive is not timed. Complete headers stop that clock before body buffering or the handler. Expiry closes without a response or handler dispatch. These options do not bound body reads, handlers, idle keepalive, queued writes or connection count; those policies remain unfinished H14 work. They are ParallelScript options, not Bun/Node timeout-default parity.
+
 With `reusePort: true` the server accepts connections on every event loop (one per core, or `PTS_THREADS`), each loop with its own socket on the same port, so requests are handled in parallel. The handler then runs on several threads at once, as a `.par` callback does, but the guardrail doesn't check it: count with an `AtomicInt`, not a `let`.
 
 ```ts
