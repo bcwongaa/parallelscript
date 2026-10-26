@@ -1,0 +1,17 @@
+{
+  "checked_at_session_start": "2026-10-26",
+  "command": "gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId",
+  "runs": [
+    {"conclusion":"","databaseId":40315188689,"headSha":"e1232ac1e7ac1a65ce3b09756596f68fadaa0b38","status":"in_progress"},
+    {"conclusion":"skipped","databaseId":40315188600,"headSha":"e1232ac1e7ac1a65ce3b09756596f68fadaa0b38","status":"completed"},
+    {"conclusion":"cancelled","databaseId":40314813507,"headSha":"c5647960a865ff7e88d731d1bbf1166aa66ba5d2","status":"completed"},
+    {"conclusion":"skipped","databaseId":40314813484,"headSha":"c5647960a865ff7e88d731d1bbf1166aa66ba5d2","status":"completed"},
+    {"conclusion":"success","databaseId":40305464719,"headSha":"ed87bd65e499cbdcd020eef0fdf4def6408e4f32","status":"completed"},
+    {"conclusion":"skipped","databaseId":40305464714,"headSha":"ed87bd65e499cbdcd020eef0fdf4def6408e4f32","status":"completed"},
+    {"conclusion":"skipped","databaseId":40305248062,"headSha":"2846f7b7dafaa5384d3177f6e5c1e879df4f155c","status":"completed"},
+    {"conclusion":"success","databaseId":40305248025,"headSha":"2846f7b7dafaa5384d3177f6e5c1e879df4f155c","status":"completed"},
+    {"conclusion":"success","databaseId":40305242602,"headSha":"2846f7b7dafaa5384d3177f6e5c1e879df4f155c","status":"completed"},
+    {"conclusion":"success","databaseId":40304536209,"headSha":"6dc797bb10d8fddd4c6d2dbef06446b01407f88b","status":"completed"}
+  ],
+  "interpretation": "No failed recent run. H13a implementation c5647960a was superseded/cancelled; acceptance e1232ac1e remains in progress and is not polled. Older H36 implementation checkpoint passed its named run, but its provider-refused independent acceptance remains blocked. These receipts certify only their own immutable SHAs."
+}
