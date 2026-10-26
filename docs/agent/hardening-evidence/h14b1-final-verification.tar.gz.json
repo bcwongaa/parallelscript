@@ -1,0 +1,105 @@
+{
+  "archive": "h14b1-final-verification.tar.gz",
+  "sha256": "e96fe58edcb2be9338964d9d0e0d27ed819ac92df8ccf21c75912d9a820dbc19",
+  "bytes": 1818233,
+  "checks": {
+    "regular_text_files_only": true,
+    "safe_relative_names": true,
+    "symlinks": 0,
+    "executable_members": 0,
+    "private_key_or_github_token_markers": 0,
+    "round_trip_bytes_match": true
+  },
+  "members": [
+    {
+      "name": "README.md",
+      "bytes": 1408,
+      "sha256": "e2c9f66545e75fbdfdfa73768b5c801c0bd798720e2fbf4ccb3dd46b43f4fcdc",
+      "source": "generated provenance notes"
+    },
+    {
+      "name": "baseline/h14b1-session-baseline-build.txt",
+      "bytes": 34,
+      "sha256": "ab1c499f7a97d85ba6954d31807d6314587939ee713149a131f06317996b7605",
+      "source": "/tmp/h14b1-session-baseline-build.txt"
+    },
+    {
+      "name": "baseline/h14b1-session-baseline.jsonl",
+      "bytes": 13212199,
+      "sha256": "d6d8d32d011fa124f8dfb6e965789a05d5c379e21feedcf685c10f7bf027791f",
+      "source": "/tmp/h14b1-session-baseline.jsonl"
+    },
+    {
+      "name": "baseline/h14b1-session-baseline.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "/tmp/h14b1-session-baseline.stderr"
+    },
+    {
+      "name": "final-gate.py",
+      "bytes": 3214,
+      "sha256": "67c7409e8991447a79e7f38bad3fda8d53db0ed66e6f23c1fb383ab2fae36f79",
+      "source": "/tmp/h14b1-session-final-gate.py"
+    },
+    {
+      "name": "final/build.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "/tmp/h14b1-session-evidence/final/build.stderr"
+    },
+    {
+      "name": "final/build.stdout",
+      "bytes": 34,
+      "sha256": "ab1c499f7a97d85ba6954d31807d6314587939ee713149a131f06317996b7605",
+      "source": "/tmp/h14b1-session-evidence/final/build.stdout"
+    },
+    {
+      "name": "final/manifest-after.json",
+      "bytes": 248074,
+      "sha256": "a7afd92cc44073b754c2a3bbe6ca08b2507a3df903b5618495e6f6d632cc616c",
+      "source": "/tmp/h14b1-session-evidence/final/manifest-after.json"
+    },
+    {
+      "name": "final/manifest-before.json",
+      "bytes": 248074,
+      "sha256": "a7afd92cc44073b754c2a3bbe6ca08b2507a3df903b5618495e6f6d632cc616c",
+      "source": "/tmp/h14b1-session-evidence/final/manifest-before.json"
+    },
+    {
+      "name": "final/suite.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "/tmp/h14b1-session-evidence/final/suite.stderr"
+    },
+    {
+      "name": "final/suite.stdout",
+      "bytes": 13223028,
+      "sha256": "8a3d35d1a08e0476fc330dc6646f7d264003078c692e2840b6d45ab3635ffe0d",
+      "source": "/tmp/h14b1-session-evidence/final/suite.stdout"
+    },
+    {
+      "name": "final/summary.json",
+      "bytes": 2254,
+      "sha256": "7eb3dc3dbd55d7354f17e1e1c57e91e08e0fc66e11fb613787e579e13c155a62",
+      "source": "/tmp/h14b1-session-evidence/final/summary.json"
+    },
+    {
+      "name": "package_evidence.py",
+      "bytes": 10109,
+      "sha256": "a101a572d4a81251dc87ec13515674eab6634017e57f862d6074786bebf8f0d1",
+      "source": "/home/bryan/projects/parallelscript/pts-bin/h14b1-checkpoint/package_evidence.py"
+    },
+    {
+      "name": "telegram-blocker-receipt.txt",
+      "bytes": 358,
+      "sha256": "60a6dfedbf4ad5ea388eabf73f427adbb028e96ad2a6578ae2c336ed37fe64f3",
+      "source": "/tmp/h14b1-session-evidence/telegram-blocker-receipt.txt"
+    },
+    {
+      "name": "telegram-blocker.txt",
+      "bytes": 1028,
+      "sha256": "0aafaaff83c38b21cd3485d76738eb3a456d9632de95087dd70ee7ae7bedf432",
+      "source": "/home/bryan/projects/parallelscript/pts-bin/h14b1-checkpoint/telegram-blocker.txt"
+    }
+  ]
+}
