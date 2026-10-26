@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-10-26 H13 session startup",
+  "command": "gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId",
+  "note": "Single non-blocking query. No new main failure: the failed scratch Mac rounds below are already superseded by round 5 (h36.md). H36 implementation checkpoint CI is still in progress; its independent acceptance remains blocked. No CI polling or waiting.",
+  "runs": [
+    {"conclusion":"","databaseId":40304536209,"headSha":"6dc797bb10d8fddd4c6d2dbef06446b01407f88b","status":"in_progress"},
+    {"conclusion":"skipped","databaseId":40304356587,"headSha":"6dc797bb10d8fddd4c6d2dbef06446b01407f88b","status":"completed"},
+    {"conclusion":"","databaseId":40304356582,"headSha":"6dc797bb10d8fddd4c6d2dbef06446b01407f88b","status":"in_progress"},
+    {"conclusion":"success","databaseId":40295068495,"headSha":"f0a3cf56d6492d6540387b6a9a8c078a8030da58","status":"completed"},
+    {"conclusion":"skipped","databaseId":40288979317,"headSha":"f0a3cf56d6492d6540387b6a9a8c078a8030da58","status":"completed"},
+    {"conclusion":"success","databaseId":40288979269,"headSha":"f0a3cf56d6492d6540387b6a9a8c078a8030da58","status":"completed"},
+    {"conclusion":"success","databaseId":40286550840,"headSha":"35089901ea49e5c697fe47a998b93ad3abc9ef56","status":"completed"},
+    {"conclusion":"failure","databaseId":40283890522,"headSha":"8dd289fb3d8514cfc1b9c335084ab795a3f9cfca","status":"completed"},
+    {"conclusion":"failure","databaseId":40281386682,"headSha":"df44b9d8e4b4d8eae222c6d2934bf9fd38a9b5d2","status":"completed"},
+    {"conclusion":"failure","databaseId":40279472053,"headSha":"83d4303edf5ab31273670e69b51f0b4f4fe25247","status":"completed"}
+  ]
+}

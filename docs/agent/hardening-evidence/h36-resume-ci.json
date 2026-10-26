@@ -2,6 +2,13 @@
   "observedAt": "2026-10-26 session startup",
   "command": "gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId",
   "note": "One non-blocking startup query only. These conclusions certify the named historical SHAs, not the recovered port or later review fixes. Earlier scratch failures are superseded by scratch round 5; earlier main arm64 failures are superseded by the D-227 fix.",
+  "followup": {
+    "observedAt": "2026-10-26 H13 session startup",
+    "receipt": "h13-startup-ci.json",
+    "completedAdditionalRun": {"headSha": "f0a3cf56d6492d6540387b6a9a8c078a8030da58", "databaseId": 40295068495, "conclusion": "success"},
+    "implementationCheckpoint": {"headSha": "6dc797bb10d8fddd4c6d2dbef06446b01407f88b", "databaseIds": [40304536209, 40304356582], "status": "in_progress"},
+    "note": "No later query. H36 independent acceptance remains blocked; no exact-SHA checkpoint success inferred."
+  },
   "runs": [
     {"headSha": "f0a3cf56d6492d6540387b6a9a8c078a8030da58", "databaseId": 40288979317, "conclusion": "skipped"},
     {"headSha": "f0a3cf56d6492d6540387b6a9a8c078a8030da58", "databaseId": 40288979269, "conclusion": "success"},
