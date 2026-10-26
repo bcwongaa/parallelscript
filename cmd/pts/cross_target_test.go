@@ -92,7 +92,7 @@ func TestBuildForAarch64LinuxPrintsNumbersAsNodeOnArm64(t *testing.T) {
 }
 
 // readNodeArchNumbers returns nodeArchNumbers' expressions and what Node printed for each in the
-// given column (1: linux-x64, 2: linux-arm64).
+// given column (1: linux-x64, 2: linux-arm64, 3: darwin-arm64).
 func readNodeArchNumbers(t *testing.T, column int) ([]string, []string) {
 	t.Helper()
 	content, err := os.ReadFile(nodeArchNumbers)
@@ -103,7 +103,7 @@ func readNodeArchNumbers(t *testing.T, column int) ([]string, []string) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		assert.Equal(t, len(fields), 3, "malformed line in %s: %q", nodeArchNumbers, line)
+		assert.Equal(t, len(fields), 4, "malformed line in %s: %q", nodeArchNumbers, line)
 		exprs = append(exprs, fields[0])
 		want = append(want, fields[column])
 	}

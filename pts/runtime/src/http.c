@@ -2,7 +2,8 @@
  * pts:http's server (D-136): HTTP/1.1 over libuv's TCP on the loop that listens, or with
  * reusePort on every loop (D-137), each accepting on a socket of its own bound to the same
  * port with SO_REUSEPORT, so the kernel spreads connections across them (on macOS, whose
- * SO_REUSEPORT doesn't, each on a descriptor of one socket). Each connection
+ * SO_REUSEPORT doesn't, each on a descriptor of one socket, handing the connections it
+ * accepts to the loops in turn). Each connection
  * stays on the loop that accepted it: it reads requests one at a time (pipelined ones wait
  * in its buffer), hands each to the program's request callback with an id, writes the
  * response once pts_http_respond answers that id, and goes on with the next request or
@@ -63,7 +64,6 @@ enum {
 /* A server's socket on one loop, and the connections that loop accepted from it; only that loop touches it once it listens. */
 typedef struct listener {
   uv_tcp_t *tcp; /* NULL until the loop listens, and once it stops */
-  uv_check_t *deferred; /* on macOS, where loops share a socket (another_listening_socket): accepts after the loop's poll */
   struct server *server;
   struct connection *connections;
   pts_tls_identity *identity; /* an https server's certificate and key for this loop's connections; NULL for http */
@@ -78,6 +78,7 @@ typedef struct server {
   atomic_bool close_active; /* stop(true): connections with requests in flight close too */
   int port;
   uint32_t listener_count;
+  atomic_uint turn; /* on macOS, where the loops share a socket: the listener the next connection goes to (hand_off) */
   listener listeners[]; /* the calling loop's first */
 } server;
 
@@ -746,41 +747,90 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   }
 }
 
-static void accept_connection(listener *l, uv_stream_t *stream);
-static void on_deferred_accept(uv_check_t *check);
+static void start_connection(listener *l, connection *c);
+#if defined(__APPLE__)
+static void hand_off(listener *l, uv_stream_t *stream);
+#endif
 
-/*
- * A connection came. Where loops share a socket (macOS), its accept waits for the loop's
- * check phase, and libuv reads the socket no more until then: the other loops the
- * connections woke take the next ones, where libuv would take every waiting one here.
- */
 static void on_connection(uv_stream_t *stream, int status) {
   listener *l = stream->data;
   if (status < 0 || atomic_load(&l->server->stopped)) {
     return;
   }
-  if (l->deferred != NULL) {
-    uv_check_start(l->deferred, on_deferred_accept);
+#if defined(__APPLE__)
+  if (l->server->listener_count > 1) {
+    hand_off(l, stream);
     return;
   }
-  accept_connection(l, stream);
-}
-
-static void on_deferred_accept(uv_check_t *check) {
-  listener *l = check->data;
-  uv_check_stop(check);
-  if (l->tcp != NULL && !atomic_load(&l->server->stopped)) {
-    accept_connection(l, (uv_stream_t *)l->tcp);
-  }
-}
-
-static void accept_connection(listener *l, uv_stream_t *stream) {
+#endif
   connection *c = checked(calloc(1, sizeof *c));
   uv_tcp_init(stream->loop, &c->tcp);
   if (uv_accept(stream, (uv_stream_t *)&c->tcp) < 0) {
     uv_close((uv_handle_t *)&c->tcp, on_closed);
     return;
   }
+  start_connection(l, c);
+}
+
+#if defined(__APPLE__)
+/* A connection one loop accepted for another (hand_off): a descriptor of its own for it. */
+typedef struct handed {
+  listener *to;
+  int fd;
+} handed;
+
+static void on_taken_closed(uv_handle_t *handle) { free(handle); }
+
+/* On the loop a connection was handed to: it takes the connection over, unless the server stopped there meanwhile. */
+static void adopt(void *data) {
+  handed *h = data;
+  listener *l = h->to;
+  int fd = h->fd;
+  free(h);
+  if (l->tcp == NULL || atomic_load(&l->server->stopped)) {
+    close(fd);
+    return;
+  }
+  connection *c = checked(calloc(1, sizeof *c));
+  uv_tcp_init(pts_uv_loop(), &c->tcp);
+  if (uv_tcp_open(&c->tcp, fd) != 0) {
+    close(fd);
+    uv_close((uv_handle_t *)&c->tcp, on_closed);
+    return;
+  }
+  start_connection(l, c);
+}
+
+/*
+ * The loops share a socket on macOS (another_listening_socket), and the loop that is awake
+ * would take every connection before the others wake, so the connections go to the loops in
+ * turn, as Linux's SO_REUSEPORT spreads them: one for another loop is accepted here and its
+ * descriptor's copy handed to that loop.
+ */
+static void hand_off(listener *l, uv_stream_t *stream) {
+  server *s = l->server;
+  listener *to = &s->listeners[atomic_fetch_add(&s->turn, 1) % s->listener_count];
+  uv_tcp_t *taken = checked(malloc(sizeof *taken));
+  uv_tcp_init(stream->loop, taken);
+  uv_os_fd_t fd;
+  if (uv_accept(stream, (uv_stream_t *)taken) == 0 && uv_fileno((uv_handle_t *)taken, &fd) == 0) {
+    handed *h = checked(malloc(sizeof *h));
+    h->to = to;
+    h->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    if (h->fd < 0) {
+      free(h);
+    } else if (to == l) {
+      adopt(h);
+    } else {
+      pts_post_call(to->loop, adopt, h);
+    }
+  }
+  uv_close((uv_handle_t *)taken, on_taken_closed); /* closes the descriptor accept made, not its copy */
+}
+#endif
+
+/* A connection the listener's loop now has: it reads requests from it, through TLS for an https server. */
+static void start_connection(listener *l, connection *c) {
   uv_tcp_nodelay(&c->tcp, 1);
   c->roots = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *c->roots));
   c->listener = l;
@@ -1010,14 +1060,6 @@ static void start_listening(void *data) {
     return;
   }
   l->tcp = tcp;
-#if defined(__APPLE__)
-  if (l->server->listener_count > 1) {
-    l->deferred = checked(malloc(sizeof *l->deferred));
-    uv_check_init(pts_uv_loop(), l->deferred);
-    l->deferred->data = l;
-    uv_unref((uv_handle_t *)l->deferred);
-  }
-#endif
 }
 
 /*
@@ -1028,12 +1070,8 @@ static void start_listening(void *data) {
 static void stop_listening(void *data) {
   listener *l = data;
   if (l->tcp != NULL) {
-    uv_close((uv_handle_t *)l->tcp, on_listener_closed); /* and a connection whose accept was deferred */
+    uv_close((uv_handle_t *)l->tcp, on_listener_closed);
     l->tcp = NULL;
-  }
-  if (l->deferred != NULL) {
-    uv_close((uv_handle_t *)l->deferred, on_listener_closed);
-    l->deferred = NULL;
   }
   bool close_active = atomic_load(&l->server->close_active);
   for (connection *c = l->connections, *next; c != NULL; c = next) {

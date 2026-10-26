@@ -100,8 +100,16 @@ jobs:
           cp fib.pts fib.mts
           $GITHUB_WORKSPACE/pts-bin/pts build fib.pts -o fib
           for i in 1 2 3; do ./fib; node fib.mts; done
-          nm fib | grep -i fib | head; sym=$(nm fib | grep -i ' t .*fib' | head -1 | awk '{print $3}')
-          otool -tvV fib | awk -v s="$sym:" '$0 ~ "^"s {p=1} p {print; n++} n > 40 {exit}'
+          # The same C with the stack guard taken out, linked as pts links it (the release archives the builds above made).
+          $GITHUB_WORKSPACE/pts-bin/pts emit-c fib.pts -o fib.c
+          sed 's/pts_stack_check();//' fib.c > fib_noguard.c
+          grep -c pts_stack_check fib.c fib_noguard.c || true
+          R=$GITHUB_WORKSPACE/pts; T=$R/third_party
+          archives=""; for n in ptsrt mbedtls ryu pcre2 uv gc backtrace; do archives="$archives $(ls -t ~/Library/Caches/pts/$n-*/lib$n.a | head -1)"; done
+          clang --target=arm64-apple-macos11 -O2 -g -ffp-contract=off -fno-math-errno -falign-functions=32 -std=c11 -o fib_noguard \
+            -I $R/runtime/include -I $T/bdwgc/include -I $T/libuv/include -I $T/ryu -I $T/libbacktrace -I $T/pcre2-config -I $T/mbedtls-config -I $T/mbedtls/include \
+            -DMBEDTLS_USER_CONFIG_FILE='"pts_mbedtls_config.h"' fib_noguard.c $archives
+          for i in 1 2 3 4 5; do ./fib; ./fib_noguard; done
       - name: PTS tests
         if: always()
         run: |
