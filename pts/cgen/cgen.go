@@ -1419,7 +1419,7 @@ func (e *emitter) operands(exprs []ir.Expr) (args []string, prelude string) {
 		args[i] = e.temporary()
 		fmt.Fprintf(&declarations, "%s%s = %s; ", e.declarator(x.Type()), args[i], e.expr(x))
 	}
-	for _, i := range escaping { // a read of a parameter, which nothing before it can change
+	for _, i := range escaping { // a read of `this` or a local never assigned after it was declared as it, which nothing before it can change
 		args[i] = e.temporary()
 		fmt.Fprintf(&declarations, "%s%s = %s; ", e.declarator(exprs[i].Type()), args[i], e.expr(exprs[i]))
 	}

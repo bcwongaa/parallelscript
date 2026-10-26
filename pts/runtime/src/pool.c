@@ -487,6 +487,7 @@ static void operate(const pts_par_op *op, size_t count, void *result, bool join)
   if (on_loop) {
     pts_absorb_messages();
   }
+  pts_publish(); /* what this thread's pieces and combines stored, the others' ordered by the join's release and acquire (D-226) */
 }
 
 static void for_leaf(const pts_par_op *op, size_t from, size_t to, void *result) {
@@ -542,14 +543,23 @@ void pts_parallel_for_each(pts_closure *leaf, double count) {
   pts_try_leave(&handler);
 }
 
+/*
+ * A piece's result, and a combination's, is published before the slot that holds it, which
+ * may be on another thread's stack, takes it (D-226): the job's done flag orders it for that
+ * thread anyway, and the barrier makes it a construction's end, as every new object's.
+ */
 static void reduce_leaf(const pts_par_op *op, size_t from, size_t to, void *result) {
   pts_closure *leaf = ((const closure_op *)op)->leaf;
-  *(pts_value *)result = ((pts_value(*)(pts_closure *, double, double))leaf->code)(leaf, (double)from, (double)to);
+  pts_value piece = ((pts_value(*)(pts_closure *, double, double))leaf->code)(leaf, (double)from, (double)to);
+  pts_publish();
+  *(pts_value *)result = piece;
 }
 
 static void reduce_combine(const pts_par_op *op, void *left, void *right) {
   pts_closure *combine = ((const closure_op *)op)->combine;
-  *(pts_value *)left = ((pts_value(*)(pts_closure *, pts_value, pts_value))combine->code)(combine, *(pts_value *)left, *(pts_value *)right);
+  pts_value combined = ((pts_value(*)(pts_closure *, pts_value, pts_value))combine->code)(combine, *(pts_value *)left, *(pts_value *)right);
+  pts_publish();
+  *(pts_value *)left = combined;
 }
 
 pts_value pts_parallel_reduce(pts_closure *leaf, pts_closure *combine, double count) {

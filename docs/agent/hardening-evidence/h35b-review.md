@@ -154,3 +154,174 @@ Not pre-existing in the sense that matters: the base has no barriers at all.
 - `pts help` doesn't list `PTS_BUILD_PROFILE`, and a bad value exits 1, the code for a compile error.
 
 **VERDICT: NOT READY**
+
+## Round 2 (2026-10-26): NOT READY
+
+On snapshot `/tmp/h35b/snap4` (round 1's fixes, `38a1e681c`). Probes: [h35b-review2-probes.tar.gz](h35b-review2-probes.tar.gz).
+
+**Verdict: NOT READY.** The parallel library's builders (`.par.map` and friends) have the same gap round 1 found in the typed builders (R2-F1, high). The fix for `this` aliases also introduced a small behaviour regression against Node (R2-F2, low), and the new strict test has a few uncovered barriers (R2-F3, low). Everything round 1 reported is otherwise fixed.
+
+**Setup**
+- I reviewed `/tmp/h35b/snap4` with its CLI and `PTS_HOME=/tmp/h35b/snap4`, against `/tmp/h35b/snap3`, the base `/tmp/h35b/wt-base` and Node.
+- I edited nothing in the repository. Mutants were built only through `go test/build -overlay` and copied PTS_HOMEs under `/tmp/h35b/review2/homes`.
+- The parent's suite4 was still running throughout, so I kept to at most 2 heavy jobs.
+- Archive: `/tmp/h35b/review2/h35b-review2-probes.tar.gz`, with an `INDEX.txt`. It holds no binaries and no keys, and `pgrep -x p` is empty.
+
+## Round-1 fixes, verified
+
+- **R1-F1 (typed builders) is fixed.** In strict+partial mode:
+  - `typed_map_results.pts`, `spread_concat.pts` and `map_literals.pts` exit 0;
+  - `api_sweep_typed.pts` reports only line 48 (a `reduce` whose callback pushes, which is a change by the program);
+  - a new probe, `constructions_extra.pts`, covers object rest, `Object.keys/values/entries` of a shape, `Array.from(set/map, f)`, `new Set(gen())`, `Object.fromEntries(map)`, `[...m]`, `Float64Array.from(…, f)`, `flat`, `Array.of`, typed and dynamic rest calls and regexp split. It reports only `new Array(3).fill(7)`, which is a change by design.
+  - I checked every `&ir.Func{` in `pts/lower`. The `mapHelper` callers return either void or arrays, and the string helpers return strings the runtime publishes.
+- **The new IR wrapper is handled where it needs to be.** `ir.Published` is handled wherever `RestArgs` is (`walk`, `print`, `effectsOf`, `expr`). The pattern matches that now see it wrapped (`trustsDynamic`, `isNewArray`) only become more conservative.
+- **R1-F3 (barrier before later operands) is fixed for `this`.** `arg_order_escape2.pts` and `this_alias_escape.pts` exit 0. `escape_operand_kinds.pts` (method receiver, a call with `this` first, `new`, array and object literals, field and global stores) exits 0, and its emitted C puts every barrier after the operand's store. `ctor_method_escape.pts` still exits 70; that case is now in D-226's Known gaps.
+- **R1-F4 (runtime makers) is fixed.** The barriers are present and in the right order in `fs.c` (`finish` and `rm_directory_error`), `fetch.c` `fail_system`, `pts_value_values` and the JSON reviver. Dropping them (`homes/r1f4-drops`) makes `TestConstructionsReachOtherThreadsWhole` fail on `constructions_runtime` (through `pts_value_values`). `r1f4_runtime.pts` reports the reviver and `readdirSync`.
+- **Mutation checks of the strict test:**
+
+  | Mutant | Result |
+  |---|---|
+  | `nopublished` | fails `constructions_typed` |
+  | `noappended` | fails `tuples_spreads`, `constructions_runtime` and `constructions_typed` |
+  | `noreorder` | fails `escaping_this` |
+  | `norest` | survives (see R2-F3) |
+
+- **x86-64 cost.** The typed-builder sweep compiles to identical x86 code on snap3 and snap4 (154 functions, 0 changed). Callgrind instruction counts, snap3 against snap4, with identical output:
+
+  | Benchmark | snap3 | snap4 | Change |
+  |---|---|---|---|
+  | word_count | 8,788,622,420 | 8,789,264,345 | +0.007% |
+  | word_freq | 7,961,635,102 | 7,961,555,330 | −0.001% |
+  | sum_reduce | 28,249,668,799 | 28,249,668,799 | 0 |
+
+- **No other regressions found.** Round-1 default-mode probes (string and collection sweeps, cross-loop kinds, runtime drops, release header, operand kinds) all exit 0. Ten probes print the same on base and snap4.
+- **The strict test is sound for what it covers.** Strict+partial makes every store a fill and lets release stores clean nothing. The checker stops at the first report, and each `keep` stores its argument with no barrier in between. Its blind spots are memcpy-only fills and constructions the programs don't make (R2-F3).
+
+---
+
+### R2-F1 (high): the parallel library's builders return results filled after their maker's barrier
+
+**Where.** These methods in `pts/lib/parallel.pts` build their result with lib code and return it with no barrier, so the R1-F1 fix (`Builds`, `Published`) doesn't reach them:
+- `ParallelArray.map` (`new Array<U>(n)`, then `results[i] = …` in `pts_parallel_for`), `filter` and `flatMap` (pieces pushed, then joined by `push(...right)`), `sortBy`;
+- `ParallelRange.map`, `filter` and `toArray`;
+- `ParallelTypedArray.map` and `filter`.
+
+**Why it matters.** Pieces stolen by workers are ordered: the worker's release and the caller's acquire cover them. The pieces the caller runs itself are not. That includes everything at `PTS_THREADS=1`, and in `pts_join`'s common case the right half the caller runs after `pop`'s fence. A thread that loads a published `.par.map` result on arm can see holes or zeros. These are the language's main parallel APIs. SPEC §4.1 ("as it was when its construction ended") and D-226 don't exclude them. `fs.pts`'s recursive `readTree` (pushes, then return) has the same shape.
+
+**Repro:**
+```
+cd /tmp/h35b/review2/probes
+python3 ../scripts/run.py --profile publication --threads 4 --check all,strict,partial par_builders.pts
+# exit=70, "22 publication violation(s) in 15 place(s)"; reported lines 9-16 and 18:
+#   nums.par.map, nums.par.filter, range(0,16).par.map, range(...).par.filter, ta.par.map,
+#   nums.par.sortBy, nums.par.flatMap, range(0,8).par.toArray, ta.par.filter
+# for example: new_buffer ← pts_array_of_length ← pts_fn_parallel_ParallelArray_map_number (pts:parallel:42),
+#   "is held by the object (Array), which this store published", stored at pts_fn_keep (par_builders.pts:6)
+# not reported: nums.par.toArray() (a slice) and join() (an array literal)
+# --threads 1 gives the same lines (out/par_builders_1.txt)
+```
+
+**Suggested fix.**
+- A `pts_publish()` after the caller's part of each operation, at the end of `operate()` in `pool.c`, once both halves and the combine have run. That covers every `pts_parallel_for` and `pts_parallel_reduce` result.
+- And a lib-side barrier before the return of builders that fill after the operation: declare `pts_publish` as a lib intrinsic, or let lib methods carry `Builds`. `readTree` needs the same.
+- Add `par_builders.pts`, marked `// publication: strict`, to the strict programs.
+
+### R2-F2 (low): reading a reassigned `let` alias of `this` last changes JS evaluation order (a regression)
+
+`thisEscapes` now treats any non-cell local declared as `this` as an alias, `let` included. `operands()` moves escaping reads to after the other operands, on the grounds that the value is "a read of a parameter, which nothing before it can change". That holds for `this`, but not for a `let` alias that a later operand reassigns.
+
+**Repro:**
+```
+cd /tmp/h35b/review2/probes
+python3 ../scripts/run.py --cli base  alias_reassigned2.pts   # second:1 first:2
+python3 ../scripts/run.py --cli snap4 alias_reassigned2.pts   # first:1 first:2
+cp alias_reassigned2.pts /tmp/x.mts && ~/.local/node/bin/node /tmp/x.mts   # second:1 first:2
+```
+The emitted C for `let self: Node = this; record(self, ((self = other), 1));` is
+`double pts_tmp1 = ((self = …other…), 1.0); pts_class_Node *pts_tmp2 = (pts_publish(), self); pts_fn_record(pts_tmp2, pts_tmp1);`
+
+**Fix.** Treat as aliases only locals that are never assigned after their declaration (`const`, or a `let` with no `Assign`). Alternatively, reorder only reads of `f.Params[0]` and leave alias reads in place, with the barrier still at the alias read.
+
+### R2-F3 (low): gaps in the strict test's coverage
+
+- `TestConstructionsReachOtherThreadsWhole` passes with the dynamic-call rest-array barrier removed (`overlay_norest.json`, `ok 7.4s`), because no strict program calls a rest-parameter function through `any`. My probe catches that mutant: `spread_concat.pts` in strict mode exits 70 at line 10 with it and 0 without it.
+- No strict program covers the new `fs.c` and `fetch.c` barriers or enum literals. `readFileSync`'s memcpy fill can't be seen by the checker at all; that barrier rests on reading the code alone.
+- The litmus's new runtime-made members (`text`, `doubled`, `table`, `record`) are stored into the `Payload` before `new`'s barrier. On arm hardware it therefore tests the `Payload` barrier, not the builders' own barriers.
+
+**Fix:**
+- add a dynamic rest call (`const dyn: any = rest; keep(dyn(1, 2, 3))`), an enum and a `readdirSync` to `constructions_runtime.pts`;
+- in the litmus, also publish a callback method's result and a `new Map(entries)` directly through a slot.
+
+**VERDICT: NOT READY**
+
+## Round 3 (2026-10-26): READY
+
+On snapshot `/tmp/h35b/snap5` (round 2's fixes). Probes: [h35b-review3-probes.tar.gz](h35b-review3-probes.tar.gz).
+
+**Verdict: READY.** Every round-2 finding is fixed, and the new barriers are placed correctly, including on exception paths and in nested operations. One low-severity gap is left: two library builders still change a new object after its last barrier (R3-F1).
+
+**Setup**
+- I reviewed `/tmp/h35b/snap5` with its CLI and `PTS_HOME=/tmp/h35b/snap5`, against snap4, the base `/tmp/h35b/wt-base` and Node.
+- I edited nothing in the repository. Mutants were built only through `go test -overlay` and copied PTS_HOMEs under `/tmp/h35b/review3/homes`.
+- suite5 was still running throughout, so I kept to at most 2 heavy jobs.
+- Archive: `/tmp/h35b/review3/h35b-review3-probes.tar.gz`, with an `INDEX.txt`. It holds no binaries and no keys, and `pgrep -x p` is empty.
+
+## Round-2 fixes, verified
+
+- **R2-F1 (parallel library builders) is fixed.**
+  - `par_builders.pts` in strict+partial mode exits 0 on 1 and 4 threads (round 2: 15 places).
+  - `operate()`'s barrier is placed correctly:
+    - it sits after both halves, the combines and `pts_absorb_messages`, and every library entry point goes through `operate` (`pts_parallel_for`, `pts_parallel_for_each`, `pts_parallel_reduce`, `pts_parallel_join`);
+    - with one thread, `pts_par_run` runs the leaf inline and then falls through to it;
+    - a nested operation on a worker publishes on that worker before its result is stored;
+    - a throwing piece skips the barrier, but then nothing built is returned. What a `parallel for` body stored is the program's own change.
+  - `reduce_leaf` and `reduce_combine` now publish before storing into the slot.
+- **The strict test catches the barriers it should.** `TestConstructionsReachOtherThreadsWhole` fails for each mutant:
+
+  | Mutant | Fails |
+  |---|---|
+  | `norest` (the round-2 survivor) | `constructions_runtime` |
+  | no barrier in `operate` | `parallel_builders` |
+  | no barriers in `reduce_leaf` / `reduce_combine` | `parallel_builders` |
+
+  Logs are in `out/mut_*.log`. Unmutated, the test passes (`ok 18.1s`).
+- **R2-F2 (reassigned alias of `this`) is fixed.** `alias_reassigned2.pts` prints `second:1 first:2` on base and snap5. A new probe, `alias_destructure.pts` (reassigning by `[self] = …`, `{s: self2} = …` and a `this`-typed union), gives `second:1 second:2 second:3` on base, snap5 and Node.
+- **R2-F3 (strict-test coverage) is fixed.** The norest mutant is caught. The litmus now publishes a map result and a `new Map` straight into a slot, and checks their contents.
+- **Earlier probes on snap5 still pass.**
+  - Every round-1 and round-2 probe gives the same results as before. In strict mode, `typed_map_results`, `spread_concat`, `map_literals` and `r1f4_runtime` exit 0. `api_sweep_typed` and `constructions_extra` each report only a change the program makes itself.
+  - In default mode, the escape and operand-kind probes, the API sweeps, `cross_loop_kinds` and `release_hides_header` exit 0. `ctor_method_escape` still exits 70; that case is in D-226's Known gaps.
+- **x86-64 cost.** Callgrind instruction counts, one thread, snap4 against snap5, with identical output:
+
+  | Benchmark | snap4 | snap5 | Change |
+  |---|---|---|---|
+  | word_count (uses `.par`) | 8,788,504,013 | 8,788,623,014 | +0.001% |
+  | fan_out | 3,169,202,878 | 3,169,202,878 | 0 |
+
+- **Runtime and lowering.** Rescanning the runtime for fills after a maker's barrier finds nothing new. Every remaining hit is a failure path, an internal temporary, or covered by a later barrier.
+
+### R3-F1 (low): two library builders change a new object after its last barrier
+
+I rescanned `pts/lib` for functions that return a local after changing it, now including object literals and `new C()`. This found two the parent's scan (arrays, maps, sets) missed:
+- **`path.parse`** (`path.pts:400–473`). It returns the literal `ret = { root: "", … }` after setting `root`, `base`, `name`, `ext` and `dir`. The last store, for example `ret.dir = "/"`, has no barrier after it. On arm, another thread may see `""` fields.
+- **`ParallelRange.sort(compare)`** (`parallel.pts:657`). It is `new ParallelArray(this.toArray()).sort(compare)`, which sorts the fresh array in place after `toArray`'s barrier: `items.sort` on one thread, `pts_parallel_write_sorted` on more. The method returns no barrier after that. On arm, another thread may see the array unsorted or with duplicated elements.
+
+**Repro:**
+```
+cd /tmp/h35b/review3/probes
+python3 ../scripts/run.py --profile publication --threads 4 --check all,strict,partial lib_builders.pts
+# exit=70; reports line 7 (range(0, 8).par.sort): toArray's buffer, ← pts_fn_parallel_ParallelRange_sort (pts:parallel:657)
+# lines 9-10 (parse): an Object allocated at pts_fn_path_parse (pts:path:400), stored at keep (line 6)
+# line 8 (range.par.sortBy) is clean, through operate's barrier
+```
+
+**Fix:**
+- declare the intrinsic `pts_publish` in `path.pts` and call it before `return ret` in `parse` (both returns are fine: the early `return ret` is the bare literal, already published);
+- in `ParallelRange.sort`, publish the result of `new ParallelArray(this.toArray()).sort(compare)` before returning it;
+- add `range(…).par.sort` and `parse` to the strict programs.
+
+**Not defects, for the record:**
+- `AbortSignal.any` is reported by strict mode, because `#sources` is set after the signal is made. On ARMv8, the `#follow` lock's acquire CAS orders the sources array's release before the publishing store. A reader that misses `#sources` falls back to `[given]`, which is still correct. The report comes from the checker not modelling pts:sync locks.
+- `AbortSignal.abort` is covered by the `Event` it constructs after settling.
+- `assert`'s `failWith` sets `generatedMessage` after construction, on an error it then throws. A racing reader could see a stale `false`. This is a nit.
+
+**VERDICT: READY**

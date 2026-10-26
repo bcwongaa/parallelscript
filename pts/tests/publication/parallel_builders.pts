@@ -1,0 +1,34 @@
+// Construction only (H35b review round 2, R2-F1; D-226): the parallel library's builders
+// (pts:parallel's map, filter, flatMap, sortBy and toArray of arrays, ranges and typed
+// arrays, and join), each result stored into a field of a shared object as it is made and
+// never changed after. The pieces the calling thread runs itself are published when the
+// operation ends, and what the library fills after it before it returns.
+// publication: strict
+// threads: 1 2 4
+import { range, join } from "pts:parallel";
+const box: { v: unknown } = { v: 0 };
+let made = 0;
+function keep(value: unknown): void {
+  box.v = value;
+  made++;
+}
+const nums = [5, 3, 9, 1, 7, 2, 8, 6];
+const ta = new Float64Array([1, 2, 3, 4]);
+keep(nums.par.map((n) => n * 2));
+keep(nums.par.filter((n) => n > 3));
+keep(range(0, 16).par.map((i) => i * i));
+keep(range(0, 16).par.filter((i) => i % 3 === 0));
+keep(ta.par.map((x) => x * 10));
+keep(nums.par.sortBy((n) => -n));
+keep(nums.par.flatMap((n) => [n, n]));
+keep(range(0, 8).par.toArray());
+keep(nums.par.toArray());
+keep(ta.par.filter((x) => x > 1));
+keep(join(() => [1, 2], () => "b"));
+function peek(): unknown {
+  return box.v;
+}
+console.log(made, await parallel peek() !== undefined);
+
+// expect:
+// 11 true

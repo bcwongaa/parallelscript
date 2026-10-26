@@ -10,6 +10,9 @@ declare function pts_process_cwd(): string;
 declare function pts_process_exit(code: number): never;
 declare function pts_process_set_exit_code(code: number): void;
 declare function pts_process_write(fd: number, chunk: string): void;
+// Orders what this thread stored before it before what it stores after (D-226): a builder
+// publishes the object it made and filled before handing it out.
+declare function pts_publish(): void;
 
 // The environment variables as process.env holds them: a variable's value, or undefined.
 export interface ProcessEnv {
@@ -48,6 +51,7 @@ function environment(): ProcessEnv {
             env[entry.slice(0, equals)] = entry.slice(equals + 1);
         }
     }
+    pts_publish();
     return env;
 }
 

@@ -14,6 +14,9 @@ declare function pts_parallel_holds_pointers(array: any): boolean;
 declare function pts_parallel_push_flat(result: any, value: any): void;
 declare function pts_parallel_gather_sortable(array: any): number;
 declare function pts_parallel_write_sorted(array: any, sorted: any): void;
+// Orders what this thread stored before it before what it stores after (D-226): a builder
+// publishes the object it made and filled before handing it out.
+declare function pts_publish(): void;
 
 // What marks a callback that runs on several threads at once: the function type F,
 // branded, so that the compiler knows its body is a parallel body (D-L17).
@@ -371,6 +374,7 @@ export class ParallelTypedArray<A extends TypedArrayLike> {
         }, items.length) as number[];
         const results = items.slice(0, kept.length) as A;
         results.set(kept);
+        pts_publish();
         return results;
     }
 
@@ -532,6 +536,7 @@ export class Range {
         for (let i = 0; i < values.length; i++) {
             values[i] = this.start + i;
         }
+        pts_publish();
         return values;
     }
 

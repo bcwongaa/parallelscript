@@ -1,0 +1,27 @@
+// A local declared as `this` in a constructor and reassigned among a call's operands is
+// read in its place, left to right, as JS reads it: only a read of `this`, or of a local
+// never assigned after it was declared as it, may wait for the other operands to publish
+// the instance after them (H35b review round 2, R2-F2; D-226).
+const seen: string[] = [];
+function record(a: Node, b: number): void {
+  seen.push(`${a.name}:${b}`);
+}
+class Node {
+  name: string;
+  constructor(name: string, other: Node | null) {
+    this.name = name;
+    if (other !== null) {
+      let self: Node = this;
+      record(self, ((self = other), 1));
+      record(self, 2);
+      const same = this;
+      record(same, ((this.name = `${name}!`), 3));
+    }
+  }
+}
+const first = new Node("first", null);
+new Node("second", first);
+console.log(seen.join(" "));
+
+// expect:
+// second:1 first:2 second!:3

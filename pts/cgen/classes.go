@@ -731,15 +731,23 @@ func constructorsOf(program *ir.Program) map[*ir.Func]bool {
 // it before its construction ends: as an argument (a method's receiver too), a stored or
 // returned value, an operand, anything but the object of a plain field's read or write
 // or the instance its parent's constructor (super(...)) is given, whose escapes are its
-// own. A local declared as `this` (`const self = this`) is `this`. Each publishes the
+// own. A local declared as `this` and never assigned (`const self = this`) is `this`. Each publishes the
 // instance's stores so far (pts_publish), after the other operands of its call or store
 // (operands), so a thread that loads it through what it is passed to sees them, as on
 // x86-64 (D-226). A closure that captures `this` publishes them as it is made
 // (closureConstructor); a method it is passed to publishes nothing of its own.
 func thisEscapes(f *ir.Func, constructors map[*ir.Func]bool) map[*ir.LocalRef]bool {
-	instance := map[*ir.Local]bool{f.Params[0]: true} // `this` and the locals declared as it (`const self = this`)
+	assigned := map[*ir.Local]bool{}
+	ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+		if assign, ok := x.(*ir.Assign); ok {
+			assigned[assign.Local] = true
+		}
+	})
+	// `this` and the locals declared as it and never assigned (`const self = this`), whose
+	// reads operands may move after the other operands, as reads of `this`.
+	instance := map[*ir.Local]bool{f.Params[0]: true}
 	ir.Walk(f.Body.Stmts, func(stmt ir.Stmt) {
-		if decl, ok := stmt.(*ir.LocalDecl); ok && !decl.Local.Cell {
+		if decl, ok := stmt.(*ir.LocalDecl); ok && !decl.Local.Cell && !assigned[decl.Local] {
 			if ref, ok := decl.Init.(*ir.LocalRef); ok && ref.Local == f.Params[0] {
 				instance[decl.Local] = true
 			}

@@ -20,6 +20,9 @@ declare function pts_http_fetch(method: string, host: string, port: number, secu
 declare function pts_http_fetch_abort(request: number): void;
 declare function pts_sync_lock(lock: ArrayBuffer): void;
 declare function pts_sync_unlock(lock: ArrayBuffer): void;
+// Orders what this thread stored before it before what it stores after (D-226): a builder
+// publishes the object it made and filled before handing it out.
+declare function pts_publish(): void;
 
 export type HeadersInit = Headers | Record<string, string> | [string, string][];
 
@@ -364,6 +367,7 @@ export class Response {
         if (init === undefined || !new Headers(init.headers).has("content-type")) {
             response.headers.set("content-type", "application/json");
         }
+        pts_publish();
         return response;
     }
 }
@@ -464,6 +468,7 @@ function receive(options: ServeOptions, server: Server, connection: number, meth
     const url = target.startsWith("/") ? `${server.protocol}://${host}${target}` : target;
     const request = new Request(url, { method, body });
     addReceived(request.headers, fields);
+    pts_publish(); // its headers, before the handler can hand the request to other threads
     answer(options, server, connection, request);
     return request;
 }

@@ -41,6 +41,9 @@ declare function pts_fs_readlink(path: string): string;
 declare function pts_fs_mkdtemp(prefix: string): string;
 declare function pts_fs_error(error: number, syscall: string, path: string, dest: string): Error;
 declare function pts_fs_rm_directory_error(path: string): Error;
+// Orders what this thread stored before it before what it stores after (D-226): a builder
+// publishes the object it made and filled before handing it out.
+declare function pts_publish(): void;
 
 // Throws Node's error for a call that returned error (a negative errno).
 function check(error: number, syscall: string, path: string, dest: string = ""): void {
@@ -191,6 +194,7 @@ function readTree(base: string, withFileTypes: boolean): string[] | Dirent[] {
             }
         }
     }
+    pts_publish();
     return withFileTypes ? dirents : names;
 }
 

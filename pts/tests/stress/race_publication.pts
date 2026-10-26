@@ -62,7 +62,7 @@ class Payload {
 }
 
 const ROUNDS = 400_000;
-const slot = { current: new Payload(0) };
+const slot = { current: new Payload(0), list: [0, 2], table: new Map([["n", 0]]) };
 const elements: Payload[] = [new Payload(0)];
 const entries = new Map<number, Payload>([[0, new Payload(0)]]);
 let variable = new Payload(0);
@@ -81,11 +81,16 @@ function check(p: Payload | undefined): void {
 parallel for (const i of range(0, ROUNDS)) {
   if (i % 2 === 0) {
     slot.current = new Payload(i);
+    slot.list = [i, i + 1].map((x) => x * 2); // published by its own builder's barrier, not a Payload's
+    slot.table = new Map([["n", i]]);
     elements[0] = new Payload(i);
     entries.set(0, new Payload(i));
     setVariable(new Payload(i));
   } else {
     check(slot.current);
+    const list = slot.list;
+    const table = slot.table;
+    if (list.length !== 2 || list[1] !== list[0] + 2 || table.size !== 1 || table.get("n") === undefined) bad.add(1);
     check(elements[0]);
     check(entries.get(0));
     check(getVariable());

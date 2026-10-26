@@ -5,6 +5,7 @@
 // object is part of its construction), so a runtime maker whose last fill no barrier
 // follows is reported.
 // publication: strict
+import { readdirSync } from "pts:fs";
 // threads: 1 2 4
 const box: { v: unknown } = { v: 0 };
 let made = 0;
@@ -67,10 +68,22 @@ class Counter {
 }
 const counter: any = new Counter();
 keep(counter.next);
+function rest(...items: number[]): number[] {
+  return items;
+}
+const dynamicRest: any = rest;
+keep(dynamicRest(1, 2, 3)); // the rest array a dynamic call fills
+enum Color {
+  Red,
+  Green = 5,
+}
+keep(Color);
+keep(readdirSync("."));
+keep(readdirSync(".", { recursive: true }));
 function peek(): unknown {
   return box.v;
 }
 console.log(made, await parallel peek() !== undefined);
 
 // expect:
-// 43 true
+// 47 true
