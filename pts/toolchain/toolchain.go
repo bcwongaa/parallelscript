@@ -168,7 +168,14 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 	if err != nil {
 		return nil, err
 	}
+	if profile == PublicationCheck && t.darwin() {
+		return nil, errors.New("the publication checker needs GNU ld's --wrap, so it builds for Linux only")
+	}
 	built := &Runtime{Profile: profile, IncludeDirs: t.absolute(runtimeLibrary.includes)}
+	libuv, bdwgc, libbacktrace := libuvLibrary, bdwgcLibrary, libbacktraceLibrary
+	if t.darwin() {
+		libuv, bdwgc, libbacktrace = libuvDarwinLibrary, bdwgcDarwinLibrary, libbacktraceDarwinLibrary
+	}
 	builds := []struct {
 		lib   library
 		flags []string
@@ -177,9 +184,9 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 		{mbedtlsLibrary, vendoredFlags},
 		{ryuLibrary, vendoredFlags},
 		{pcre2Library, vendoredFlags},
-		{libuvLibrary, vendoredFlags},
-		{bdwgcLibrary, vendoredFlags},
-		{libbacktraceLibrary, vendoredFlags},
+		{libuv, vendoredFlags},
+		{bdwgc, vendoredFlags},
+		{libbacktrace, vendoredFlags},
 	}
 	for _, b := range builds {
 		archive, err := t.ensureArchive(ctx, b.lib, slices.Concat(t.targetFlags(), b.flags), ccVersion)
@@ -197,7 +204,7 @@ func (t *Toolchain) CompileProgram(ctx context.Context, rt *Runtime, cFiles []st
 	for _, dir := range rt.IncludeDirs {
 		args = append(args, "-I", dir)
 	}
-	args = slices.Concat(args, cFiles, rt.Archives, systemLibraries, rt.Profile.linkFlags())
+	args = slices.Concat(args, cFiles, rt.Archives, t.systemLibraries(), rt.Profile.linkFlags())
 	return t.run(ctx, t.CC, args...)
 }
 

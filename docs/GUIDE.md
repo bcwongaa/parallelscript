@@ -1232,8 +1232,9 @@ try {
 rmSync(dir, { recursive: true });
 console.log(existsSync(dir));
 
-// The global `process` is pts:process's default export; argv.slice(2) is the arguments.
-console.log(argv.slice(2), platform, process.exitCode);
+// The global `process` is pts:process's default export; argv.slice(2) is the arguments,
+// and platform is "linux" or "darwin" (macOS), as Node names them.
+console.log(argv.slice(2), ["linux", "darwin"].includes(platform), process.exitCode);
 ```
 
 It prints this, as Node does with the `node:` modules:
@@ -1251,7 +1252,7 @@ lib/main.pts {
 }
 ENOENT
 false
-[] linux undefined
+[] true undefined
 ```
 
 ### Reading bytes

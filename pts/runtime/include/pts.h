@@ -2805,6 +2805,8 @@ pts_string *pts_process_exec_path(void);
 double pts_process_pid(void);
 /* Node's name for the processor the program was compiled for: "x64" or "arm64" (D-225). */
 pts_string *pts_process_arch(void);
+/* Node's name for the system the program was compiled for: "linux" or "darwin" (H36). */
+pts_string *pts_process_platform(void);
 pts_string *pts_process_cwd(void);
 /* process.exit(code): flushes output and exits at once. */
 _Noreturn void pts_process_exit(double code);

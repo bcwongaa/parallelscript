@@ -77,15 +77,17 @@ the program's exit code, or 128 plus the signal's number if a signal ended it.
 	"build": `Usage: pts build <file.pts> [-o <output>] [--target <target>]
 
 Compiles the program whose entry module is file.pts, with the modules it imports, to a
-native executable that needs only libc and libm.
+native executable that needs only libc and libm (on macOS, libSystem; its debug
+information, which stack traces read, is then in <output>.dSYM beside it).
 
 Options:
   -o, --output <output>   The executable's path (default: the file's base name)
-  --target <target>       The platform it runs on: x86_64-linux or aarch64-linux (default:
-                          this machine, or PTS_TARGET's). Building for another machine
-                          needs its C library and linker, as its cross-compiling packages
-                          install them (Debian and Ubuntu: gcc-aarch64-linux-gnu and
-                          libc6-dev-arm64-cross for aarch64-linux)
+  --target <target>       The platform it runs on (default: this machine, or PTS_TARGET's):
+                          x86_64-linux, aarch64-linux or aarch64-macos. Building for another
+                          Linux machine needs its C library and linker, as its
+                          cross-compiling packages install them (Debian and Ubuntu:
+                          gcc-aarch64-linux-gnu and libc6-dev-arm64-cross for
+                          aarch64-linux); aarch64-macos builds on a Mac only
 `,
 	"emit-c": `Usage: pts emit-c <file.pts> [-o <file.c>]
 

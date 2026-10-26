@@ -7,9 +7,20 @@
  */
 #include "pts.h"
 
+#if defined(__APPLE__)
+/*
+ * macOS's futex: __ulock_wait and __ulock_wake, in libSystem since macOS 10.12 and what
+ * libc++'s atomic waits use there. Apple doesn't declare them; os_sync_wait_on_address,
+ * which it does, needs macOS 14.4.
+ */
+enum { UL_COMPARE_AND_WAIT = 1 };
+extern int __ulock_wait(uint32_t operation, void *address, uint64_t value, uint32_t timeout_us);
+extern int __ulock_wake(uint32_t operation, void *address, uint64_t wake_value);
+#else
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 static int64_t *cell_of(pts_arraybuffer *buffer) { return (int64_t *)buffer->bytes; }
 
@@ -47,9 +58,15 @@ static inline void spin_pause(void) {
 #endif
 }
 
+#if defined(__APPLE__)
+static void futex_wait(uint32_t *word, uint32_t value) { __ulock_wait(UL_COMPARE_AND_WAIT, word, value, 0); }
+
+static void futex_wake(uint32_t *word) { __ulock_wake(UL_COMPARE_AND_WAIT, word, 0); }
+#else
 static void futex_wait(uint32_t *word, uint32_t value) { syscall(SYS_futex, word, FUTEX_WAIT_PRIVATE, value, NULL, NULL, 0); }
 
 static void futex_wake(uint32_t *word) { syscall(SYS_futex, word, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0); }
+#endif
 
 bool pts_sync_try_lock(pts_arraybuffer *lock) {
   uint32_t free = 0;

@@ -942,7 +942,16 @@ static in_port_t *port_of(struct sockaddr_storage *address) {
 
 /* A socket bound to address and listening (SO_REUSEADDR as libuv sets it, SO_REUSEPORT if asked), or a libuv error code. */
 static int listening_socket(const struct sockaddr_storage *address, bool reuse_port, int *fd) {
+#if defined(__APPLE__)
+  *fd = socket(address->ss_family, SOCK_STREAM, 0);
+  if (*fd >= 0 && (fcntl(*fd, F_SETFL, O_NONBLOCK) != 0 || fcntl(*fd, F_SETFD, FD_CLOEXEC) != 0)) {
+    int error = -errno;
+    close(*fd);
+    return error;
+  }
+#else
   *fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+#endif
   if (*fd < 0) {
     return -errno;
   }

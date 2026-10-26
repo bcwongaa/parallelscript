@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -21,14 +22,30 @@ func TestParseTargetKnowsEveryTarget(t *testing.T) {
 
 func TestParseTargetRefusesAnUnknownName(t *testing.T) {
 	_, err := ParseTarget("riscv64-linux")
-	assert.Error(t, err, `unknown target "riscv64-linux": pts builds for x86_64-linux or aarch64-linux`)
+	assert.Error(t, err, `unknown target "riscv64-linux": pts builds for x86_64-linux, aarch64-linux or aarch64-macos`)
 }
 
 func TestHostTargetBuildsWithTheCompilersDefault(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS's builds always name their triple (TestMacOSBuildsNameTheOldestMacOSTheyRunOn)")
+	}
 	for _, target := range []Target{{}, hostTarget()} {
 		tc := &Toolchain{Target: target}
 		assert.Assert(t, !tc.cross())
 		assert.Assert(t, tc.targetFlags() == nil, "%v", tc.targetFlags())
+	}
+}
+
+// On a Mac, clang's default target is the Mac's own macOS version, so pts names macOS 11,
+// the first for Apple silicon, for its executables to run on any Apple silicon Mac.
+func TestMacOSBuildsNameTheOldestMacOSTheyRunOn(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("needs macOS")
+	}
+	for _, target := range []Target{{}, hostTarget(), Aarch64Macos} {
+		tc := &Toolchain{Target: target}
+		assert.Assert(t, !tc.cross() && tc.darwin())
+		assert.DeepEqual(t, tc.targetFlags(), []string{"--target=arm64-apple-macos11"})
 	}
 }
 
@@ -50,7 +67,7 @@ func TestPTSTargetSetsTheTarget(t *testing.T) {
 	assert.Equal(t, target, Target{})
 	t.Setenv("PTS_TARGET", "arm64")
 	_, err = targetFromEnv()
-	assert.Error(t, err, `PTS_TARGET: unknown target "arm64": pts builds for x86_64-linux or aarch64-linux`)
+	assert.Error(t, err, `PTS_TARGET: unknown target "arm64": pts builds for x86_64-linux, aarch64-linux or aarch64-macos`)
 }
 
 // A build for another target compiles, checks and links everything with its triple, into
@@ -113,9 +130,13 @@ func recordedRuns(t *testing.T, tool string) []string {
 	return runs
 }
 
-// otherTarget is a target this machine doesn't run: aarch64-linux, or on an arm64 machine x86_64-linux.
+// otherTarget is a Linux target this machine doesn't run: aarch64-linux, or on an arm64
+// machine x86_64-linux. It skips the test on another system, whose libraries differ.
 func otherTarget(t *testing.T) Target {
 	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("builds for another Linux machine are tested on Linux")
+	}
 	if hostTarget() == Aarch64Linux {
 		return X86_64Linux
 	}

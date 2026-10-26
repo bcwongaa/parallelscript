@@ -57,6 +57,15 @@ _Thread_local uintptr_t pts_stack_limit;
 /* What the guard leaves of the stack for throwing RangeError: formatting it, allocating (and perhaps collecting) and capturing frames. */
 enum { STACK_RESERVE = 256 * 1024 };
 
+#if defined(__APPLE__)
+void pts_stack_limit_init(void) {
+  pthread_t self = pthread_self();
+  size_t size = pthread_get_stacksize_np(self);
+  if (size > 2 * STACK_RESERVE) {
+    pts_stack_limit = (uintptr_t)pthread_get_stackaddr_np(self) - size + STACK_RESERVE; /* the address is the stack's top */
+  }
+}
+#else
 void pts_stack_limit_init(void) {
   pthread_attr_t attributes;
   if (pthread_getattr_np(pthread_self(), &attributes) != 0) {
@@ -69,6 +78,7 @@ void pts_stack_limit_init(void) {
   }
   pthread_attr_destroy(&attributes);
 }
+#endif
 
 void pts_throw_stack_overflow(void) { pts_throw_new(&pts_type_builtin_RangeError, "Maximum call stack size exceeded"); }
 
@@ -89,7 +99,11 @@ __asm__(".text\n"
 #endif
 
 /* Recursive, so that a thread that fails while it reports an error still ends the process. */
+#if defined(__APPLE__)
+static pthread_mutex_t exit_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
+#else
 static pthread_mutex_t exit_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+#endif
 
 void pts_begin_exit(void) { pthread_mutex_lock(&exit_lock); }
 

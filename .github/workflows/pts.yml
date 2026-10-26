@@ -8,6 +8,7 @@ name: PTS
 
 on:
   push:
+    branches-ignore: [h36-macos-wip]
   pull_request:
   workflow_dispatch:
 

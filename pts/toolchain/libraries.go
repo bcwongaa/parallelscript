@@ -1,5 +1,7 @@
 package toolchain
 
+import "slices"
+
 // library describes one static archive built from C sources with the toolchain's C compiler.
 type library struct {
 	name     string   // the archive is lib<name>.a
@@ -37,6 +39,14 @@ var bdwgcLibrary = library{
 	keyFiles: []string{"pts/third_party/bdwgc/include/gc_version.h"},
 }
 
+// bdwgcDarwinLibrary is bdwgc for macOS, which has no dl_iterate_phdr: the collector finds
+// the program's data through dyld, and stops threads with Mach's calls (darwin_stop_world.c).
+var bdwgcDarwinLibrary = func() library {
+	lib := bdwgcLibrary
+	lib.defines = slices.DeleteFunc(slices.Clone(lib.defines), func(define string) bool { return define == "HAVE_DL_ITERATE_PHDR" })
+	return lib
+}()
+
 // libuv's Linux source list and defines, from its CMakeLists.txt.
 var libuvLibrary = library{
 	name: "uv",
@@ -54,6 +64,28 @@ var libuvLibrary = library{
 	},
 	includes: []string{"pts/third_party/libuv/include", "pts/third_party/libuv/src"},
 	defines:  []string{"_FILE_OFFSET_BITS=64", "_LARGEFILE_SOURCE", "_GNU_SOURCE", "_POSIX_C_SOURCE=200112"},
+	flags:    []string{"-fno-strict-aliasing"},
+	keyFiles: []string{"pts/third_party/libuv/include/uv/version.h"},
+}
+
+// libuvDarwinLibrary is libuv's macOS source list and defines, from its CMakeLists.txt:
+// kqueue, and FSEvents, which it loads at run time, as it does the other frameworks it uses.
+var libuvDarwinLibrary = library{
+	name: "uv",
+	dir:  "pts/third_party/libuv",
+	sources: []string{
+		"src/fs-poll.c", "src/idna.c", "src/inet.c", "src/random.c", "src/strscpy.c", "src/strtok.c",
+		"src/thread-common.c", "src/threadpool.c", "src/timer.c", "src/uv-common.c",
+		"src/uv-data-getter-setters.c", "src/version.c",
+		"src/unix/async.c", "src/unix/core.c", "src/unix/dl.c", "src/unix/fs.c", "src/unix/getaddrinfo.c",
+		"src/unix/getnameinfo.c", "src/unix/loop-watcher.c", "src/unix/loop.c", "src/unix/pipe.c",
+		"src/unix/poll.c", "src/unix/process.c", "src/unix/random-devurandom.c", "src/unix/signal.c",
+		"src/unix/stream.c", "src/unix/tcp.c", "src/unix/thread.c", "src/unix/tty.c", "src/unix/udp.c",
+		"src/unix/proctitle.c", "src/unix/bsd-ifaddrs.c", "src/unix/kqueue.c", "src/unix/random-getentropy.c",
+		"src/unix/darwin-proctitle.c", "src/unix/darwin.c", "src/unix/fsevents.c",
+	},
+	includes: []string{"pts/third_party/libuv/include", "pts/third_party/libuv/src"},
+	defines:  []string{"_FILE_OFFSET_BITS=64", "_LARGEFILE_SOURCE", "_DARWIN_UNLIMITED_SELECT=1", "_DARWIN_USE_64_BIT_INODE=1"},
 	flags:    []string{"-fno-strict-aliasing"},
 	keyFiles: []string{"pts/third_party/libuv/include/uv/version.h"},
 }
@@ -89,6 +121,25 @@ var libbacktraceLibrary = library{
 		"pts/third_party/libbacktrace-config/config.h", "pts/third_party/libbacktrace-config/backtrace-supported.h",
 		"pts/third_party/libbacktrace/backtrace.h", "pts/third_party/libbacktrace/internal.h",
 		"pts/third_party/libbacktrace/dwarf.c", "pts/third_party/libbacktrace/elf.c",
+	},
+}
+
+// libbacktraceDarwinLibrary is libbacktrace for macOS: its Mach-O reader, which finds
+// the DWARF in the .dSYM bundle beside the executable (dsymutil's, which clang runs when it
+// links a program from sources with -g), with its configure's output for macOS.
+var libbacktraceDarwinLibrary = library{
+	name: "backtrace",
+	dir:  "pts/third_party/libbacktrace",
+	sources: []string{
+		"atomic.c", "dwarf.c", "fileline.c", "posix.c", "print.c", "sort.c", "state.c",
+		"backtrace.c", "simple.c", "macho.c", "mmapio.c", "mmap.c",
+	},
+	includes: []string{"pts/third_party/libbacktrace-config-darwin", "pts/third_party/libbacktrace"},
+	flags:    []string{"-funwind-tables"},
+	keyFiles: []string{
+		"pts/third_party/libbacktrace-config-darwin/config.h", "pts/third_party/libbacktrace-config-darwin/backtrace-supported.h",
+		"pts/third_party/libbacktrace/backtrace.h", "pts/third_party/libbacktrace/internal.h",
+		"pts/third_party/libbacktrace/dwarf.c", "pts/third_party/libbacktrace/macho.c",
 	},
 }
 
@@ -149,4 +200,10 @@ var runtimeLibrary = library{
 
 // systemLibraries are linked after the archives. glibc 2.34+ folds pthread and dl into libc.
 // libgcc is linked statically, so that its unwinder (libbacktrace's) adds no libgcc_s.
-var systemLibraries = []string{"-lpthread", "-ldl", "-lm", "-static-libgcc"}
+// macOS's libSystem, which clang always links, has them all, the unwinder too.
+func (t *Toolchain) systemLibraries() []string {
+	if t.darwin() {
+		return nil
+	}
+	return []string{"-lpthread", "-ldl", "-lm", "-static-libgcc"}
+}
