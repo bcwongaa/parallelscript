@@ -764,6 +764,7 @@ static bool copy_object(converting *c, const pts_object *source, const pts_check
     }
     store((char *)copy + property->offset, property->check->slot, converted);
   }
+  pts_publish();
   *out = pts_value_from_object(copy);
   return true;
 }
@@ -802,6 +803,7 @@ static bool convert_tuple(converting *c, pts_object *object, const pts_check *ch
     }
     store((char *)tuple + element->offset, element->check->slot, converted);
   }
+  pts_publish();
   *out = pts_value_from_object(tuple);
   return true;
 }
@@ -827,6 +829,7 @@ static bool convert_array(converting *c, pts_array *array, const pts_check *chec
     store(&stored, element->slot, converted);
     pts_array_push(result, &stored, 1);
   }
+  pts_publish();
   *out = pts_value_from_object(result);
   return true;
 }
@@ -846,6 +849,7 @@ static bool copy_tuple_into_array(converting *c, pts_object *tuple, const pts_ch
     store(&stored, element->slot, converted);
     pts_array_push(result, &stored, 1);
   }
+  pts_publish();
   *out = pts_value_from_object(result);
   return true;
 }
@@ -891,6 +895,7 @@ static bool convert_record(converting *c, pts_object *object, const pts_check *c
   } else {
     return false;
   }
+  pts_publish();
   *out = pts_value_from_object(result);
   return true;
 }
@@ -933,6 +938,7 @@ static bool convert_map(converting *c, pts_object *object, const pts_check *chec
     store(&stored, target->element, converted);
     pts_map_set(result, &stored_key, &stored);
   }
+  pts_publish();
   *out = pts_value_from_object(result);
   return true;
 }

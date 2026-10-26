@@ -11,7 +11,7 @@
 /* JS caps string length; V8's limit is 2^29 - 24 UTF-16 units. Stay well inside uint32_t. */
 #define PTS_STRING_MAX_BYTES (UINT32_C(1) << 30)
 
-/* A string of byte_len bytes, NUL-terminated. The caller writes the bytes, then sets flags and utf16_len (or calls pts_string_measure). */
+/* A string of byte_len bytes, NUL-terminated. The caller writes the bytes, then sets flags and utf16_len (or calls pts_string_measure), then publishes it (pts_publish). */
 pts_string *pts_string_alloc(size_t byte_len);
 
 /* Sets flags and utf16_len from the bytes. */

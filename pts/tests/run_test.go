@@ -23,6 +23,7 @@ import (
 
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/driver"
+	"github.com/microsoft/typescript-go/pts/toolchain"
 	"gotest.tools/v3/assert"
 )
 
@@ -326,11 +327,19 @@ func nodeModulePath(path string) string {
 // Node alike, so that local times print the same on every machine and cross DST (D-087).
 const testTimeZone = "America/New_York"
 
+// checkedSlowdown scales programTimeout when PTS_BUILD_PROFILE builds every program under a
+// checker (toolchain.BuildProfileVar), which runs programs several times slower.
+const checkedSlowdown = 10
+
 func execute(t *testing.T, dir string, env []string, name string, args ...string) runResult {
 	t.Helper()
 	heavyJobs <- struct{}{}
 	defer func() { <-heavyJobs }()
-	ctx, cancel := context.WithTimeout(t.Context(), programTimeout)
+	timeout := programTimeout
+	if os.Getenv(toolchain.BuildProfileVar) != "" {
+		timeout *= checkedSlowdown
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir

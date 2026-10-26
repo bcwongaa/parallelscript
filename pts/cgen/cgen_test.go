@@ -291,8 +291,8 @@ func TestOnlyCodeThatMayRunEarlyChecksThatAnImportedBindingIsReady(t *testing.T)
 	program.Funcs = append([]*ir.Func{a.Init}, program.Funcs...)
 
 	got := cgen.Emit(program)
-	assert.Assert(t, strings.Contains(got, `pts_check_ready(pts_global_y_ready, "y")`), got)
-	assert.Assert(t, !strings.Contains(got, `pts_check_ready(pts_global_a_x_ready`), got)
+	assert.Assert(t, strings.Contains(got, `pts_check_ready(PTS_READY_FLAG(pts_global_y_ready), "y")`), got)
+	assert.Assert(t, !strings.Contains(got, `pts_check_ready(PTS_READY_FLAG(pts_global_a_x_ready)`), got)
 	assert.Assert(t, strings.Contains(got, "  pts_module_a();\n  pts_main();\n"), got)
 }
 
@@ -464,4 +464,71 @@ func TestElementOrUndefinedReadsEachElementKindAsItsUnionWithUndefined(t *testin
 	program := programOf(stmts...)
 	assert.Assert(t, strings.Contains(cgen.Emit(program), "pts_array_number_or_undefined("), "a number array's element is read inline")
 	assert.Equal(t, run(t, program), "1.5 a true\nundefined undefined undefined\nundefined undefined undefined\nundefined undefined undefined\n")
+}
+
+func TestAConstructorPublishesWhatItStoredBeforeThisLeavesIt(t *testing.T) {
+	t.Parallel()
+	// class Node { label: string; constructor() { this.label = "a"; keep(this); console.log(this.label); } }
+	node := &ir.Class{Name: "Node"}
+	label := &ir.Field{Name: "label", Type: ir.String, Class: node}
+	node.Fields = []*ir.Field{label}
+	main := &ir.Func{Name: "main", Pos: at(1), Result: ir.Void, Body: &ir.Block{At: at(1)}}
+	program := programWithMain(main)
+	this := &ir.Local{Name: "this", Type: node}
+	kept := &ir.Local{Name: "kept", Type: node}
+	keep := &ir.Func{Name: "keep", Module: main.Module, Pos: at(2), Params: []*ir.Local{kept}, Result: ir.Void, Body: &ir.Block{At: at(2), Stmts: []ir.Stmt{
+		logAt(2, str("kept")),
+	}}}
+	node.Constructor = &ir.Func{Name: "Node.constructor", Module: main.Module, Pos: at(3), Params: []*ir.Local{this}, Result: ir.Void, Body: &ir.Block{At: at(3), Stmts: []ir.Stmt{
+		&ir.ExprStmt{At: at(4), X: &ir.SetField{X: &ir.LocalRef{Local: this}, Field: label, Value: str("a")}},
+		&ir.ExprStmt{At: at(5), X: &ir.Call{Func: keep, Args: []ir.Expr{&ir.LocalRef{Local: this}}}},
+		logAt(6, &ir.FieldRef{X: &ir.LocalRef{Local: this}, Field: label}),
+	}}}
+	main.Body.Stmts = []ir.Stmt{&ir.ExprStmt{At: at(7), X: &ir.New{Class: node}}}
+	program.Classes = []*ir.Class{node}
+	program.Funcs = append(program.Funcs, keep, node.Constructor)
+
+	// The instance's stores so far are published where it leaves the constructor, not where
+	// the constructor only writes or reads its fields; `new` publishes the rest (D-226).
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "pts_fn_keep((pts_publish(), this));"), source)
+	assert.Equal(t, strings.Count(source, "(pts_publish(), this)"), 1, source)
+	assert.Assert(t, strings.Contains(source, "pts_fn_Node_constructor(pts_tmp1); pts_publish(); pts_tmp1; })"), source)
+	assert.Equal(t, run(t, program), "kept\na\n")
+}
+
+func TestAGlobalInitialisedWithALiteralHoldsItFromTheStart(t *testing.T) {
+	t.Parallel()
+	// const limit = 3; const label = "a"; const box = { n: limit }; function show() { console.log(limit, label, box.n); }
+	shape := &ir.Class{Name: "object1", Shape: true}
+	n := &ir.Field{Name: "n", Type: ir.Number, Class: shape}
+	shape.Fields, shape.Orders = []*ir.Field{n}, [][]*ir.Field{{n}}
+	limit := &ir.Local{Name: "limit", Type: ir.Number, Global: true}
+	label := &ir.Local{Name: "label", Type: ir.String, Global: true}
+	box := &ir.Local{Name: "box", Type: shape, Global: true}
+	main := &ir.Func{Name: "main", Pos: at(1), Result: ir.Void, Body: &ir.Block{At: at(1)}}
+	program := programWithMain(main)
+	show := &ir.Func{Name: "show", Module: main.Module, Pos: at(4), Result: ir.Void, Body: &ir.Block{At: at(4), Stmts: []ir.Stmt{
+		logAt(4, &ir.LocalRef{Local: limit}, &ir.LocalRef{Local: label}, &ir.FieldRef{X: &ir.LocalRef{Local: box}, Field: n}),
+	}}}
+	main.Body.Stmts = []ir.Stmt{
+		&ir.LocalDecl{At: at(1), Local: limit, Init: num(3)},
+		&ir.LocalDecl{At: at(2), Local: label, Init: str("a")},
+		&ir.LocalDecl{At: at(3), Local: box, Init: &ir.NewObject{Shape: shape, Values: []ir.Expr{&ir.LocalRef{Local: limit}}}},
+		&ir.ExprStmt{At: at(5), X: &ir.Call{Func: show}},
+	}
+	program.Classes = []*ir.Class{shape}
+	program.Funcs = append(program.Funcs, show)
+
+	// A literal's global needs no order between its ready flag and its value, which never
+	// was unset; another global's flag is tested by PTS_READY, an acquire on aarch64 (D-226).
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "static double pts_global_limit = 3.0;"), source)
+	assert.Assert(t, strings.Contains(source, "static pts_string *pts_global_label = (pts_string *)&pts_str_"), source)
+	assert.Assert(t, strings.Contains(source, "static pts_object *pts_global_box;") || strings.Contains(source, "static pts_class_object1 *pts_global_box;"), source)
+	assert.Assert(t, strings.Contains(source, `pts_check_ready(PTS_READY_FLAG(pts_global_limit_ready), "limit")`), source)
+	assert.Assert(t, strings.Contains(source, `pts_check_ready(PTS_READY_FLAG(pts_global_label_ready), "label")`), source)
+	assert.Assert(t, strings.Contains(source, `pts_check_ready(PTS_READY(pts_global_box_ready), "box")`), source)
+	assert.Assert(t, strings.Contains(source, "PTS_SET_READY(pts_global_box_ready);"), source)
+	assert.Equal(t, run(t, program), "3 a 3\n")
 }

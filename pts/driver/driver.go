@@ -223,7 +223,11 @@ func build(ctx context.Context, c string, output string, target toolchain.Target
 	if err != nil {
 		return err
 	}
-	rt, err := tc.Runtime(ctx, toolchain.Release)
+	profile, err := toolchain.BuildProfile()
+	if err != nil {
+		return err
+	}
+	rt, err := tc.Runtime(ctx, profile)
 	if err != nil {
 		return err
 	}

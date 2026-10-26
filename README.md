@@ -18,7 +18,7 @@ Why use it:
 - **One guardrail, not a borrow checker.** The compiler rejects assigning a captured outer `let` inside a parallel body, and checks nothing else about how threads share data. `pts:sync` has atomics, a mutex and channels for the code that needs them.
 - **Batteries for servers and tools.** `pts:http` is a server in the style of Bun's `serve` that accepts connections on every core, and `fetch`, `pts:fs`, `pts:path`, `pts:process`, RegExp and JSON behave as they do in Node, and `pts test` runs tests written for Node's `node:test` and `node:assert`.
 
-**Status:** experimental. Milestones M0 to M7 are done, the last with a language server, a VS Code extension and `pts test` ([status](#status)). It runs on x86-64 Linux. It also builds for arm64 Linux, there or cross-compiled with `pts build --target aarch64-linux`, so far tested under qemu; on arm64, programs whose threads race on shared objects can still crash (H35b).
+**Status:** experimental. Milestones M0 to M7 are done, the last with a language server, a VS Code extension and `pts test` ([status](#status)). It runs on x86-64 Linux. It also builds for arm64 Linux, there or cross-compiled with `pts build --target aarch64-linux`, so far tested under qemu, with the barriers arm needs where new objects are published to other threads (H35b).
 
 ```ts
 import { range } from "pts:parallel";
@@ -618,7 +618,7 @@ Generic function-value instances are pruned only when bounded immutable-source a
 Not built yet:
 
 - Streamed request and response bodies, HTTP/2 and WebSocket for `pts:http`.
-- Platforms other than x86-64 and arm64 Linux (macOS is H36). On arm64, publishing new objects and module-scope bindings to other threads still relies on x86's store order (D-130), which arm doesn't give, so a program that races can crash there: H35b adds the ordering (C356, C357).
+- Platforms other than x86-64 and arm64 Linux (macOS is H36).
 - npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
 Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):

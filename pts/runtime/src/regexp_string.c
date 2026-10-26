@@ -91,6 +91,7 @@ pts_value pts_string_match(pts_string *subject, pts_value pattern) {
     pts_array_push(matches, &text, 1);
   }
   pts_regexp_set_last_index(regexp, 0);
+  pts_publish();
   return pts_array_length_of(matches) == 0 ? PTS_VALUE_NULL : pts_value_from_object(matches);
 }
 
@@ -212,7 +213,9 @@ static pts_array *split_regexp(pts_string *subject, pts_regexp *regexp, double l
 
 pts_array *pts_string_split_value(pts_string *subject, pts_value separator, pts_value limit) {
   if (pts_is_regexp(separator)) {
-    return split_regexp(subject, (pts_regexp *)pts_value_as_object(separator), split_limit(limit));
+    pts_array *pieces = split_regexp(subject, (pts_regexp *)pts_value_as_object(separator), split_limit(limit));
+    pts_publish();
+    return pieces;
   }
   if (separator == PTS_VALUE_UNDEFINED) {
     return pts_array_of(&pts_array_types[PTS_FIELD_STRING], &subject, split_limit(limit) == 0 ? 0 : 1);

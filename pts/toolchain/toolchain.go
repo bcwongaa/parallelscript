@@ -36,6 +36,11 @@ const (
 	// threads (run them with GC_DONT_GC=1): bdwgc stops the world with signals, which fail
 	// under TSan (D-122).
 	ThreadSanitize
+	// PublicationCheck builds them with the publication checker (H35b,
+	// pts/runtime/src/publication_check.c): clang reports every store to it, and the link
+	// sends the runtime's allocations through it, so a program ends with a report where a
+	// thread makes a new object reachable by other threads before a store-store barrier.
+	PublicationCheck
 )
 
 func (p Profile) String() string {
@@ -44,8 +49,26 @@ func (p Profile) String() string {
 		return "sanitize"
 	case ThreadSanitize:
 		return "tsan"
+	case PublicationCheck:
+		return "publication"
 	}
 	return "release"
+}
+
+// BuildProfileVar names the profile that builds of programs (pts build, pts run, the tests'
+// builds) use instead of Release, so that a whole test run goes through a checker:
+// PTS_BUILD_PROFILE=publication runs every program under the publication checker.
+const BuildProfileVar = "PTS_BUILD_PROFILE"
+
+// BuildProfile is the profile that $PTS_BUILD_PROFILE names, Release if it is unset.
+func BuildProfile() (Profile, error) {
+	name := os.Getenv(BuildProfileVar)
+	for _, p := range []Profile{Release, Sanitize, ThreadSanitize, PublicationCheck} {
+		if name == "" || name == p.String() {
+			return p, nil
+		}
+	}
+	return Release, fmt.Errorf("%s=%q: want release, sanitize, tsan or publication", BuildProfileVar, name)
 }
 
 // flags compile the runtime and programs. -ffp-contract=off keeps clang from fusing
@@ -59,8 +82,36 @@ func (p Profile) flags() []string {
 		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-math-errno", "-fno-omit-frame-pointer", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"}
 	case ThreadSanitize:
 		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-math-errno", "-fno-omit-frame-pointer", "-fsanitize=thread"}
+	case PublicationCheck:
+		// clang 18 calls __sanitizer_cov_store<N> for trace-stores only with a coverage
+		// type such as func, which adds no callbacks of its own. Without memset and memcpy
+		// as builtins, clang doesn't merge a literal's stores of zeros or copies into one
+		// that the checker can't see, which would make a later store look like a fill.
+		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-math-errno", "-fno-omit-frame-pointer", "-fno-builtin-memset", "-fno-builtin-memcpy",
+			"-fsanitize-coverage=func,trace-stores", "-DPTS_PUBLICATION_CHECK"}
 	}
 	return []string{"-O2", "-g", "-ffp-contract=off", "-fno-math-errno", "-falign-functions=32"}
+}
+
+// publicationWraps are the functions the publication checker wraps: the bdwgc functions
+// that the runtime allocates and frees with (GC_MALLOC, GC_MALLOC_ATOMIC, GC_GCJ_MALLOC,
+// GC_MALLOC_UNCOLLECTABLE, GC_REALLOC and GC_FREE, without GC_DEBUG), and the pthread
+// locks that order what the runtime publishes under them.
+var publicationWraps = []string{
+	"GC_malloc", "GC_malloc_atomic", "GC_gcj_malloc", "GC_malloc_uncollectable", "GC_realloc", "GC_free",
+	"pthread_mutex_lock", "pthread_mutex_trylock", "pthread_mutex_unlock", "pthread_once",
+}
+
+// linkFlags link programs: for PublicationCheck, its wraps.
+func (p Profile) linkFlags() []string {
+	if p != PublicationCheck {
+		return nil
+	}
+	flags := make([]string, len(publicationWraps))
+	for i, name := range publicationWraps {
+		flags[i] = "-Wl,--wrap=" + name
+	}
+	return flags
 }
 
 // Toolchain compiles C against the ParallelScript runtime.
@@ -146,7 +197,7 @@ func (t *Toolchain) CompileProgram(ctx context.Context, rt *Runtime, cFiles []st
 	for _, dir := range rt.IncludeDirs {
 		args = append(args, "-I", dir)
 	}
-	args = slices.Concat(args, cFiles, rt.Archives, systemLibraries)
+	args = slices.Concat(args, cFiles, rt.Archives, systemLibraries, rt.Profile.linkFlags())
 	return t.run(ctx, t.CC, args...)
 }
 

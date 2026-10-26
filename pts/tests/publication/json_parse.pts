@@ -1,0 +1,24 @@
+// What JSON.parse makes (hash-map objects, arrays, strings, numbers), held as `any` and as
+// a typed copy, published into module-scope bindings a task on another loop reads (H35b).
+// threads: 1 2 4
+type Config = { name: string; sizes: number[]; nested: { on: boolean } };
+
+let parsed: any = null;
+let typed: Config | null = null;
+
+function build(): void {
+  const text = '{"name":"cfg","sizes":[1,2,3],"nested":{"on":true},"extra":"x"}';
+  parsed = JSON.parse(text);
+  typed = JSON.parse(text) as Config;
+}
+
+function describe(): string {
+  const t = typed;
+  return `${parsed.name} ${parsed.sizes.length} ${parsed.extra} ${t === null ? "none" : `${t.name} ${t.sizes[2]} ${t.nested.on}`}`;
+}
+
+build();
+console.log(await parallel describe());
+
+// expect:
+// cfg 3 x cfg 3 true

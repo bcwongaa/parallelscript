@@ -1,0 +1,31 @@
+// What async functions and promises make: an object made after an await, a promise held
+// in a module-scope binding that a task on another loop awaits, and Promise.all's array
+// (H35b).
+// threads: 1 2 4
+type Result = { value: number; note: string };
+
+let made: Result | null = null;
+let pending: Promise<Result> | null = null;
+
+async function slowDouble(n: number): Promise<Result> {
+  await Promise.resolve();
+  return { value: n * 2, note: `doubled ${n}` };
+}
+
+async function build(): Promise<void> {
+  made = await slowDouble(4);
+  pending = Promise.resolve({ value: 7, note: "resolved" });
+}
+
+async function describe(): Promise<string> {
+  const m = made;
+  const p = pending;
+  const all = await Promise.all([slowDouble(1), slowDouble(2)]);
+  return `${m === null ? "none" : m.note} ${p === null ? "none" : (await p).value} ${all.map((r) => r.value).join(",")}`;
+}
+
+await build();
+console.log(await parallel describe());
+
+// expect:
+// doubled 4 7 2,4

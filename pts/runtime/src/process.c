@@ -60,6 +60,7 @@ pts_array *pts_process_argv(void) {
     pts_string *argument = pts_string_from_utf8_lossy(program_argv[i], strlen(program_argv[i]));
     pts_array_push(argv, &argument, 1);
   }
+  pts_publish();
   return argv;
 }
 
@@ -69,6 +70,7 @@ pts_array *pts_process_environ(void) {
     pts_string *string = pts_string_from_utf8_lossy(*entry, strlen(*entry));
     pts_array_push(entries, &string, 1);
   }
+  pts_publish();
   return entries;
 }
 

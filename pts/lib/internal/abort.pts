@@ -313,7 +313,7 @@ export class AbortSignal extends EventTarget {
     }
 
     get reason(): any {
-        return this.#reason;
+        return this.#reasonUnderLock();
     }
 
     get onabort(): EventListener | null {
@@ -330,8 +330,19 @@ export class AbortSignal extends EventTarget {
 
     throwIfAborted(): void {
         if (this.aborted) {
-            throw this.#reason;
+            throw this.#reasonUnderLock();
         }
+    }
+
+    // The reason, read under the lock #settle stores it under: a thread that saw the signal
+    // aborted without the lock then sees the reason stored before aborted, which aarch64 may
+    // otherwise show it after aborted (D-226).
+    #reasonUnderLock(): any {
+        const lock = lockOf(this);
+        pts_sync_lock(lock);
+        const reason = this.#reason;
+        pts_sync_unlock(lock);
+        return reason;
     }
 
     // A signal aborted already, with reason (an AbortError DOMException if none is given).
@@ -413,7 +424,7 @@ export class AbortSignal extends EventTarget {
             pts_sync_unlock(lock);
             return null;
         }
-        signal.#reason = reason; // before aborted, which threads read without the lock
+        signal.#reason = reason; // before aborted, which threads read without the lock (then the reason with it, #reasonUnderLock)
         try {
             (signal as { aborted: boolean }).aborted = true;
         } catch (error) {

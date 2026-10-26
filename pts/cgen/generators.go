@@ -157,6 +157,7 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 	if f.Prologue > 0 {
 		e.parameterPrologue(f, frame)
 	}
+	e.line(1, "pts_publish();") // the frame's parameters, before the generator object or the body can publish it
 	switch {
 	case f.Async:
 		e.line(1, "return pts_async_start(&pts_frame->header);") // runs the body until its first await (D-112)

@@ -146,6 +146,7 @@ static pts_string *convert_ascii(pts_string *string, case_direction direction) {
   }
   result->flags = PTS_STRING_ASCII;
   result->utf16_len = string->utf16_len;
+  pts_publish();
   return result;
 }
 
@@ -156,6 +157,7 @@ static pts_string *convert_case(pts_string *string, case_direction direction) {
   pts_string *result = pts_string_alloc(map_string(string, direction, NULL));
   map_string(string, direction, result->bytes);
   pts_string_measure(result);
+  pts_publish();
   return result;
 }
 

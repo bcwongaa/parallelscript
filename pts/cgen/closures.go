@@ -194,6 +194,7 @@ func (e *emitter) closureConstructor(f *ir.Func) {
 		field := e.captureField(f, local)
 		e.line(1, "closure->%s = %s;", field, field)
 	}
+	e.line(1, "pts_publish();")
 	e.line(1, "return &closure->closure;")
 	e.line(0, "}")
 }

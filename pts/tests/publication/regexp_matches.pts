@@ -1,0 +1,29 @@
+// RegExp objects and what matching makes (a match array with groups, match's and split's
+// arrays, replace's string), published into module-scope bindings a task on another loop
+// reads (H35b).
+// threads: 1 2 4
+let match: RegExpExecArray | null = null;
+let found: RegExpMatchArray | null = null;
+let pieces: string[] = [];
+let pattern = /x/;
+let replaced = "";
+
+function build(): void {
+  pattern = new RegExp("(\\d+)-(\\w+)", "g");
+  match = /(\d+)-(?<word>\w+)/.exec("id 12-ab end");
+  found = "a1b22c333".match(/\d+/g);
+  pieces = "a1b22c333".split(/\d+/);
+  replaced = "2024-10-26".replace(/(\d+)-(\d+)-(\d+)/, "$3/$2/$1");
+}
+
+function describe(): string {
+  const m = match;
+  const f = found;
+  return `${pattern.source} ${m === null ? "none" : `${m[0]} ${m[1]} ${m.groups?.word} ${m.index}`} ${f === null ? "none" : f.join(",")} ${pieces.join("|")} ${replaced}`;
+}
+
+build();
+console.log(await parallel describe());
+
+// expect:
+// (\d+)-(\w+) 12-ab 12 ab 3 1,22,333 a|b|c| 26/10/2024

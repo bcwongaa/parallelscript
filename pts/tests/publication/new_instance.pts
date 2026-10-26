@@ -1,0 +1,28 @@
+// `new C(...)` of a class whose constructor doesn't let `this` out, published by a store
+// into a field of an object a task on another loop reads (H35b).
+// threads: 1 2 4
+class Point {
+  readonly label: string;
+  constructor(
+    public x: number,
+    public y: number,
+  ) {
+    this.label = `(${x}, ${y})`;
+  }
+  sum(): number {
+    return this.x + this.y;
+  }
+}
+
+const holder: { point: Point | null } = { point: null };
+
+function describe(): string {
+  const p = holder.point;
+  return p === null ? "none" : `${p.label} ${p.sum()} ${p instanceof Point}`;
+}
+
+holder.point = new Point(3, 4);
+console.log(await parallel describe());
+
+// expect:
+// (3, 4) 7 true

@@ -469,6 +469,7 @@ static pts_value array_concat(pts_value self, uint32_t argc, const pts_value *ar
       push_any(result, hole ? PTS_VALUE_ABSENT : pts_spread_element(part, j));
     }
   }
+  pts_publish();
   return pts_value_from_object(result);
 }
 
@@ -625,6 +626,7 @@ static pts_value array_map(pts_value self, uint32_t argc, const pts_value *argv)
       pts_array_set(result, i, &mapped);
     }
   }
+  pts_publish();
   return pts_value_from_object(result);
 }
 
@@ -643,6 +645,7 @@ static pts_value array_filter(pts_value self, uint32_t argc, const pts_value *ar
       pts_array_push(result, &element, 1);
     }
   }
+  pts_publish();
   return pts_value_from_object(result);
 }
 
@@ -654,6 +657,7 @@ static pts_value array_flat_map(pts_value self, uint32_t argc, const pts_value *
       pts_array_push_flat(result, call_back(callback, self, i));
     }
   }
+  pts_publish();
   return pts_value_from_object(result);
 }
 
@@ -755,13 +759,22 @@ static pts_value copy_of(pts_value self) {
   return pts_value_from_object(holds_undefined(array) ? pts_array_copy_as_read(array) : pts_array_copy(array));
 }
 
-static pts_value array_to_sorted(pts_value self, uint32_t argc, const pts_value *argv) { return array_sort(copy_of(self), argc, argv); }
+static pts_value array_to_sorted(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value copy = array_sort(copy_of(self), argc, argv);
+  pts_publish();
+  return copy;
+}
 
-static pts_value array_to_reversed(pts_value self, uint32_t argc, const pts_value *argv) { return array_reverse(copy_of(self), argc, argv); }
+static pts_value array_to_reversed(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value copy = array_reverse(copy_of(self), argc, argv);
+  pts_publish();
+  return copy;
+}
 
 static pts_value array_to_spliced(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_value copy = copy_of(self);
   array_splice(copy, argc, argv);
+  pts_publish();
   return copy;
 }
 
@@ -891,6 +904,7 @@ static pts_value function_bind(pts_value self, uint32_t argc, const pts_value *a
     pts_panic("RangeError", "Out of memory binding a function");
   }
   memcpy(bound->args, argv + (argc > 0), bound->count * sizeof(pts_value));
+  pts_publish();
   return pts_value_from_object(bound); /* no code and no signature: typed code gets it through an adapter (D-075) */
 }
 
@@ -1222,6 +1236,7 @@ static pts_array *own_keys(pts_value value) {
     while (pts_map_next(&entries)) {
       pts_array_push(keys, &entries.key, 1);
     }
+    pts_publish();
     return keys;
   }
   case PTS_KIND_STRING:
@@ -1243,6 +1258,7 @@ static pts_array *own_keys(pts_value value) {
         pts_array_push(keys, &name, 1);
       }
     }
+    pts_publish();
     return keys;
   }
   case PTS_KIND_OBJECT:
@@ -1262,6 +1278,7 @@ static pts_array *own_keys(pts_value value) {
     pts_string *name = pts_string_from_cstr(field->name);
     pts_array_push(keys, &name, 1);
   }
+  pts_publish();
   return keys;
 }
 
@@ -1282,6 +1299,7 @@ pts_value pts_value_entries(pts_value value) {
     pts_value pair[] = {key, pts_dynamic_get(value, key)};
     push_any(entries, pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2)));
   }
+  pts_publish();
   return pts_value_from_object(entries);
 }
 
@@ -1416,6 +1434,7 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
         pts_value pair[] = {key, pts_value_of_slot(map->type->element, &entries.value)};
         push_any(items, pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2)));
       }
+      pts_publish();
       return pts_value_from_object(items);
     }
     case PTS_KIND_GENERATOR:
@@ -1442,6 +1461,7 @@ pts_array *pts_value_to_array(pts_value value, const pts_string *text) {
   for (size_t i = 0; i < n; i++) {
     slots[i] = pts_spread_element(items, i);
   }
+  pts_publish();
   return array;
 }
 

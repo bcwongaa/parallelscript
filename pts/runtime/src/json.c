@@ -437,6 +437,7 @@ pts_value pts_json_parse(const pts_string *text) {
   if (p.at < p.length) {
     fail_at(&p, "Unexpected non-whitespace character after JSON", p.at);
   }
+  pts_publish(); /* the arrays and objects filled after they were made */
   return value;
 }
 

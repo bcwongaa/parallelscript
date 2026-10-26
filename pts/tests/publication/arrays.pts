@@ -1,0 +1,29 @@
+// Arrays made by a literal, by pushes into a new array, by map and by Array.from, of
+// numbers, strings and objects, published into a module-scope binding a task on another
+// loop reads (H35b): their buffers and elements must reach other threads first.
+// threads: 1 2 4
+type Item = { n: number };
+
+let numbers: number[] = [];
+let words: string[] = [];
+let items: Item[] = [];
+let squares: number[] = [];
+
+function build(): void {
+  numbers = [1, 2, 3];
+  const pushed: string[] = [];
+  for (let i = 0; i < 20; i++) pushed.push(`w${i}`);
+  words = pushed;
+  items = numbers.map((n) => ({ n: n * 10 }));
+  squares = Array.from({ length: 4 }, (_, i) => i * i);
+}
+
+function describe(): string {
+  return `${numbers.join(",")} ${words.length} ${words[19]} ${items.map((i) => i.n).join(",")} ${squares.join(",")}`;
+}
+
+build();
+console.log(await parallel describe());
+
+// expect:
+// 1,2,3 20 w19 10,20,30 0,1,4,9

@@ -87,6 +87,7 @@ static buffer *new_buffer(int64_t size) {
 static deque *new_deque(void) {
   deque *jobs = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *jobs));
   atomic_store(&jobs->array, new_buffer(INITIAL_DEQUE_SIZE));
+  PTS_PUBLICATION_RELEASE(&jobs->array, NULL);
   return jobs;
 }
 
@@ -97,6 +98,7 @@ static buffer *grow(deque *jobs, buffer *old, int64_t top, int64_t bottom) {
     atomic_store_explicit(&array->slots[i & array->mask], atomic_load_explicit(&old->slots[i & old->mask], memory_order_relaxed), memory_order_relaxed);
   }
   atomic_store_explicit(&jobs->array, array, memory_order_release);
+  PTS_PUBLICATION_RELEASE(&jobs->array, NULL);
   return array;
 }
 

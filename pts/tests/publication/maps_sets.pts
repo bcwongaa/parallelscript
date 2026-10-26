@@ -1,0 +1,30 @@
+// Maps and sets made from entries and by sets into new ones, and a Record, published into
+// module-scope bindings a task on another loop reads (H35b): their tables and entries must
+// reach other threads first.
+// threads: 1 2 4
+let byName = new Map<string, number>();
+let seen = new Set<string>();
+let counts: Record<string, number> = {};
+
+function build(): void {
+  const m = new Map<string, number>([
+    ["one", 1],
+    ["two", 2],
+  ]);
+  for (let i = 3; i < 12; i++) m.set(`k${i}`, i);
+  byName = m;
+  seen = new Set(["a", "b", "a", "c"]);
+  const r: Record<string, number> = {};
+  for (const w of ["x", "y", "x"]) r[w] = (r[w] ?? 0) + 1;
+  counts = r;
+}
+
+function describe(): string {
+  return `${byName.size} ${byName.get("two")} ${byName.get("k11")} ${[...seen].join("")} ${counts["x"]}${counts["y"]}`;
+}
+
+build();
+console.log(await parallel describe());
+
+// expect:
+// 11 2 11 abc 21

@@ -308,6 +308,7 @@ static pts_value bind_method(pts_object *object, const pts_method *method) {
   bound_method *bound = pts_object_new(bound_method_type(method));
   bound->self = object;
   bound->method = method;
+  pts_publish();
   return pts_value_from_object(bound); /* no code: typed code gets it only through an adapter, its signature being NULL */
 }
 

@@ -60,6 +60,7 @@ static pts_arraybuffer *new_buffer(size_t byte_length) {
   memset(buffer, 0, sizeof(pts_arraybuffer) + byte_length);
   buffer->type = &pts_type_builtin_ArrayBuffer;
   buffer->byte_length = byte_length;
+  PTS_PUBLICATION_SLOTS(buffer);
   return buffer;
 }
 
@@ -69,6 +70,7 @@ static pts_typed_array *new_view(const pts_type *type, pts_arraybuffer *buffer, 
   array->data = buffer->bytes + byte_offset;
   array->length = length;
   array->byte_offset = byte_offset;
+  pts_publish();
   return array;
 }
 
@@ -82,7 +84,9 @@ pts_arraybuffer *pts_arraybuffer_new(double length) {
   if (n < 0 || n > MAX_BYTE_LENGTH) {
     pts_throw_new(&pts_type_builtin_RangeError, "Invalid array buffer length");
   }
-  return new_buffer((size_t)n);
+  pts_arraybuffer *buffer = new_buffer((size_t)n);
+  pts_publish();
+  return buffer;
 }
 
 pts_arraybuffer *pts_arraybuffer_slice(const pts_arraybuffer *buffer, double start, double end) {
@@ -91,6 +95,7 @@ pts_arraybuffer *pts_arraybuffer_slice(const pts_arraybuffer *buffer, double sta
   size_t count = to > from ? to - from : 0;
   pts_arraybuffer *copy = new_buffer(count);
   pts_copy_shared(copy->bytes, buffer->bytes + from, count, 1);
+  pts_publish();
   return copy;
 }
 
@@ -157,6 +162,7 @@ pts_typed_array *pts_typed_array_from_array(const pts_type *type, const pts_arra
   for (size_t i = 0; i < length; i++) {
     pts_typed_array_store(array, i, array_number(source, i));
   }
+  pts_publish();
   return array;
 }
 
@@ -164,11 +170,13 @@ pts_typed_array *pts_typed_array_from_typed(const pts_type *type, const pts_type
   pts_typed_array *array = new_typed_array(type, source->length);
   if (type->element == source->type->element && type != &pts_type_builtin_Uint8ClampedArray) {
     pts_copy_shared(array->data, source->data, source->length * element_size(source), element_size(source));
+    pts_publish();
     return array;
   }
   for (size_t i = 0; i < source->length; i++) {
     pts_typed_array_store(array, i, pts_typed_array_as_number(source, i));
   }
+  pts_publish();
   return array;
 }
 
@@ -218,6 +226,7 @@ pts_typed_array *pts_typed_array_slice(const pts_typed_array *array, double star
   size_t length = to > from ? to - from : 0;
   pts_typed_array *copy = new_typed_array(array->type, length);
   pts_copy_shared(copy->data, array->data + from * element_size(array), length * element_size(array), element_size(array));
+  pts_publish();
   return copy;
 }
 
@@ -256,7 +265,9 @@ pts_typed_array *pts_typed_array_reverse(pts_typed_array *array) {
 }
 
 pts_typed_array *pts_typed_array_to_reversed(const pts_typed_array *array) {
-  return pts_typed_array_reverse(pts_typed_array_slice(array, 0, INFINITY));
+  pts_typed_array *copy = pts_typed_array_reverse(pts_typed_array_slice(array, 0, INFINITY));
+  pts_publish();
+  return copy;
 }
 
 /* Comparators for sort: ascending, -0 before +0, NaN last (TypedArray's default order). */
@@ -328,7 +339,9 @@ pts_typed_array *pts_typed_array_sort(pts_typed_array *array) {
 }
 
 pts_typed_array *pts_typed_array_to_sorted(const pts_typed_array *array) {
-  return pts_typed_array_sort(pts_typed_array_slice(array, 0, INFINITY));
+  pts_typed_array *copy = pts_typed_array_sort(pts_typed_array_slice(array, 0, INFINITY));
+  pts_publish();
+  return copy;
 }
 
 pts_typed_array *pts_typed_array_with(const pts_typed_array *array, double index, double value) {
@@ -341,6 +354,7 @@ pts_typed_array *pts_typed_array_with(const pts_typed_array *array, double index
   }
   pts_typed_array *copy = pts_typed_array_slice(array, 0, INFINITY);
   pts_typed_array_store(copy, (size_t)i, value);
+  pts_publish();
   return copy;
 }
 

@@ -81,7 +81,9 @@ static pts_string *appended(const pts_string *left, const pts_string *right) {
     return NULL;
   }
   memcpy(buffer->data + left->byte_len, right->bytes, right->byte_len); /* right may be in this buffer, but before `end` */
-  return buffered_string(buffer, byte_len, left->utf16_len + right->utf16_len, joined_flags(left, right));
+  pts_string *string = buffered_string(buffer, byte_len, left->utf16_len + right->utf16_len, joined_flags(left, right));
+  pts_publish();
+  return string;
 }
 
 /* Whether the 8 bytes at bytes are all ASCII. */
@@ -125,6 +127,7 @@ pts_string *pts_string_from_utf8(const char *bytes, size_t len) {
     memcpy(string->bytes, bytes, len);
   }
   pts_string_measure(string);
+  pts_publish();
   return string;
 }
 
@@ -135,6 +138,7 @@ pts_string *pts_string_from_ascii(const char *bytes, size_t len) {
   }
   string->flags = PTS_STRING_ASCII;
   string->utf16_len = (uint32_t)len;
+  pts_publish();
   return string;
 }
 
@@ -200,6 +204,7 @@ pts_string *pts_string_from_utf8_lossy(const char *bytes, size_t len) {
     }
     string->flags = utf16_len == len ? PTS_STRING_ASCII : PTS_STRING_WELL_FORMED;
     string->utf16_len = (uint32_t)utf16_len;
+    pts_publish();
     return string;
   }
   /* Each maximal invalid subpart (at least one byte) becomes the 3 bytes of U+FFFD. */
@@ -296,6 +301,7 @@ pts_string *pts_string_concat(pts_string *left, pts_string *right) {
   memcpy(out, right->bytes + right_skip, right->byte_len - right_skip);
   string->flags = joined_flags(left, right) | buffered;
   string->utf16_len = left->utf16_len + right->utf16_len;
+  pts_publish();
   return string;
 }
 

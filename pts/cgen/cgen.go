@@ -20,7 +20,7 @@ import (
 // A panic is a bug in the compiler: it becomes a panic with a *diagnostic.InternalError
 // at the source line of the IR being written.
 func Emit(program *ir.Program) string {
-	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, copiedSpreads: map[*ir.SpreadArg]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, copiedSpreads: map[*ir.SpreadArg]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{}, staticValues: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
 		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}, keyedFuncTypes: map[*ir.FuncType]bool{}}
@@ -28,6 +28,7 @@ func Emit(program *ir.Program) string {
 		return diagnostic.Diagnostic{File: e.source.File, Line: e.source.Line}, nil
 	})
 	e.nameClasses(program)
+	e.constructors = constructorsOf(program)
 	e.externFunctions(program)
 	e.collectClosures(program)
 	e.collectComparators(program)
@@ -72,6 +73,7 @@ type emitter struct {
 	comparatorOrder  []ir.Type
 	captureFields    map[*ir.Local][]captureField // the members of closure structs that hold each captured local
 	globals          map[*ir.Local]string         // module-scope bindings that other functions use, by C name
+	staticValues     map[*ir.Local]string         // the literals that globals hold from the program's start (constantValue)
 	globalOrder      []*ir.Local
 	globalOwners     map[*ir.Local]*ir.Func // the top-level code that declares each global
 	initOrder        map[*ir.Func]int       // each module's top-level code: its place in the order modules run
@@ -81,16 +83,20 @@ type emitter struct {
 	// a use that sees an unset field as undefined, which needs no check.
 	receiverMembers map[ir.Expr]string
 	unsetAllowed    map[ir.Expr]bool
-	copiedSpreads   map[*ir.SpreadArg]bool // spread arrays copied at their place (copyChangedSpreads)
-	locals          map[*ir.Local]string
-	usedNames       map[string]bool
-	nextSuffix      map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
-	temporaries     int            // pts_tmpN locals made so far in the function
-	sites           int            // pts_siteN caches made so far in the function (fieldRef)
-	labels          map[*ir.Label]string
-	usedLabels      map[string]bool
-	gotoTargets     map[string]bool // C labels some goto jumps to, so only those are written
-	loops           []*ir.Label     // the C loops around the current statement, innermost last
+	// escapingThis are the reads of `this` in the current function, if it is a
+	// constructor, that let the instance leave it (thisEscapes).
+	escapingThis  map[*ir.LocalRef]bool
+	constructors  map[*ir.Func]bool      // every class's constructor
+	copiedSpreads map[*ir.SpreadArg]bool // spread arrays copied at their place (copyChangedSpreads)
+	locals        map[*ir.Local]string
+	usedNames     map[string]bool
+	nextSuffix    map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
+	temporaries   int            // pts_tmpN locals made so far in the function
+	sites         int            // pts_siteN caches made so far in the function (fieldRef)
+	labels        map[*ir.Label]string
+	usedLabels    map[string]bool
+	gotoTargets   map[string]bool // C labels some goto jumps to, so only those are written
+	loops         []*ir.Label     // the C loops around the current statement, innermost last
 	// tries are the handlers of the try blocks around the current statement, innermost
 	// last; labelTries is how many there were where each label's statement is, so a jump
 	// to it leaves those inside it (D-068).
@@ -152,7 +158,11 @@ func (e *emitter) header(program *ir.Program) {
 	e.closureStructs()
 	e.frameStructs(program)
 	for _, global := range e.globalOrder {
-		e.line(0, "static %s%s;", e.declarator(global.Type), e.globals[global])
+		if value, ok := e.staticValues[global]; ok {
+			e.line(0, "static %s%s = %s; /* from the start, so other threads never see it unset */", e.declarator(global.Type), e.globals[global], value)
+		} else {
+			e.line(0, "static %s%s;", e.declarator(global.Type), e.globals[global])
+		}
 		e.line(0, "static bool %s_ready; /* its declaration has run */", e.globals[global])
 	}
 	if len(e.globalOrder) > 0 {
@@ -356,6 +366,9 @@ func (e *emitter) collectGlobals(program *ir.Program) {
 				e.globals[decl.Local] = uniqueGlobal(used, "pts_global_"+modulePrefix(module)+qualifiedIdentifier(decl.Local.Name))
 				e.globalOrder = append(e.globalOrder, decl.Local)
 				e.globalOwners[decl.Local] = module.Init
+				if value, ok := e.constantValue(decl.Init); ok {
+					e.staticValues[decl.Local] = value
+				}
 			}
 		}, func(ir.Expr) {})
 	}
@@ -417,6 +430,10 @@ func (e *emitter) startFunction(f *ir.Func) {
 	e.labelTries = map[*ir.Label]int{}
 	e.handlers = 0
 	e.volatile = volatileLocals(f)
+	e.escapingThis = nil
+	if e.constructors[f] {
+		e.escapingThis = thisEscapes(f, e.constructors)
+	}
 }
 
 func endsWithReturn(stmts []ir.Stmt) bool {
@@ -465,13 +482,13 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 		}
 		if name, ok := e.globals[s.Local]; ok {
 			e.line(depth, "%s = %s;", name, init)
-			e.line(depth, "%s_ready = true;", name)
+			e.line(depth, "PTS_SET_READY(%s_ready);", name)
 			return
 		}
 		if s.Local.Cell {
 			e.line(depth, "*%s = %s;", e.locals[s.Local], init) // its block made the cell
 			if s.Local.Early {
-				e.line(depth, "PTS_CELL_READY(%s) = true;", e.locals[s.Local])
+				e.line(depth, "PTS_SET_READY(PTS_CELL_READY(%s));", e.locals[s.Local])
 			}
 			return
 		}
@@ -839,6 +856,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 		if check := e.readyCheck(x.Local); check != "" {
 			return "(" + check + ", " + e.local(x.Local) + ")"
 		}
+		if e.escapingThis[x] {
+			return "(pts_publish(), " + e.local(x.Local) + ")" // what the constructor stored so far, before the instance leaves (D-226)
+		}
 		return e.local(x.Local)
 	case *ir.Assign:
 		if x.Postfix {
@@ -991,7 +1011,7 @@ func (e *emitter) local(local *ir.Local) string {
 	if local.Early && e.current != nil && slices.Contains(e.current.Captures, local) {
 		cell := e.locals[local]
 		name, _, _ := strings.Cut(local.Name, ".")
-		return fmt.Sprintf("(*(pts_check_ready(PTS_CELL_READY(%s), %s), %s))", cell, cString(name), cell)
+		return fmt.Sprintf("(*(pts_check_ready(PTS_READY(PTS_CELL_READY(%s)), %s), %s))", cell, cString(name), cell)
 	}
 	if local.Cell {
 		return "(*" + e.locals[local] + ")"
@@ -999,10 +1019,23 @@ func (e *emitter) local(local *ir.Local) string {
 	return e.locals[local]
 }
 
+// constantValue is the C constant expression of init, a literal, which a global it
+// initialises can hold from the program's start (staticValues).
+func (e *emitter) constantValue(init ir.Expr) (string, bool) {
+	switch x := init.(type) {
+	case *ir.NumberConst, *ir.BoolConst, *ir.IntConst, *ir.UndefinedConst, *ir.NullConst:
+		return e.expr(x), true
+	case *ir.StringConst:
+		return "(pts_string *)&" + e.strings[x.Value] + "_storage", true
+	}
+	return "", false
+}
+
 // readyCheck is the check that a global's declaration has run, or "" where it surely
 // has: in its own module's top-level code (tsc rejects uses above the declaration) and
 // in the top-level code of a module that runs later. Functions may run at any time, and in
-// an import cycle a module may run before a module it imports.
+// an import cycle a module may run before a module it imports. A global that holds its
+// value from the start (staticValues) needs no ordering of its value after its flag.
 func (e *emitter) readyCheck(local *ir.Local) string {
 	if !local.Global {
 		return ""
@@ -1012,7 +1045,10 @@ func (e *emitter) readyCheck(local *ir.Local) string {
 		return ""
 	}
 	name, _, _ := strings.Cut(local.Name, ".") // a static field "C.f" is unready because its class is, which JS reports
-	return fmt.Sprintf("pts_check_ready(%s_ready, %s)", e.globals[local], cString(name))
+	if _, ok := e.staticValues[local]; ok {
+		return fmt.Sprintf("pts_check_ready(PTS_READY_FLAG(%s_ready), %s)", e.globals[local], cString(name))
+	}
+	return fmt.Sprintf("pts_check_ready(PTS_READY(%s_ready), %s)", e.globals[local], cString(name))
 }
 
 // effect writes an expression evaluated only for its effects (a statement or a for

@@ -1,0 +1,22 @@
+// Closures, one capturing values and one a variable that changes after it is captured (a
+// heap cell), published into a module-scope binding a task on another loop calls (H35b):
+// a closure's code and captures must reach other threads before the closure does.
+// threads: 1 2 4
+let shared: (() => string) | null = null;
+
+function makeCounter(start: number, label: string): () => string {
+  let count = start;
+  const bump = (): number => ++count;
+  return () => `${label} ${bump()} ${count}`;
+}
+
+function call(): string {
+  const f = shared;
+  return f === null ? "none" : f();
+}
+
+shared = makeCounter(5, "count");
+console.log(await parallel call());
+
+// expect:
+// count 6 6

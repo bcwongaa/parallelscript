@@ -193,6 +193,7 @@ func (e *emitter) adapterDefinition(ft *ir.FuncType) {
 	e.line(1, "pts_adapter *adapter = pts_object_new(&pts_type_adapter_%s);", suffix)
 	e.line(1, "adapter->closure.code = (pts_function)pts_adapter_%s;", suffix)
 	e.line(1, "adapter->function = function;")
+	e.line(1, "pts_publish();")
 	e.line(1, "return &adapter->closure;")
 	e.line(0, "}")
 }

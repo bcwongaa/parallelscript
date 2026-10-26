@@ -1,0 +1,49 @@
+// A subclass's instance, whose fields its parent's constructor and its own set, with a
+// virtual method, published into an array element another loop reads (H35b).
+// threads: 1 2 4
+abstract class Shape {
+  readonly kind: string;
+  constructor(kind: string) {
+    this.kind = kind;
+  }
+  abstract area(): number;
+  describe(): string {
+    return `${this.kind} ${this.area()}`;
+  }
+}
+
+class Rectangle extends Shape {
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {
+    super("rectangle");
+  }
+  area(): number {
+    return this.width * this.height;
+  }
+}
+
+class Square extends Rectangle {
+  readonly side: number;
+  constructor(side: number) {
+    super(side, side);
+    this.side = side;
+  }
+  describe(): string {
+    return `square of ${this.side}: ${super.describe()}`;
+  }
+}
+
+const shapes: Shape[] = [];
+
+function describeAll(): string {
+  return shapes.map((s) => s.describe()).join("; ");
+}
+
+shapes.push(new Rectangle(2, 3));
+shapes.push(new Square(4));
+console.log(await parallel describeAll());
+
+// expect:
+// rectangle 6; square of 4: rectangle 16

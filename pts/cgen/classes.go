@@ -552,7 +552,8 @@ func shapeDescriptorName(shape string, order int) string {
 }
 
 // newObject writes an object literal: a zeroed object of its shape, then each
-// property's value stored in the literal's order.
+// property's value stored in the literal's order, then the barrier that publishes them
+// (pts_publish).
 func (e *emitter) newObject(n *ir.NewObject) string {
 	object := e.temporary()
 	var c strings.Builder
@@ -567,7 +568,7 @@ func (e *emitter) newObject(n *ir.NewObject) string {
 	default:
 		fmt.Fprintf(&c, "pts_object_take_order((pts_object *)%s, (const pts_object *)(%s), pts_orders_%s, %d); ", object, e.expr(n.OrderOf), e.classNames[n.Shape], len(n.Shape.Orders))
 	}
-	fmt.Fprintf(&c, "%s; })", object)
+	fmt.Fprintf(&c, "pts_publish(); %s; })", object)
 	return c.String()
 }
 
@@ -715,7 +716,55 @@ func isObject(t ir.Type) bool {
 	return false
 }
 
-// newInstance writes `new C(args)`: the arguments, then a zeroed instance, then the constructor.
+// constructorsOf is the set of the program's classes' constructors.
+func constructorsOf(program *ir.Program) map[*ir.Func]bool {
+	constructors := map[*ir.Func]bool{}
+	for _, class := range program.Classes {
+		if class.Constructor != nil {
+			constructors[class.Constructor] = true
+		}
+	}
+	return constructors
+}
+
+// thisEscapes finds the reads of `this` in a constructor, f, that let the instance leave
+// it before its construction ends: as an argument (a method's receiver too), a stored or
+// returned value, an operand, anything but the object of a plain field's read or write
+// or the instance its parent's constructor (super(...)) is given, whose escapes are its
+// own. Each publishes the instance's stores so far (pts_publish), so a thread that loads
+// it through what it is passed to sees them, as on x86-64 (D-226). A closure that
+// captures `this` publishes them as it is made (closureConstructor).
+func thisEscapes(f *ir.Func, constructors map[*ir.Func]bool) map[*ir.LocalRef]bool {
+	this := f.Params[0]
+	reads, plain := map[*ir.LocalRef]bool{}, map[ir.Expr]bool{}
+	ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+		switch x := x.(type) {
+		case *ir.LocalRef:
+			if x.Local == this {
+				reads[x] = true
+			}
+		case *ir.FieldRef:
+			plain[x.X] = plain[x.X] || !x.Field.Accessor
+		case *ir.SetField:
+			plain[x.X] = plain[x.X] || !x.Field.Accessor
+		case *ir.Call:
+			if constructors[x.Func] && len(x.Args) > 0 {
+				if cast, ok := x.Args[0].(*ir.ClassCast); ok { // parentConstructorCall's
+					plain[cast.X] = true
+				}
+			}
+		}
+	})
+	for read := range reads {
+		if plain[read] {
+			delete(reads, read)
+		}
+	}
+	return reads
+}
+
+// newInstance writes `new C(args)`: the arguments, then a zeroed instance, then the
+// constructor, then the barrier that publishes what it stored (pts_publish).
 func (e *emitter) newInstance(n *ir.New) string {
 	ready := ""
 	if n.Ready != nil {
@@ -725,7 +774,7 @@ func (e *emitter) newInstance(n *ir.New) string {
 	}
 	args, prelude := e.operands(n.Args)
 	instance := e.temporary()
-	return fmt.Sprintf("({ %s%s%s%s = pts_object_new(%s); %s(%s); %s; })",
+	return fmt.Sprintf("({ %s%s%s%s = pts_object_new(%s); %s(%s); pts_publish(); %s; })",
 		ready, prelude, e.declarator(n.Class), instance, e.descriptor(n.Class), e.funcNames[n.Class.Constructor], strings.Join(append([]string{instance}, args...), ", "), instance)
 }
 

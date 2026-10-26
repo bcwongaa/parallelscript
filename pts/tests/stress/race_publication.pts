@@ -1,0 +1,87 @@
+// Fresh objects published to other threads by one store (H35; D-130's known gap,
+// ARCHITECTURE §4.13 rule 6): a thread that loads a new object from a shared slot (a
+// field, an array element, a map entry's value, a captured variable) must see it whole,
+// its class (method calls, instanceof), fields, string and closure, never half built, which
+// the race-safety invariant promises (no garbage, no crash). x86-64 keeps stores in order by
+// itself; arm64 (a weakly ordered CPU) does only with barriers where objects are published,
+// so this is a litmus test for arm64 hardware. qemu-user on x86-64 can't show the reordering.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+const LABELS = ["zero", "one", "two", "three"];
+
+class Inner {
+  constructor(public n: number) {}
+}
+
+// Wider than a cache line, so that its fields' stores can reach other cores in any order.
+class Payload {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+  g: number;
+  h: number;
+  label: string;
+  inner: Inner;
+  twice: () => number;
+  constructor(n: number) {
+    this.a = n;
+    this.b = n + 1;
+    this.c = n + 2;
+    this.d = n + 3;
+    this.e = n + 4;
+    this.f = n + 5;
+    this.g = n + 6;
+    this.h = n + 7;
+    this.label = LABELS[n % 4];
+    this.inner = new Inner(n);
+    this.twice = () => 2 * n;
+  }
+  whole(): boolean {
+    const n = this.a;
+    return (
+      this.b === n + 1 && this.c === n + 2 && this.d === n + 3 && this.e === n + 4 && this.f === n + 5 && this.g === n + 6 &&
+      this.h === n + 7 && this.label === LABELS[n % 4] && this.inner.n === n && this.twice() === 2 * n
+    );
+  }
+}
+
+const ROUNDS = 400_000;
+const slot = { current: new Payload(0) };
+const elements: Payload[] = [new Payload(0)];
+const entries = new Map<number, Payload>([[0, new Payload(0)]]);
+let variable = new Payload(0);
+function setVariable(p: Payload): void {
+  variable = p;
+}
+function getVariable(): Payload {
+  return variable;
+}
+const bad = new AtomicInt();
+
+function check(p: Payload | undefined): void {
+  if (!(p instanceof Payload) || !p.whole()) bad.add(1);
+}
+
+parallel for (const i of range(0, ROUNDS)) {
+  if (i % 2 === 0) {
+    slot.current = new Payload(i);
+    elements[0] = new Payload(i);
+    entries.set(0, new Payload(i));
+    setVariable(new Payload(i));
+  } else {
+    check(slot.current);
+    check(elements[0]);
+    check(entries.get(0));
+    check(getVariable());
+  }
+}
+
+console.log("published objects whole:", bad.load() === 0);
+
+// expect:
+// published objects whole: true

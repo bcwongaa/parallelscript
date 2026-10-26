@@ -1,0 +1,27 @@
+// Tuples, and objects and arrays made by spreads, published into module-scope bindings a
+// task on another loop reads (H35b).
+// threads: 1 2 4
+type Base = { a: number; b: string };
+type Wide = { a: number; b: string; c: boolean };
+
+let pair: [number, string] = [0, ""];
+let wide: Wide = { a: 0, b: "", c: false };
+let joined: number[] = [];
+
+function build(n: number): void {
+  pair = [n, `p${n}`];
+  const base: Base = { a: n, b: "base" };
+  wide = { ...base, c: true };
+  const xs = [n, n + 1];
+  joined = [...xs, ...xs.map((x) => x * 10), 99];
+}
+
+function describe(): string {
+  return `${pair[0]} ${pair[1]} ${wide.a} ${wide.b} ${wide.c} ${joined.join(",")}`;
+}
+
+build(2);
+console.log(await parallel describe());
+
+// expect:
+// 2 p2 2 base true 2,3,20,30,99

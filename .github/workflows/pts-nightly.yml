@@ -49,3 +49,31 @@ jobs:
           restore-keys: pts-${{ runner.os }}-${{ runner.arch }}-
       - name: Stress tests
         run: PTS_STRESS_REPEAT=${{ inputs.repeat || '100' }} make test-stress
+
+  publication:
+    # Every run and stress program built with the publication checker (D-226): a program
+    # that makes a new object reachable by other threads before the store barrier that
+    # publishes its construction ends with a report. x86-64 keeps stores in order by
+    # itself, so this is how it tests the barriers arm64 needs.
+    name: Publication checker (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - run: git submodule update --init --depth 1 pts/third_party
+      - uses: ./.github/actions/setup-go
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+          clang --version
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/pts
+          key: pts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
+          restore-keys: pts-${{ runner.os }}-${{ runner.arch }}-
+      - name: Run and stress programs under the publication checker
+        run: PTS_BUILD_PROFILE=publication go test -count=1 -timeout 170m -run '^(TestRun|TestStress)$' ./pts/tests/

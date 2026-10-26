@@ -1,0 +1,23 @@
+// Strings made at run time (concatenation, which builds in an append buffer, a template,
+// slice, repeat, toUpperCase, String(number)) published into module-scope bindings a task
+// on another loop reads (H35b): a string's header and bytes must reach other threads first.
+// threads: 1 2 4
+let built = "";
+let parts: string[] = [];
+
+function build(n: number): void {
+  let s = "";
+  for (let i = 0; i < 50; i++) s += String.fromCharCode(97 + (i % 26));
+  built = s;
+  parts = [`n=${n}`, s.slice(3, 9), "ab".repeat(n), s.toUpperCase().slice(0, 4), String(n * 1.5), "é" + n];
+}
+
+function describe(): string {
+  return `${built.length} ${built.slice(24, 28)} ${parts.join("|")}`;
+}
+
+build(3);
+console.log(await parallel describe());
+
+// expect:
+// 50 yzab n=3|defghi|ababab|ABCD|4.5|é3

@@ -37,6 +37,7 @@ void pts_throw(pts_value exception) {
     handler->generator->state = PTS_GENERATOR_DONE;
     handler->generator->value = PTS_VALUE_UNDEFINED;
     __atomic_store_n(&handler->generator->executing, false, __ATOMIC_RELEASE);
+    PTS_PUBLICATION_RELEASE(&handler->generator->executing, NULL);
     handler = handler->prev;
   }
   if (handler == NULL) {
@@ -335,6 +336,7 @@ void pts_aggregate_error_init(pts_aggregate_error *error, pts_value errors, pts_
 pts_value pts_aggregate_error_new(pts_value errors, pts_string *message) {
   pts_aggregate_error *error = pts_object_new(&pts_type_builtin_AggregateError);
   pts_aggregate_error_init(error, errors, message, true, NULL, false);
+  pts_publish();
   return pts_value_from_object(error);
 }
 
@@ -346,6 +348,7 @@ pts_value pts_system_error_new(int error, pts_string *message, const char *sysca
   system_error->syscall = pts_value_from_string(pts_string_from_cstr(syscall));
   system_error->path = path != NULL && path->byte_len > 0 ? pts_value_from_string(path) : PTS_VALUE_ABSENT;
   system_error->dest = dest != NULL && dest->byte_len > 0 ? pts_value_from_string(dest) : PTS_VALUE_ABSENT;
+  pts_publish();
   return pts_value_from_object(system_error);
 }
 
@@ -353,6 +356,7 @@ pts_value pts_coded_error_new(pts_string *message, const char *code) {
   pts_system_error *error = pts_object_new(&pts_type_builtin_SystemError);
   pts_error_init((pts_error *)error, message, true, NULL, false);
   error->code = pts_value_from_string(pts_string_from_cstr(code));
+  pts_publish();
   return pts_value_from_object(error);
 }
 
@@ -385,6 +389,7 @@ _Noreturn void pts_throw_uv_error(int error, const char *syscall, pts_string *pa
 pts_error *pts_error_new(const pts_type *type, pts_string *message) {
   pts_error *error = pts_object_new(type);
   pts_error_init(error, message, true, NULL, false);
+  pts_publish();
   return error;
 }
 

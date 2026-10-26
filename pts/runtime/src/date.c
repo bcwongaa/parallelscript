@@ -190,6 +190,7 @@ static void zone_name(char *out, size_t size, const char *abbreviation, double o
 static pts_date *new_date(double time) {
   pts_date *date = pts_object_new(&pts_type_builtin_Date);
   date->time = time;
+  pts_publish();
   return date;
 }
 

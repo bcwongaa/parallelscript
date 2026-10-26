@@ -19,6 +19,7 @@ pts_value pts_value_from_i64(int64_t value) {
   pts_boxed_int64 *box = GC_MALLOC_ATOMIC(sizeof *box);
   box->type = &pts_int64_type;
   box->value = value;
+  pts_publish();
   return pts_value_from_object(box);
 }
 
@@ -29,6 +30,7 @@ pts_value pts_value_from_u64(uint64_t value) {
   pts_boxed_uint64 *box = GC_MALLOC_ATOMIC(sizeof *box);
   box->type = &pts_uint64_type;
   box->value = value;
+  pts_publish();
   return pts_value_from_object(box);
 }
 

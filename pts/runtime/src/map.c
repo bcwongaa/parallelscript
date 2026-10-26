@@ -207,6 +207,7 @@ static void index_entry(pts_map_table *table, size_t number, uint64_t h) {
   for (size_t probes = 0; probes <= table->index_mask; probes++, slot = (slot + 1) & table->index_mask) {
     if (__atomic_load_n(&table->index[slot], __ATOMIC_RELAXED) == 0) {
       __atomic_store_n(&table->index[slot], (uint32_t)number + 1, __ATOMIC_RELEASE);
+      PTS_PUBLICATION_RELEASE(&table->index[slot], NULL);
       return;
     }
   }
@@ -230,7 +231,9 @@ static pts_map_table *replace(pts_map *map) {
     }
   }
   __atomic_store_n(&old->next, table, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&old->next, NULL);
   __atomic_store_n(&map->table, table, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&map->table, NULL);
   return table;
 }
 
@@ -245,6 +248,7 @@ bool pts_value_is_set(pts_value value) {
 pts_map *pts_map_new(const pts_type *type) {
   pts_map *map = pts_object_new(type);
   map->table = new_table(type, MIN_CAPACITY);
+  pts_publish();
   return map;
 }
 
@@ -254,6 +258,7 @@ pts_map *pts_map_copy(const pts_type *type, const pts_map *source) {
   while (pts_map_next(&iterator)) {
     pts_map_set(map, &iterator.key, type->kind == PTS_KIND_SET ? NULL : &iterator.value);
   }
+  pts_publish();
   return map;
 }
 
@@ -268,6 +273,7 @@ pts_map *pts_set_of_array(const pts_type *type, const pts_array *array, bool und
       pts_map_set(set, &undefined, NULL);
     } /* a set of strings or objects can't hold the undefined JS adds: holes are left out (D-130) */
   }
+  pts_publish();
   return set;
 }
 
@@ -349,8 +355,10 @@ pts_map *pts_map_set(pts_map *map, const void *key, const void *value) {
   __atomic_store_n(&entry->value, value_word, __ATOMIC_RELAXED);
   __atomic_store_n(&entry->hash, h, __ATOMIC_RELAXED);
   __atomic_store_n(&table->used, used + 1, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&table->used, NULL);
   index_entry(table, used, h);
   __atomic_store_n(&map->size, map->size + 1, __ATOMIC_RELEASE); /* not atomic: see D-130 */
+  PTS_PUBLICATION_RELEASE(&map->size, NULL);
   return map;
 }
 

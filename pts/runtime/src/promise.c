@@ -132,6 +132,7 @@ static void post(uint16_t loop, int32_t kind, pts_promise *promise, reaction *r,
 static void enqueue(reaction *job) {
   microtasks *q = current();
   job->next = NULL;
+  pts_publish(); /* the job and what made it, before the queue holds it (D-226) */
   if (q->last != NULL) {
     q->last->next = job;
   } else {
@@ -146,6 +147,7 @@ static pts_promise *new_promise(void) {
   promise->state = PENDING;
   promise->home = pts_current_loop & ~PTS_LOOP_FOREIGN;
   promise->result = PTS_VALUE_UNDEFINED;
+  pts_publish();
   return promise;
 }
 
@@ -184,6 +186,7 @@ static void settle(pts_promise *promise, int32_t state, pts_value result) {
     microtasks *q = current();
     rejection *noted = allocate(sizeof *noted);
     noted->promise = promise;
+    pts_publish();
     if (q->last_rejection != NULL) {
       q->last_rejection->next = noted;
     } else {
@@ -257,6 +260,7 @@ static void add_reaction(pts_promise *promise, reaction *r) {
   switch (promise->state) {
   case PENDING:
     r->next = NULL;
+    pts_publish(); /* the reaction and what made it (an async function's frame), before the promise holds it (D-226) */
     if (promise->last != NULL) {
       promise->last->next = r;
     } else {
@@ -294,6 +298,7 @@ static pts_promise *promise_resolve(pts_value value) {
   }
   pts_promise *promise = new_promise();
   resolve(promise, value);
+  pts_publish();
   return promise;
 }
 
@@ -345,6 +350,7 @@ static void resolving_functions(pts_promise *promise, pts_value functions[2]) {
   resolving_function *resolve_function = new_function(&resolve_function_type);
   resolving_function *reject_function = new_function(&reject_function_type);
   resolve_function->record = reject_function->record = record;
+  pts_publish();
   functions[0] = pts_value_from_object(resolve_function);
   functions[1] = pts_value_from_object(reject_function);
 }
@@ -568,8 +574,10 @@ static void async_suspended(pts_iterator *it, bool done) {
     return;
   }
   if (it->reaction == NULL) { /* await: the body resumes when the awaited promise settles; it awaits one at a time */
-    it->reaction = allocate(sizeof *it->reaction);
-    it->reaction->awaiting = it;
+    reaction *r = allocate(sizeof *r);
+    r->awaiting = it;
+    pts_publish();
+    it->reaction = r;
   }
   perform_then(promise_resolve(it->value), it->reaction);
 }
@@ -590,6 +598,7 @@ static void async_resume(pts_iterator *it, pts_resume_mode mode, pts_value sent)
 pts_value pts_async_start(pts_iterator *it) {
   it->promise = new_promise();
   async_resume(it, PTS_RESUME_NEXT, PTS_VALUE_UNDEFINED);
+  pts_publish();
   return pts_value_from_object(it->promise);
 }
 
@@ -608,6 +617,7 @@ pts_value pts_promise_construct(pts_value executor, const pts_string *text) {
   if (call_catching(executor, 2, functions, &thrown)) {
     reject_call((pts_closure *)pts_value_as_object(functions[1]), 1, &thrown);
   }
+  pts_publish();
   return pts_value_from_object(promise);
 }
 
@@ -669,6 +679,7 @@ void pts_promise_settle(pts_value promise, bool fulfilled, pts_value result) {
 pts_value pts_promise_rejected(pts_value reason) {
   pts_promise *promise = new_promise();
   settle(promise, REJECTED, reason);
+  pts_publish();
   return pts_value_from_object(promise);
 }
 
@@ -746,6 +757,7 @@ static pts_value record_of(const char *const keys[], const pts_value values[], s
     pts_string *key = pts_string_from_cstr(keys[i]);
     pts_map_set(record, &key, &values[i]);
   }
+  pts_publish();
   return pts_value_from_object(record);
 }
 
@@ -812,6 +824,7 @@ static pts_value element_function_new(const pts_type *type, combination *state, 
   element->state = state;
   element->index = index;
   element->called = called;
+  pts_publish();
   return pts_value_from_object(element);
 }
 
@@ -868,6 +881,7 @@ static pts_value combine(int kind, bool race, pts_value iterable, const pts_stri
     pts_value thrown = pts_caught(&handler);
     reject_call((pts_closure *)pts_value_as_object(functions[1]), 1, &thrown);
   }
+  pts_publish();
   return pts_value_from_object(promise);
 }
 
@@ -924,6 +938,7 @@ pts_value pts_iterator_result_new(pts_value value, bool done) {
 pts_value pts_async_generator_new(pts_iterator *it) {
   it->type = &async_generator_type;
   it->home = pts_current_loop & ~PTS_LOOP_FOREIGN;
+  pts_publish();
   return pts_value_from_object(it);
 }
 
@@ -979,6 +994,7 @@ static void queue_request(request *r) {
   while (*last != NULL) {
     last = &(*last)->next;
   }
+  pts_publish();
   *last = r;
   async_generator_drain(r->generator);
 }
@@ -1034,6 +1050,7 @@ static pts_value from_sync_resume(from_sync *it, pts_resume_mode mode, pts_value
   pts_try_enter(&handler);
   if (_setjmp(handler.jump) != 0) {
     settle(promise, REJECTED, pts_caught(&handler));
+    pts_publish();
     return pts_value_from_object(promise);
   }
   bool done = pts_iterator_resume(it->iterator, mode, sent);
@@ -1043,6 +1060,7 @@ static pts_value from_sync_resume(from_sync *it, pts_resume_mode mode, pts_value
   r->wrapping = promise;
   r->wrapped_done = done;
   perform_then(promise_resolve(value), r);
+  pts_publish();
   return pts_value_from_object(promise);
 }
 
@@ -1060,6 +1078,7 @@ pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text) {
   from_sync *it = allocate(sizeof *it);
   it->header.type = &from_sync_type;
   it->iterator = pts_iterator_open(iterable, text);
+  pts_publish();
   return pts_value_from_object(it);
 }
 

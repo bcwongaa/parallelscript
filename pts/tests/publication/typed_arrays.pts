@@ -1,0 +1,24 @@
+// Typed arrays and ArrayBuffers (made from a length, from an array, by subarray and by
+// map), published into module-scope bindings a task on another loop reads (H35b).
+// threads: 1 2 4
+let floats = new Float64Array(0);
+let bytes = new Uint8Array(0);
+let view = new Int32Array(0);
+
+function build(): void {
+  floats = new Float64Array([1.5, 2.5, 3.5]);
+  const b = new Uint8Array(8);
+  for (let i = 0; i < b.length; i++) b[i] = i * 3;
+  bytes = b;
+  view = new Int32Array([10, 20, 30, 40, 50]).subarray(1, 4).map((x) => x + 1);
+}
+
+function describe(): string {
+  return `${floats.join(",")} ${bytes.join(",")} ${view.join(",")} ${bytes.buffer.byteLength}`;
+}
+
+build();
+console.log(await parallel describe());
+
+// expect:
+// 1.5,2.5,3.5 0,3,6,9,12,15,18,21 21,31,41 8

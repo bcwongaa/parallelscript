@@ -1,0 +1,28 @@
+// A constructor that lets `this` out before it has set every field: it registers the
+// object in a list other loops read, then goes on filling it (H35b). What it set before
+// `this` escaped must reach other threads with it; the rest may come later, as in JS.
+// threads: 1 2 4
+const registry: Node[] = [];
+
+class Node {
+  readonly id: number;
+  readonly name: string;
+  late: number;
+  constructor(id: number) {
+    this.id = id;
+    this.name = `node${id}`;
+    registry.push(this);
+    this.late = id * 10;
+  }
+}
+
+function describe(): string {
+  return registry.map((n) => `${n.id}:${n.name}:${n.late}`).join(" ");
+}
+
+const first = new Node(1);
+const second = new Node(2);
+console.log(first.late + second.late, await parallel describe());
+
+// expect:
+// 30 1:node1:10 2:node2:20

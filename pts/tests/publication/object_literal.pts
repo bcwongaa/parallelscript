@@ -1,0 +1,22 @@
+// An object literal, nested, published by a store into a module-scope binding that a
+// task on another loop reads (H35b): the literal must be filled before the store.
+// threads: 1 2 4
+type Inner = { b: number; tag: string };
+type Outer = { a: number; label: string; inner: Inner };
+
+let shared: Outer | null = null;
+
+function make(n: number): Outer {
+  return { a: n, label: "outer", inner: { b: n + 1, tag: "inner" } };
+}
+
+function describe(): string {
+  const o = shared;
+  return o === null ? "none" : `${o.a} ${o.label} ${o.inner.b} ${o.inner.tag}`;
+}
+
+shared = make(1);
+console.log(await parallel describe());
+
+// expect:
+// 1 outer 2 inner

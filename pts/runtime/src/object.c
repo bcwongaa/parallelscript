@@ -28,7 +28,7 @@ void *pts_object_new(const pts_type *type) {
   return object;
 }
 
-void *pts_cell_new(size_t size, bool holds_pointers) {
+static void *zeroed_cell(size_t size, bool holds_pointers) {
   void *cell = holds_pointers ? GC_MALLOC(size) : GC_MALLOC_ATOMIC(size);
   if (cell == NULL) {
     pts_panic("RangeError", "Out of memory allocating a variable of %zu bytes", size);
@@ -37,9 +37,16 @@ void *pts_cell_new(size_t size, bool holds_pointers) {
   return cell;
 }
 
+void *pts_cell_new(size_t size, bool holds_pointers) {
+  void *cell = zeroed_cell(size, holds_pointers);
+  pts_publish(); /* its block may store it in a generator's frame at once */
+  return cell;
+}
+
 void *pts_cell_copy(const void *cell, size_t size, bool holds_pointers) {
-  void *copy = pts_cell_new(size, holds_pointers);
+  void *copy = zeroed_cell(size, holds_pointers);
   pts_copy_shared(copy, cell, size, 1); /* the iteration's closures may write the cell from other threads: its value is copied whole (D-143) */
+  pts_publish();
   return copy;
 }
 
@@ -723,6 +730,7 @@ void pts_value_freeze(pts_value value) {
   pthread_mutex_lock(&frozen_lock);
   if (takes_twin(type)) {
     __atomic_store_n(&object->type, frozen_twin(type), __ATOMIC_RELEASE);
+    PTS_PUBLICATION_RELEASE(&object->type, NULL);
   } else if (frozen_find(object) == NULL) {
     if (frozen_count >= frozen_bucket_count) {
       frozen_grow();

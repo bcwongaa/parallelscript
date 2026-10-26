@@ -58,6 +58,7 @@ static void remember_step(const pts_iterator *it, pts_value value, pts_value res
     if (last_resumed == NULL) {
       pts_panic("RangeError", "Out of memory allocating an iterator's value");
     }
+    PTS_PUBLICATION_PRIVATE(last_resumed);
   }
   last_resumed->iterator = it;
   last_resumed->value = value;
@@ -137,6 +138,7 @@ static pts_value items_iterator_new(const pts_type *type, pts_value items) {
   it->header.value = PTS_VALUE_UNDEFINED;
   it->header.result = PTS_VALUE_ABSENT;
   it->items = items;
+  pts_publish();
   return pts_value_from_object(it);
 }
 
@@ -216,6 +218,7 @@ pts_value pts_iterator_of(pts_value iterator) {
   it->header.value = PTS_VALUE_UNDEFINED;
   it->header.result = PTS_VALUE_ABSENT;
   it->object = iterator;
+  pts_publish();
   return pts_value_from_object(it);
 }
 
@@ -366,6 +369,7 @@ pts_array *pts_iteration_rest(pts_value source, double index, bool done) {
     pts_value item = pts_spread_element(source, i);
     pts_array_push(rest, &item, 1);
   }
+  pts_publish();
   return rest;
 }
 
@@ -408,6 +412,7 @@ static bool next_entry(map_iterator *iterator, pts_map_iterator *entry) {
   entry->position = __atomic_load_n(&iterator->entries.position, __ATOMIC_RELAXED);
   bool found = pts_map_next(entry);
   __atomic_store_n(&iterator->entries.table, entry->table, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&iterator->entries.table, NULL);
   __atomic_store_n(&iterator->entries.position, entry->position, __ATOMIC_RELAXED);
   return found;
 }
@@ -448,6 +453,7 @@ pts_value pts_map_iterator_new(pts_value map, int32_t items) {
   it->header.result = PTS_VALUE_ABSENT;
   it->entries = pts_map_iterate(source);
   it->items = items;
+  pts_publish();
   return pts_value_from_object(it);
 }
 
@@ -461,6 +467,7 @@ bool pts_map_iterator_remaining(const pts_object *object, pts_array **items, boo
   while (!map_step(&copy.header)) {
     pts_array_push(*items, &copy.header.value, 1);
   }
+  pts_publish();
   return true;
 }
 
@@ -494,6 +501,7 @@ static inline __attribute__((always_inline)) bool resume_claimed_generator(pts_i
   case PTS_GENERATOR_DONE:
     finish(generator, mode == PTS_RESUME_RETURN ? sent : PTS_VALUE_UNDEFINED);
     __atomic_store_n(&generator->executing, false, __ATOMIC_RELEASE);
+    PTS_PUBLICATION_RELEASE(&generator->executing, NULL);
     if (mode == PTS_RESUME_THROW) {
       pts_throw(sent);
     }
@@ -514,6 +522,7 @@ static inline __attribute__((always_inline)) bool resume_claimed_generator(pts_i
     remember_step(generator, generator->value, *handed);
   }
   __atomic_store_n(&generator->executing, false, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&generator->executing, NULL);
   return done;
 }
 
@@ -675,6 +684,7 @@ pts_array *pts_iterator_to_array(pts_value iterator) {
     pts_value value = pts_iterator_value(iterator);
     pts_array_push(values, &value, 1);
   }
+  pts_publish();
   return values;
 }
 

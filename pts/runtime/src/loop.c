@@ -165,6 +165,7 @@ static void schedule(loop_state *s, pts_timer *timer, uint64_t start) {
     for (size_t i = 0; i < s->count; i++) {
       heap[i] = s->heap[i];
     }
+    pts_publish();
     s->heap = heap;
     s->capacity = capacity;
   }
@@ -172,6 +173,7 @@ static void schedule(loop_state *s, pts_timer *timer, uint64_t start) {
   timer->order = s->order++;
   timer->counted = atomic_load(&timer->referenced);
   s->referenced += timer->counted;
+  pts_publish(); /* the timer and a new heap, before the heap holds them (D-226) */
   place(s, s->count++, timer);
   sift_up(s, timer->slot);
 }
@@ -252,6 +254,7 @@ pts_value pts_timer_set(pts_value callback, pts_value ms, pts_array *args, bool 
   uint64_t now = now_of(state);
   schedule(state, timer, now);
   arm(state, now);
+  pts_publish();
   return pts_value_from_object(timer);
 }
 
@@ -387,6 +390,7 @@ pts_value pts_immediate_set(pts_value callback, pts_array *args) {
   it->callback = callback;
   it->args = args != NULL && pts_array_length_of(args) > 0 ? args : NULL;
   atomic_init(&it->active, true);
+  pts_publish();
   if (state->last != NULL) {
     state->last->next = it;
   } else {

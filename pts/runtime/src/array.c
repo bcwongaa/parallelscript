@@ -93,6 +93,7 @@ static pts_array_buffer *new_buffer(pts_field_kind kind, size_t capacity) {
     memset(buffer, 0, bytes); /* GC_MALLOC zeroes; the atomic allocator doesn't */
   }
   buffer->capacity = capacity;
+  PTS_PUBLICATION_SLOTS(buffer);
   return buffer;
 }
 
@@ -109,9 +110,15 @@ static bool is_hole(pts_field_kind kind, const void *element) { return holds_poi
 /* load_buffer and publish_buffer read and replace an array's buffer, publish_length its length. */
 static pts_array_buffer *load_buffer(const pts_array *array) { return __atomic_load_n(&array->buffer, __ATOMIC_ACQUIRE); }
 
-static void publish_buffer(pts_array *array, pts_array_buffer *buffer) { __atomic_store_n(&array->buffer, buffer, __ATOMIC_RELEASE); }
+static void publish_buffer(pts_array *array, pts_array_buffer *buffer) {
+  __atomic_store_n(&array->buffer, buffer, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&array->buffer, NULL);
+}
 
-static void publish_length(pts_array *array, size_t length) { __atomic_store_n(&array->length, length, __ATOMIC_RELEASE); }
+static void publish_length(pts_array *array, size_t length) {
+  __atomic_store_n(&array->length, length, __ATOMIC_RELEASE);
+  PTS_PUBLICATION_RELEASE(&array->length, __atomic_load_n(&array->buffer, __ATOMIC_RELAXED)); /* the elements before it */
+}
 
 /* readable_length is the length clamped to the capacity of buffer, which a racing push may not have reached. */
 static size_t readable_length(const pts_array *array, const pts_array_buffer *buffer) {
@@ -148,6 +155,7 @@ pts_array *pts_array_of(const pts_type *type, const void *elements, size_t count
     memcpy(array->buffer->elements, elements, count * pts_field_kind_size(kind));
   }
   array->length = count;
+  pts_publish();
   return array;
 }
 
@@ -559,6 +567,7 @@ static pts_array *new_array(const pts_type *type, const unsigned char *from, siz
   array->buffer = new_buffer(kind, count);
   copy_elements(array->buffer->elements, from, count, pts_field_kind_size(kind));
   array->length = count;
+  pts_publish();
   return array;
 }
 
@@ -581,6 +590,7 @@ pts_array *pts_array_copy_as_read(const pts_array *array) {
         slots[i] = PTS_VALUE_UNDEFINED;
       }
     }
+    pts_publish();
   }
   return copy;
 }
@@ -1243,6 +1253,7 @@ static double integer_or_infinity(double depth) { return depth != depth ? 0 : __
 pts_array *pts_array_flat(const pts_array *array, double depth, const pts_type *result_type) {
   pts_array *result = pts_array_of(result_type, NULL, 0);
   flatten_into(result, (const pts_object *)array, integer_or_infinity(depth));
+  pts_publish();
   return result;
 }
 
@@ -1251,6 +1262,7 @@ pts_array *pts_array_flat_value(const pts_array *array, pts_value depth, const p
   double levels = depth == PTS_VALUE_UNDEFINED ? 1 : pts_value_to_number(depth);
   pts_array *result = pts_array_of(result_type, NULL, 0);
   flatten_array(result, array, length, integer_or_infinity(levels));
+  pts_publish();
   return result;
 }
 
@@ -1315,6 +1327,7 @@ pts_array *pts_array_from_string(pts_string *string) {
     pts_array_push(array, &code_point, 1);
     i += length;
   }
+  pts_publish();
   return array;
 }
 
@@ -1340,6 +1353,7 @@ pts_array *pts_array_with(const pts_array *array, double index, const void *valu
   }
   size_t size = pts_field_kind_size(array->type->element);
   element_store(copy->buffer->elements + (size_t)at * size, value, size);
+  pts_publish();
   return copy;
 }
 
@@ -1350,6 +1364,7 @@ pts_array *pts_array_of_length(const pts_type *type, double length) {
   pts_array *array = pts_object_new(type);
   array->buffer = new_buffer(type->element, (size_t)length); /* zeroed: holes, or zeros of a primitive kind */
   array->length = (size_t)length;
+  pts_publish();
   return array;
 }
 
@@ -1361,5 +1376,6 @@ pts_array *pts_array_keys(const pts_array *array) {
     ((double *)keys->buffer->elements)[i] = (double)i;
   }
   keys->length = length;
+  pts_publish();
   return keys;
 }

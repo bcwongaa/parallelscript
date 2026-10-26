@@ -53,6 +53,7 @@ static pts_regexp *regexp_new(pts_regex *regex, pts_string *pattern) {
   pts_regexp *regexp = pts_object_new(&pts_type_builtin_RegExp);
   regexp->regex = regex;
   regexp->pattern = pattern;
+  pts_publish();
   return regexp;
 }
 
@@ -70,6 +71,7 @@ pts_regexp *pts_regexp_literal(pts_regex **cache, pts_string *pattern, pts_strin
   if (regex == NULL) { /* threads racing here each compile it; the code is immutable, so any of them will do */
     regex = pts_regex_compile(pattern, flags);
     __atomic_store_n(cache, regex, __ATOMIC_RELEASE);
+    PTS_PUBLICATION_RELEASE(cache, NULL);
   }
   return regexp_new(regex, pattern);
 }
@@ -129,6 +131,7 @@ pts_string *pts_regexp_to_string(const pts_regexp *regexp) {
   text->bytes[1 + source->byte_len] = '/';
   memcpy(text->bytes + 2 + source->byte_len, flags->bytes, flags->byte_len);
   pts_string_measure(text);
+  pts_publish();
   return text;
 }
 
@@ -227,6 +230,7 @@ pts_match_array *pts_match_array_at(const pts_regex *regex, pts_string *subject,
   match->index = (double)captures[0];
   match->input = subject;
   match->groups = named_groups(regex, texts);
+  pts_publish();
   return match;
 }
 

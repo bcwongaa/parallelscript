@@ -1,0 +1,32 @@
+// A generator object, already started, and a runtime iterator, published into module-scope
+// bindings a task on another loop resumes (H35b): the frame and its locals must reach the
+// other thread before the generator does.
+// threads: 1 2 4
+function* count(from: number, label: string): Generator<string> {
+  const prefix = `${label}:`;
+  for (let i = from; i < from + 3; i++) yield `${prefix}${i}`;
+}
+
+let gen: Generator<string> | null = null;
+let entries: IterableIterator<[string, number]> | null = null;
+
+function build(): string {
+  const g = count(1, "n");
+  const first = g.next().value;
+  gen = g;
+  entries = new Map([["a", 1], ["b", 2]]).entries();
+  return first;
+}
+
+function resume(): string {
+  const g = gen;
+  const e = entries;
+  if (g === null || e === null) return "none";
+  return `${[...g].join(",")} ${[...e].map(([k, v]) => k + v).join(",")}`;
+}
+
+const first = build();
+console.log(first, await parallel resume());
+
+// expect:
+// n:1 n:2,n:3 a1,b2

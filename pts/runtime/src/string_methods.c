@@ -148,6 +148,7 @@ static pts_string *string_of_unit(unsigned unit) {
   pts_utf8_encode(unit, string->bytes);
   string->flags = 0;
   string->utf16_len = 1;
+  pts_publish();
   return string;
 }
 
@@ -186,6 +187,7 @@ static pts_string *units_between(pts_string *string, uint32_t start, uint32_t en
     pts_utf8_encode(pts_high_surrogate(pts_utf8_decode(string->bytes + to.offset, &length)), out);
   }
   pts_string_measure(result);
+  pts_publish();
   return result;
 }
 
@@ -218,6 +220,7 @@ static pts_string *repeated(pts_string *string, uint32_t count) {
   }
   result->flags = string->flags & (PTS_STRING_ASCII | PTS_STRING_WELL_FORMED); /* copies of a string without lone surrogates can't join any */
   result->utf16_len = string->utf16_len * count;
+  pts_publish();
   return result;
 }
 
@@ -615,7 +618,7 @@ static pts_array *split_bytes(pts_array *pieces, pts_string *string, const pts_s
   return pieces;
 }
 
-pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit) {
+static pts_array *split(pts_string *string, pts_string *separator, double limit) {
   pts_array *pieces = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
   /* JS's ToUint32 of the limit; a left-out one is Infinity, which means 2^32 - 1. */
   double max = limit != limit ? 0 : limit >= 4294967295.0 ? 4294967295.0 : limit <= 0 ? 0 : __builtin_trunc(limit);
@@ -646,6 +649,12 @@ pts_array *pts_string_split(pts_string *string, pts_string *separator, double li
   }
   pts_string *rest = units_between(string, start, string->utf16_len);
   pts_array_push(pieces, &rest, 1);
+  return pieces;
+}
+
+pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit) {
+  pts_array *pieces = split(string, separator, limit);
+  pts_publish();
   return pieces;
 }
 
@@ -751,6 +760,7 @@ pts_string *pts_string_to_well_formed(pts_string *string) {
     }
   }
   pts_string_measure(result);
+  pts_publish();
   return result;
 }
 
@@ -775,6 +785,7 @@ static pts_string *string_of_units(const uint16_t *units, size_t n) {
   result->byte_len = (uint32_t)(out - result->bytes);
   *out = '\0';
   pts_string_measure(result);
+  pts_publish();
   return result;
 }
 

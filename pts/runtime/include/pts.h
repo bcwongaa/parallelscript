@@ -27,6 +27,40 @@
 extern "C" {
 #endif
 
+/* ---------------------------------------------------------------- publication */
+
+/*
+ * The publication checker (publication_check.c, H35b), in builds with
+ * -DPTS_PUBLICATION_CHECK only (toolchain.PublicationCheck): it sees the stores clang
+ * makes, and these hooks tell it what it can't see. pts_publication_barrier_hook is a
+ * store-store barrier (pts_publish). PTS_PUBLICATION_STORE(address) follows a store of a pointer
+ * that isn't a plain C store (a compare-and-swap, an exchange). PTS_PUBLICATION_RELEASE(address,
+ * also) follows a release store (or compare-and-swap) at address, which orders the stores
+ * before it for readers that load address with acquire: those into the object holding
+ * address, into the object it points to and into also's object (NULL for none).
+ * PTS_PUBLICATION_SLOTS(object) marks a new object whose words are elements whose zero
+ * value readers take as it is (an array's holes, numbers): storing one later is a change
+ * that may reach other threads late, as a race's, not part of the object's construction.
+ * PTS_PUBLICATION_PRIVATE(object) marks a new object only its thread ever reads (a thread's
+ * own record kept in a thread-local variable): storing into it publishes nothing.
+ */
+#ifdef PTS_PUBLICATION_CHECK
+void pts_publication_barrier_hook(void);
+void pts_publication_check_store(const volatile void *address);
+void pts_publication_check_release(const volatile void *address, const volatile void *also);
+void pts_publication_check_slots(const volatile void *object);
+void pts_publication_check_private(const volatile void *object);
+#define PTS_PUBLICATION_STORE(address) pts_publication_check_store(address)
+#define PTS_PUBLICATION_RELEASE(address, also) pts_publication_check_release((address), (also))
+#define PTS_PUBLICATION_SLOTS(object) pts_publication_check_slots(object)
+#define PTS_PUBLICATION_PRIVATE(object) pts_publication_check_private(object)
+#else
+#define PTS_PUBLICATION_STORE(address) ((void)0)
+#define PTS_PUBLICATION_RELEASE(address, also) ((void)0)
+#define PTS_PUBLICATION_SLOTS(object) ((void)0)
+#define PTS_PUBLICATION_PRIVATE(object) ((void)0)
+#endif
+
 /* ---------------------------------------------------------------- objects */
 
 typedef enum pts_kind {
@@ -205,6 +239,30 @@ _Noreturn void pts_throw_frozen_field(const pts_object *object, const char *name
 
 /* A new instance of type with every field zero (0, false, NULL; a pts_value field is 0, not undefined). */
 void *pts_object_new(const pts_type *type);
+
+/*
+ * A new object is filled with plain stores, then published: its pointer stored where
+ * other threads may load it (ARCHITECTURE §4.13 rule 6). pts_publish orders every store
+ * before it before every store after it, so a thread that loads the pointer and reads
+ * through it (an address dependency, which both processors keep in order) sees the object
+ * filled. aarch64 may make stores visible to other cores in any order, so there it is
+ * `dmb ishst`; x86-64 makes them visible in program order, so there it is only a compiler
+ * barrier, which keeps clang from moving a filling store below the store that publishes
+ * (D-226). Generated code calls it at the end of each construction and before `this`
+ * leaves a constructor; the runtime before it returns or stores an object it made.
+ */
+static inline __attribute__((always_inline)) void pts_publish(void) {
+#if defined(PTS_PUBLICATION_CHECK)
+  pts_publication_barrier_hook();
+#endif
+#if defined(__aarch64__)
+  __asm__ volatile("dmb ishst" ::: "memory");
+#elif defined(__x86_64__)
+  __asm__ volatile("" ::: "memory");
+#else
+#error "pts_publish: a processor ParallelScript doesn't target"
+#endif
+}
 
 /*
  * A spread copy takes its source's property order (D-108): the source's descriptor, if it
@@ -2338,6 +2396,32 @@ static inline void *pts_check_field_set(void *object, const char *field, const c
 static inline pts_value pts_value_from_unset_object(const void *object) {
   return object == NULL ? PTS_VALUE_UNDEFINED : (pts_value)(uintptr_t)object;
 }
+
+/*
+ * A module-scope binding's or an early cell's ready flag (D-140) is set after its value by
+ * a release store and tested before the value is read (C357). On aarch64 the test is an
+ * acquire load, without which a thread could see the flag set and the binding as it was
+ * before; on x86-64, which keeps loads in order, it is a plain load, as before, so clang
+ * can still move a binding's test and load out of a loop (an acquire would keep both in
+ * each pass, D-226). ThreadSanitizer builds, which check the protocol, test as aarch64 does.
+ */
+#define PTS_SET_READY(flag) __atomic_store_n(&(flag), true, __ATOMIC_RELEASE)
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define PTS_READY_ACQUIRES
+#endif
+#endif
+#if defined(__aarch64__) || defined(PTS_READY_ACQUIRES)
+#define PTS_READY(flag) __atomic_load_n(&(flag), __ATOMIC_ACQUIRE)
+#else
+#define PTS_READY(flag) (flag)
+#endif
+/* The test of a flag whose binding holds its value from the program's start, which needs no order: a plain load, or relaxed for ThreadSanitizer. */
+#if defined(PTS_READY_ACQUIRES)
+#define PTS_READY_FLAG(flag) __atomic_load_n(&(flag), __ATOMIC_RELAXED)
+#else
+#define PTS_READY_FLAG(flag) (flag)
+#endif
 
 static inline void pts_check_ready(bool ready, const char *name) {
   if (!ready) {

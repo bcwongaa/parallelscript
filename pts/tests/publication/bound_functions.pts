@@ -1,0 +1,34 @@
+// Bound functions and a method taken as a value, published into module-scope bindings a
+// task on another loop calls (H35b).
+// threads: 1 2 4
+class Greeter {
+  constructor(readonly greeting: string) {}
+  greet(name: string): string {
+    return `${this.greeting}, ${name}`;
+  }
+}
+
+function add(a: number, b: number): number {
+  return a + b;
+}
+
+let addTen: ((b: number) => number) | null = null;
+let hello: ((name: string) => string) | null = null;
+
+function build(): void {
+  addTen = add.bind(null, 10);
+  const g = new Greeter("hello");
+  hello = g.greet.bind(g);
+}
+
+function call(): string {
+  const f = addTen;
+  const h = hello;
+  return `${f === null ? "none" : f(5)} ${h === null ? "none" : h("pts")}`;
+}
+
+build();
+console.log(await parallel call());
+
+// expect:
+// 15 hello, pts

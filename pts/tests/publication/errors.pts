@@ -1,0 +1,32 @@
+// Errors: made by `new`, by a subclass, and thrown by the runtime and caught, published
+// into a module-scope binding a task on another loop reads (H35b).
+// threads: 1 2 4
+class NotFound extends Error {
+  constructor(readonly key: string) {
+    super(`missing ${key}`);
+    this.name = "NotFound";
+  }
+}
+
+let errors: Error[] = [];
+
+function build(): void {
+  const list: Error[] = [new Error("plain"), new NotFound("k"), new RangeError("range")];
+  try {
+    const xs: number[] = [];
+    xs.length = -1;
+  } catch (e) {
+    list.push(e as Error);
+  }
+  errors = list;
+}
+
+function describe(): string {
+  return errors.map((e) => `${e.name}:${e.message}`).join(" | ");
+}
+
+build();
+console.log(await parallel describe());
+
+// expect:
+// Error:plain | NotFound:missing k | RangeError:range | RangeError:Invalid array length

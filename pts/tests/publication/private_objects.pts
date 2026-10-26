@@ -1,0 +1,53 @@
+// New objects of every kind of construction stored only into locals and into other new
+// objects, which no other thread can reach: the publication checker reports none of them
+// (H35b; TestPublicationCheckerAcceptsObjectsNoOtherThreadSees checks that it saw them).
+// threads: 1 2 4
+class Pair {
+  constructor(public left: number, public right: number) {}
+  sum(): number {
+    return this.left + this.right;
+  }
+}
+class Triple extends Pair {
+  constructor(left: number, right: number, public third: number) {
+    super(left, right);
+  }
+}
+function* count(n: number): Generator<number> {
+  const box = { n };
+  for (let i = 0; i < 3; i++) yield box.n + i;
+}
+function build(n: number): number {
+  const outer = { inner: { value: n }, pair: new Pair(n, n + 1), list: [n, n + 1], text: "n" + n };
+  const nested = [outer, { inner: { value: -n }, pair: outer.pair, list: outer.list, text: outer.text }];
+  const pushed: Pair[] = [];
+  for (let i = 0; i < 5; i++) pushed.push(new Triple(i, n, i * n));
+  const add = (x: number): number => x + n + pushed.length;
+  const bound = add.bind(null, 2);
+  const map = new Map<string, Pair>([["a", outer.pair]]);
+  map.set("b", pushed[4]);
+  const set = new Set([outer.text, "x", outer.text]);
+  const tuple: [number, string] = [n, outer.text];
+  const spread = { ...outer.inner, extra: tuple[1] };
+  const parsed = JSON.parse(`{"k":[${n},2],"s":"v"}`);
+  const match = /n(\d+)/.exec(outer.text);
+  const error = new RangeError(`bad ${n}`);
+  const floats = new Float64Array([n, 0.5]);
+  const gen = count(n);
+  let fromGen = 0;
+  for (const v of gen) fromGen += v;
+  return (
+    nested[0].inner.value + nested[1].pair.right + nested[0].list[1] + nested[1].text.length + pushed[4].sum() +
+    bound() + map.size + set.size + spread.extra.length + parsed.k[0] + (match === null ? 0 : match[1].length) +
+    error.message.length + floats[1] + fromGen
+  );
+}
+function run(): number {
+  let total = 0;
+  for (let i = 0; i < 300; i++) total += build(i);
+  return total;
+}
+console.log(run());
+
+// expect:
+// 414760
