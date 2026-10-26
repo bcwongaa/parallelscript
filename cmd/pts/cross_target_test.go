@@ -59,6 +59,57 @@ func TestBuildForAarch64LinuxMakesAnArmExecutableThatRuns(t *testing.T) {
 	assert.Equal(t, runAarch64(t, exe, "PTS_THREADS=4"), crossOutput)
 }
 
+// nodeArchNumbers holds expressions that Node prints differently on x86-64 and arm64 Linux, with
+// what each printed under TZ=America/New_York (pts/tests' TestNumbersPrintAsNodeOfTheProgramsArchitecture).
+const nodeArchNumbers = "../../pts/tests/testdata/node_arch_numbers.tsv"
+
+// maxReportedDiffers is how many differing lines a test reports before it gives only their count.
+const maxReportedDiffers = 10
+
+// A build for aarch64 Linux computes Math, parseInt and Date's arithmetic as Node's arm64 build does,
+// whose V8 C++ is compiled with fused multiply-adds, also when it is cross-compiled on an x86-64 host.
+func TestBuildForAarch64LinuxPrintsNumbersAsNodeOnArm64(t *testing.T) {
+	t.Parallel()
+	requireAarch64(t)
+	exprs, want := readNodeArchNumbers(t, 2)
+	dir := projectWith(t, map[string]string{"numbers.pts": "console.log(" + strings.Join(exprs, ");\nconsole.log(") + ");\n"})
+
+	got := runIn(t, dir, "build", "--target", "aarch64-linux", "numbers.pts", "-o", "numbers-arm64")
+
+	assert.Equal(t, got, result{code: 0})
+	lines := strings.Split(strings.TrimSuffix(runAarch64(t, filepath.Join(dir, "numbers-arm64"), "TZ=America/New_York"), "\n"), "\n")
+	assert.Equal(t, len(lines), len(exprs))
+	differ := 0
+	for i, expr := range exprs {
+		if lines[i] != want[i] {
+			differ++
+			if differ <= maxReportedDiffers {
+				t.Errorf("%s\n  pts:  %s\n  node: %s", expr, lines[i], want[i])
+			}
+		}
+	}
+	assert.Equal(t, differ, 0, "lines that differ from Node on arm64 Linux")
+}
+
+// readNodeArchNumbers returns nodeArchNumbers' expressions and what Node printed for each in the
+// given column (1: linux-x64, 2: linux-arm64).
+func readNodeArchNumbers(t *testing.T, column int) ([]string, []string) {
+	t.Helper()
+	content, err := os.ReadFile(nodeArchNumbers)
+	assert.NilError(t, err)
+	var exprs, want []string
+	for _, line := range strings.Split(strings.TrimSuffix(string(content), "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		assert.Equal(t, len(fields), 3, "malformed line in %s: %q", nodeArchNumbers, line)
+		exprs = append(exprs, fields[0])
+		want = append(want, fields[column])
+	}
+	return exprs, want
+}
+
 func TestBuildAcceptsTheTargetAsOneArgument(t *testing.T) {
 	t.Parallel()
 	requireAarch64(t)

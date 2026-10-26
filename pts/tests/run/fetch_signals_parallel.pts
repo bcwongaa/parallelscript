@@ -74,9 +74,11 @@ async function loopTask(task: number): Promise<string[]> {
   return outcomes;
 }
 
+// 1,000 fetches from .par.map, 100 at a time: macOS's listen queue holds 128 connections
+// (kern.ipc.somaxconn) and resets those past it (H36).
 const pooled: string[] = [];
-for (let round = 0; round < 5; round++) {
-  pooled.push(...(await Promise.all(range(0, 200).par.map((i) => fetchWithSignal(`/pool/${round}`, i, false)))));
+for (let round = 0; round < 10; round++) {
+  pooled.push(...(await Promise.all(range(0, 100).par.map((i) => fetchWithSignal(`/pool/${round}`, i, false)))));
 }
 console.log("from .par.map:", tally(pooled));
 const looped = await Promise.all([0, 1, 2, 3].map((task) => parallel loopTask(task)));

@@ -7,6 +7,7 @@
  * digits as Node's default (English) NumberFormat does.
  */
 #include "string_internal.h"
+#include "v8_fma_internal.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -435,14 +436,17 @@ static double power_of_two_digits(const char *s, size_t n, int radix) {
   return ldexp((double)number, exponent);
 }
 
-/* The digits in another radix, accumulated in 32-bit parts as V8 does (approximate beyond 2^53, as the spec allows). */
+/*
+ * The digits in another radix, accumulated in 32-bit parts as V8 does (approximate beyond 2^53, as the spec allows),
+ * with each part added as Node's build adds it (fused on arm64 Linux, v8_fma_internal.h).
+ */
 static double other_radix_digits(const char *s, size_t n, int radix) {
-#if defined(__aarch64__)
-#pragma STDC FP_CONTRACT ON /* `result * multiplier + part` is one FMA in Node's arm64 builds (ieee754.c, C362) */
-#endif
   const uint32_t max_multiplier = 0xFFFFFFFFu / 36;
   double result = 0;
   size_t i = 0;
+  while (i < n && s[i] == '0') { /* V8 skips leading zeros before it groups the digits into parts */
+    i++;
+  }
   while (i < n) {
     uint32_t part = 0, multiplier = 1;
     while (i < n) {
@@ -454,7 +458,7 @@ static double other_radix_digits(const char *s, size_t n, int radix) {
       multiplier = m;
       i++;
     }
-    result = result * multiplier + part;
+    result = PTS_V8_FMA(result, (double)multiplier, (double)part);
   }
   return result;
 }

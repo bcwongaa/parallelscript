@@ -46,14 +46,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "pts.h"
+#include "v8_fma_internal.h"
 
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
 
-/* Node's macOS build is Apple clang's, which fuses a multiply and an add of one expression into an FMA (-ffp-contract=on), as aarch64 has it (C362). */
 #if defined(__aarch64__) && defined(__APPLE__)
-#pragma STDC FP_CONTRACT ON
+#pragma STDC FP_CONTRACT ON /* as Node's macOS build, Apple clang's (v8_fma_internal.h) */
 #endif
 
 static inline uint64_t bits_of(double d) {
@@ -239,9 +239,15 @@ static int32_t __ieee754_rem_pio2(double x, double *y) {
   }
   if (ix <= 0x413921FB) { /* |x| ~<= 2^19*(pi/2), medium size */
     t = fabs(x);
+#if PTS_V8_GCC_FMA
+    n = (int32_t)PTS_V8_FMA(t, invpio2, half);
+    fn = (double)(n);
+    r = PTS_V8_FMA(-fn, pio2_1, t); /* t - fn * pio2_1 */
+#else
     n = (int32_t)(t * invpio2 + half);
     fn = (double)(n);
     r = t - fn * pio2_1;
+#endif
     w = fn * pio2_1t; /* 1st round good to 85 bit */
     if (n < 32 && ix != npio2_hw[n - 1]) {
       y[0] = r - w; /* quick check no cancellation */
@@ -252,18 +258,30 @@ static int32_t __ieee754_rem_pio2(double x, double *y) {
       GET_HIGH_WORD(high, y[0]);
       i = j - ((high >> 20) & 0x7FF);
       if (i > 16) { /* 2nd iteration needed, good to 118 */
+#if PTS_V8_GCC_FMA
+        t = r; /* w = fn * pio2_2 is fused into both of its uses */
+        r = PTS_V8_FMA(-fn, pio2_2, t);
+        w = PTS_V8_FMA(fn, pio2_2t, -PTS_V8_FMA(-fn, pio2_2, t - r)); /* fn * pio2_2t - ((t - r) - w) */
+#else
         t = r;
         w = fn * pio2_2;
         r = t - w;
         w = fn * pio2_2t - ((t - r) - w);
+#endif
         y[0] = r - w;
         GET_HIGH_WORD(high, y[0]);
         i = j - ((high >> 20) & 0x7FF);
         if (i > 49) { /* 3rd iteration need, 151 bits acc */
+#if PTS_V8_GCC_FMA
+          t = r; /* will cover all possible cases; w = fn * pio2_3 is fused into both of its uses */
+          r = PTS_V8_FMA(-fn, pio2_3, t);
+          w = PTS_V8_FMA(fn, pio2_3t, -PTS_V8_FMA(-fn, pio2_3, t - r)); /* fn * pio2_3t - ((t - r) - w) */
+#else
           t = r;      /* will cover all possible cases */
           w = fn * pio2_3;
           r = t - w;
           w = fn * pio2_3t - ((t - r) - w);
+#endif
           y[0] = r - w;
         }
       }
@@ -356,18 +374,30 @@ static inline double __kernel_cos(double x, double y) {
     if ((int)(x) == 0) return one; /* generate inexact */
   }
   z = x * x;
+#if PTS_V8_GCC_FMA
+  r = z * PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, C6, C5), C4), C3), C2), C1);
+  if (ix < 0x3FD33333) { /* if |x| < 0.3 */
+    return one - PTS_V8_FMA(0.5, z, -PTS_V8_FMA(z, r, -(x * y))); /* one - (0.5 * z - (z * r - x * y)) */
+#else
   r = z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))));
   if (ix < 0x3FD33333) { /* if |x| < 0.3 */
     return one - (0.5 * z - (z * r - x * y));
+#endif
   } else {
     if (ix > 0x3FE90000) { /* x > 0.78125 */
       qx = 0.28125;
     } else {
       INSERT_WORDS(qx, ix - 0x00200000, 0); /* x/4 */
     }
+#if PTS_V8_GCC_FMA
+    iz = PTS_V8_FMA(0.5, z, -qx);
+    a = one - qx;
+    return a - (iz - PTS_V8_FMA(z, r, -(x * y)));
+#else
     iz = 0.5 * z - qx;
     a = one - qx;
     return a - (iz - (z * r - x * y));
+#endif
   }
 }
 
@@ -525,7 +555,11 @@ static int __kernel_rem_pio2(double *x, double *y, int e0, int nx, int prec,
 
   /* compute q[0],q[1],...q[jk] */
   for (i = 0; i <= jk; i++) {
+#if PTS_V8_GCC_FMA
+    for (j = 0, fw = 0.0; j <= jx; j++) fw = PTS_V8_FMA(x[j], f[jx + i - j], fw);
+#else
     for (j = 0, fw = 0.0; j <= jx; j++) fw += x[j] * f[jx + i - j];
+#endif
     q[i] = fw;
   }
 
@@ -534,13 +568,21 @@ recompute:
   /* distill q[] into iq[] reversingly */
   for (i = 0, j = jz, z = q[jz]; j > 0; i++, j--) {
     fw = (double)((int32_t)(twon24 * z));
+#if PTS_V8_GCC_FMA
+    iq[i] = (int32_t)PTS_V8_FMA(-two24, fw, z);
+#else
     iq[i] = (int32_t)(z - two24 * fw);
+#endif
     z = q[j - 1] + fw;
   }
 
   /* compute n */
   z = scalbn(z, q0);           /* actual value of z */
+#if PTS_V8_GCC_FMA
+  z = PTS_V8_FMA(-8.0, floor(z * 0.125), z); /* trim off integer >= 8 */
+#else
   z -= 8.0 * floor(z * 0.125); /* trim off integer >= 8 */
+#endif
   n = (int32_t)(z);
   z -= (double)(n);
   ih = 0;
@@ -596,7 +638,11 @@ recompute:
 
       for (i = jz + 1; i <= jz + k; i++) { /* add q[jz+1] to q[jz+k] */
         f[jx + i] = ipio2[jv + i];
+#if PTS_V8_GCC_FMA
+        for (j = 0, fw = 0.0; j <= jx; j++) fw = PTS_V8_FMA(x[j], f[jx + i - j], fw);
+#else
         for (j = 0, fw = 0.0; j <= jx; j++) fw += x[j] * f[jx + i - j];
+#endif
         q[i] = fw;
       }
       jz += k;
@@ -616,7 +662,11 @@ recompute:
     z = scalbn(z, -q0);
     if (z >= two24) {
       fw = (double)((int32_t)(twon24 * z));
+#if PTS_V8_GCC_FMA
+      iq[jz] = PTS_V8_FMA(-two24, fw, z);
+#else
       iq[jz] = z - two24 * fw;
+#endif
       jz += 1;
       q0 += 24;
       iq[jz] = fw;
@@ -634,7 +684,11 @@ recompute:
 
   /* compute PIo2[0,...,jp]*q[jz,...,0] */
   for (i = jz; i >= 0; i--) {
+#if PTS_V8_GCC_FMA
+    for (fw = 0.0, k = 0; k <= jp && k <= jz - i; k++) fw = PTS_V8_FMA(PIo2[k], q[i + k], fw);
+#else
     for (fw = 0.0, k = 0; k <= jp && k <= jz - i; k++) fw += PIo2[k] * q[i + k];
+#endif
     fq[jz - i] = fw;
   }
 
@@ -725,11 +779,20 @@ static inline double __kernel_sin(double x, double y, int iy) {
   } /* generate inexact */
   z = x * x;
   v = z * x;
+#if PTS_V8_GCC_FMA
+  r = PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, S6, S5), S4), S3), S2);
+  if (iy == 0) {
+    return PTS_V8_FMA(v, PTS_V8_FMA(z, r, S1), x);
+  } else {
+    /* x - ((z * (half * y - v * r) - y) - v * S1) */
+    return x - PTS_V8_FMA(-v, S1, PTS_V8_FMA(z, PTS_V8_FMA(half, y, -(v * r)), -y));
+#else
   r = S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)));
   if (iy == 0) {
     return x + v * (S1 + z * r);
   } else {
     return x - ((z * (half * y - v * r) - y) - v * S1);
+#endif
   }
 }
 
@@ -812,8 +875,13 @@ static double __kernel_tan(double x, double y, int iy) {
           v = y - (z - x);
           t = a = -one / w;
           SET_LOW_WORD(t, 0);
+#if PTS_V8_GCC_FMA
+          s = PTS_V8_FMA(t, z, one);
+          return PTS_V8_FMA(a, PTS_V8_FMA(t, v, s), t);
+#else
           s = one + t * z;
           return t + a * (s + t * v);
+#endif
         }
       }
     }
@@ -835,16 +903,29 @@ static double __kernel_tan(double x, double y, int iy) {
    * x^5(T[1]+x^4*T[3]+...+x^20*T[11]) +
    * x^5(x^2*(T[2]+x^4*T[4]+...+x^22*[T12]))
    */
+#if PTS_V8_GCC_FMA
+  r = PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, T[11], T[9]), T[7]), T[5]), T[3]), T[1]);
+  /* v = z * (T[2] + w * (...)): the product with z is fused into r + v below. */
+  v = PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, T[12], T[10]), T[8]), T[6]), T[4]), T[2]);
+  s = z * x;
+  r = PTS_V8_FMA(z, PTS_V8_FMA(s, PTS_V8_FMA(z, v, r), y), y); /* y + z * (s * (r + v) + y) */
+  r = PTS_V8_FMA(T[0], s, r);                                   /* r += T[0] * s */
+#else
   r = T[1] + w * (T[3] + w * (T[5] + w * (T[7] + w * (T[9] + w * T[11]))));
   v = z *
       (T[2] + w * (T[4] + w * (T[6] + w * (T[8] + w * (T[10] + w * T[12])))));
   s = z * x;
   r = y + z * (s * (r + v) + y);
   r += T[0] * s;
+#endif
   w = x + r;
   if (ix >= 0x3FE59428) {
     v = iy;
+#if PTS_V8_GCC_FMA
+    return (1 - ((hx >> 30) & 2)) * PTS_V8_FMA(-2.0, x - (w * w / (w + v) - r), v);
+#else
     return (1 - ((hx >> 30) & 2)) * (v - 2.0 * (x - (w * w / (w + v) - r)));
+#endif
   }
   if (iy == 1) {
     return w;
@@ -860,8 +941,13 @@ static double __kernel_tan(double x, double y, int iy) {
     v = r - (z - x);  /* z+v = r+x */
     t = a = -1.0 / w; /* a = -1.0/w */
     SET_LOW_WORD(t, 0);
+#if PTS_V8_GCC_FMA
+    s = PTS_V8_FMA(t, z, 1.0);
+    return PTS_V8_FMA(a, PTS_V8_FMA(t, v, s), t);
+#else
     s = 1.0 + t * z;
     return t + a * (s + t * v);
+#endif
   }
 
 #undef one
@@ -930,6 +1016,20 @@ double pts_ieee754_acos(double x) {
   if (ix < 0x3FE00000) {                            /* |x| < 0.5 */
     if (ix <= 0x3C600000) return pio2_hi + pio2_lo; /*if|x|<2**-57*/
     z = x * x;
+#if PTS_V8_GCC_FMA
+    p = z * PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, pS5, pS4), pS3), pS2), pS1), pS0);
+    q = PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, qS4, qS3), qS2), qS1), one);
+    r = p / q;
+    return pio2_hi - (x - PTS_V8_FMA(-x, r, pio2_lo));
+  } else if (hx < 0) { /* x < -0.5 */
+    z = (one + x) * 0.5;
+    p = z * PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, pS5, pS4), pS3), pS2), pS1), pS0);
+    q = PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, qS4, qS3), qS2), qS1), one);
+    s = sqrt(z);
+    r = p / q;
+    w = PTS_V8_FMA(r, s, -pio2_lo);
+    return PTS_V8_FMA(-2.0, s + w, pi);
+#else
     p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
     q = one + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
     r = p / q;
@@ -942,16 +1042,25 @@ double pts_ieee754_acos(double x) {
     r = p / q;
     w = r * s - pio2_lo;
     return pi - 2.0 * (s + w);
+#endif
   } else { /* x > 0.5 */
     z = (one - x) * 0.5;
     s = sqrt(z);
     df = s;
     SET_LOW_WORD(df, 0);
+#if PTS_V8_GCC_FMA
+    c = PTS_V8_FMA(-df, df, z) / (s + df);
+    p = z * PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, pS5, pS4), pS3), pS2), pS1), pS0);
+    q = PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, qS4, qS3), qS2), qS1), one);
+    r = p / q;
+    w = PTS_V8_FMA(r, s, c);
+#else
     c = (z - df * df) / (s + df);
     p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
     q = one + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
     r = p / q;
     w = r * s + c;
+#endif
     return 2.0 * (df + w);
   }
 }
@@ -988,11 +1097,19 @@ double pts_ieee754_acosh(double x) {
   } else if (((hx - 0x3FF00000) | lx) == 0) {
     return 0.0;                 /* pts_ieee754_acosh(1) = 0 */
   } else if (hx > 0x40000000) { /* 2**28 > x > 2 */
+#if PTS_V8_GCC_FMA
+    /* t = x * x is fused into t - one */
+    return pts_ieee754_log(2.0 * x - one / (x + sqrt(PTS_V8_FMA(x, x, -one))));
+  } else { /* 1<x<2 */
+    t = x - one;
+    return pts_ieee754_log1p(t + sqrt(PTS_V8_FMA(2.0, t, t * t)));
+#else
     t = x * x;
     return pts_ieee754_log(2.0 * x - one / (x + sqrt(t - one)));
   } else { /* 1<x<2 */
     t = x - one;
     return pts_ieee754_log1p(t + sqrt(2.0 * t + t * t));
+#endif
   }
 }
 
@@ -1053,7 +1170,11 @@ double pts_ieee754_asin(double x) {
     uint32_t lx;
     GET_LOW_WORD(lx, x);
     if (((ix - 0x3FF00000) | lx) == 0) { /* pts_ieee754_asin(1)=+-pi/2 with inexact */
+#if PTS_V8_GCC_FMA
+      return PTS_V8_FMA(x, pio2_hi, x * pio2_lo);
+#else
       return x * pio2_hi + x * pio2_lo;
+#endif
     }
     return NAN;  // pts_ieee754_asin(|x|>1) is NaN
   } else if (ix < 0x3FE00000) {     /* |x|<0.5 */
@@ -1062,27 +1183,50 @@ double pts_ieee754_asin(double x) {
     } else {
       t = x * x;
     }
+#if PTS_V8_GCC_FMA
+    p = t * PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, pS5, pS4), pS3), pS2), pS1), pS0);
+    q = PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, qS4, qS3), qS2), qS1), one);
+    w = p / q;
+    return PTS_V8_FMA(x, w, x);
+#else
     p = t * (pS0 + t * (pS1 + t * (pS2 + t * (pS3 + t * (pS4 + t * pS5)))));
     q = one + t * (qS1 + t * (qS2 + t * (qS3 + t * qS4)));
     w = p / q;
     return x + x * w;
+#endif
   }
   /* 1> |x|>= 0.5 */
   w = one - fabs(x);
   t = w * 0.5;
+#if PTS_V8_GCC_FMA
+  p = t * PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, pS5, pS4), pS3), pS2), pS1), pS0);
+  q = PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, qS4, qS3), qS2), qS1), one);
+#else
   p = t * (pS0 + t * (pS1 + t * (pS2 + t * (pS3 + t * (pS4 + t * pS5)))));
   q = one + t * (qS1 + t * (qS2 + t * (qS3 + t * qS4)));
+#endif
   s = sqrt(t);
   if (ix >= 0x3FEF3333) { /* if |x| > 0.975 */
     w = p / q;
+#if PTS_V8_GCC_FMA
+    t = pio2_hi - PTS_V8_FMA(2.0, PTS_V8_FMA(s, w, s), -pio2_lo);
+#else
     t = pio2_hi - (2.0 * (s + s * w) - pio2_lo);
+#endif
   } else {
     w = s;
     SET_LOW_WORD(w, 0);
+#if PTS_V8_GCC_FMA
+    c = PTS_V8_FMA(-w, w, t) / (s + w);
+    r = p / q;
+    p = PTS_V8_FMA(2.0 * s, r, -PTS_V8_FMA(-2.0, c, pio2_lo)); /* 2.0 * s * r - (pio2_lo - 2.0 * c) */
+    q = PTS_V8_FMA(-2.0, w, pio4_hi);
+#else
     c = (t - w * w) / (s + w);
     r = p / q;
     p = 2.0 * s * r - (pio2_lo - 2.0 * c);
     q = pio4_hi - 2.0 * w;
+#endif
     t = pio4_hi - (p - q);
   }
   if (hx > 0)
@@ -1118,7 +1262,11 @@ double pts_ieee754_asinh(double x) {
     w = pts_ieee754_log(fabs(x)) + ln2;
   } else if (ix > 0x40000000) { /* 2**28 > |x| > 2.0 */
     t = fabs(x);
+#if PTS_V8_GCC_FMA
+    w = pts_ieee754_log(2.0 * t + one / (sqrt(PTS_V8_FMA(x, x, one)) + t));
+#else
     w = pts_ieee754_log(2.0 * t + one / (sqrt(x * x + one) + t));
+#endif
   } else { /* 2.0 > |x| > 2**-28 */
     t = x * x;
     w = pts_ieee754_log1p(fabs(x) + t / (one + sqrt(one + t)));
@@ -1205,7 +1353,11 @@ double pts_ieee754_atan(double x) {
     if (ix < 0x3FF30000) {   /* |x| < 1.1875 */
       if (ix < 0x3FE60000) { /* 7/16 <=|x|<11/16 */
         id = 0;
+#if PTS_V8_GCC_FMA
+        x = PTS_V8_FMA(2.0, x, -one) / (2.0 + x);
+#else
         x = (2.0 * x - one) / (2.0 + x);
+#endif
       } else { /* 11/16<=|x|< 19/16 */
         id = 1;
         x = (x - one) / (x + one);
@@ -1213,7 +1365,11 @@ double pts_ieee754_atan(double x) {
     } else {
       if (ix < 0x40038000) { /* |x| < 2.4375 */
         id = 2;
+#if PTS_V8_GCC_FMA
+        x = (x - 1.5) / PTS_V8_FMA(1.5, x, one);
+#else
         x = (x - 1.5) / (one + 1.5 * x);
+#endif
       } else { /* 2.4375 <= |x| < 2^66 */
         id = 3;
         x = -1.0 / x;
@@ -1224,6 +1380,15 @@ double pts_ieee754_atan(double x) {
   z = x * x;
   w = z * z;
   /* break sum from i=0 to 10 aT[i]z**(i+1) into odd and even poly */
+#if PTS_V8_GCC_FMA
+  /* s1 = z * (aT[0] + w * (...)): the product with z is fused into s1 + s2 below. */
+  s1 = PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, aT[10], aT[8]), aT[6]), aT[4]), aT[2]), aT[0]);
+  s2 = w * PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, aT[9], aT[7]), aT[5]), aT[3]), aT[1]);
+  if (id < 0) {
+    return x - x * PTS_V8_FMA(z, s1, s2);
+  } else {
+    z = atanhi[id] - ((x * PTS_V8_FMA(z, s1, s2) - atanlo[id]) - x);
+#else
   s1 = z * (aT[0] +
             w * (aT[2] + w * (aT[4] + w * (aT[6] + w * (aT[8] + w * aT[10])))));
   s2 = w * (aT[1] + w * (aT[3] + w * (aT[5] + w * (aT[7] + w * aT[9]))));
@@ -1231,6 +1396,7 @@ double pts_ieee754_atan(double x) {
     return x - x * (s1 + s2);
   } else {
     z = atanhi[id] - ((x * (s1 + s2) - atanlo[id]) - x);
+#endif
     return (hx < 0) ? -z : z;
   }
 }
@@ -1335,7 +1501,11 @@ double pts_ieee754_atan2(double y, double x) {
   /* compute y/x */
   k = (iy - ix) >> 20;
   if (k > 60) { /* |y/x| >  2**60 */
+#if PTS_V8_GCC_FMA
+    z = PTS_V8_FMA(0.5, pi_lo, pi_o_2);
+#else
     z = pi_o_2 + 0.5 * pi_lo;
+#endif
     m &= 1;
   } else if (hx < 0 && k < -60) {
     z = 0.0; /* 0 > |y|/x > -2**-60 */
@@ -1533,9 +1703,15 @@ double pts_ieee754_exp(double x) {
       lo = ln2LO[xsb];
       k = 1 - xsb - xsb;
     } else {
+#if PTS_V8_GCC_FMA
+      k = (int)PTS_V8_FMA(invln2, x, halF[xsb]);
+      t = k;
+      hi = PTS_V8_FMA(-t, ln2HI[0], x); /* x - t * ln2HI[0]; t*ln2HI is exact here */
+#else
       k = (int)(invln2 * x + halF[xsb]);
       t = k;
       hi = x - t * ln2HI[0]; /* t*ln2HI is exact here */
+#endif
       lo = t * ln2LO[0];
     }
     x = hi - lo;
@@ -1555,7 +1731,11 @@ double pts_ieee754_exp(double x) {
     INSERT_WORDS(twopk, 0x3FF00000 + ((uint32_t)(k + 1000) << 20),
                  0);
   }
+#if PTS_V8_GCC_FMA
+  c = PTS_V8_FMA(-t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, PTS_V8_FMA(t, P5, P4), P3), P2), P1), x);
+#else
   c = x - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+#endif
   if (k == 0) {
     return one - ((x * c) / (c - 2.0) - x);
   } else {
@@ -1713,15 +1893,27 @@ double pts_ieee754_log(double x) {
         return zero;
       } else {
         dk = (double)(k);
+#if PTS_V8_GCC_FMA
+        return PTS_V8_FMA(dk, ln2_hi, dk * ln2_lo);
+#else
         return dk * ln2_hi + dk * ln2_lo;
+#endif
       }
     }
+#if PTS_V8_GCC_FMA
+    R = f * f * PTS_V8_FMA(-0.33333333333333333, f, 0.5);
+#else
     R = f * f * (0.5 - 0.33333333333333333 * f);
+#endif
     if (k == 0) {
       return f - R;
     } else {
       dk = (double)(k);
+#if PTS_V8_GCC_FMA
+      return PTS_V8_FMA(dk, ln2_hi, -(PTS_V8_FMA(-dk, ln2_lo, R) - f)); /* dk * ln2_hi - ((R - dk * ln2_lo) - f) */
+#else
       return dk * ln2_hi - ((R - dk * ln2_lo) - f);
+#endif
     }
   }
   s = f / (2.0 + f);
@@ -1730,21 +1922,39 @@ double pts_ieee754_log(double x) {
   i = hx - 0x6147A;
   w = z * z;
   j = 0x6B851 - hx;
+#if PTS_V8_GCC_FMA
+  /* t1 = w * (Lg2 + ...): the product with w is fused into R = t2 + t1 below. */
+  t1 = PTS_V8_FMA(w, PTS_V8_FMA(w, Lg6, Lg4), Lg2);
+  t2 = z * PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, Lg7, Lg5), Lg3), Lg1);
+  i |= j;
+  R = PTS_V8_FMA(w, t1, t2);
+#else
   t1 = w * (Lg2 + w * (Lg4 + w * Lg6));
   t2 = z * (Lg1 + w * (Lg3 + w * (Lg5 + w * Lg7)));
   i |= j;
   R = t2 + t1;
+#endif
   if (i > 0) {
     hfsq = 0.5 * f * f;
     if (k == 0)
       return f - (hfsq - s * (hfsq + R));
+#if PTS_V8_GCC_FMA
+    else /* dk * ln2_hi - ((hfsq - (s * (hfsq + R) + dk * ln2_lo)) - f) */
+      return PTS_V8_FMA(dk, ln2_hi, -((hfsq - PTS_V8_FMA(dk, ln2_lo, s * (hfsq + R))) - f));
+#else
     else
       return dk * ln2_hi - ((hfsq - (s * (hfsq + R) + dk * ln2_lo)) - f);
+#endif
   } else {
     if (k == 0)
       return f - s * (f - R);
+#if PTS_V8_GCC_FMA
+    else /* dk * ln2_hi - ((s * (f - R) - dk * ln2_lo) - f) */
+      return PTS_V8_FMA(dk, ln2_hi, -(PTS_V8_FMA(-dk, ln2_lo, s * (f - R)) - f));
+#else
     else
       return dk * ln2_hi - ((s * (f - R) - dk * ln2_lo) - f);
+#endif
   }
 }
 
@@ -1846,7 +2056,11 @@ double pts_ieee754_log1p(double x) {
           && ax < 0x3C900000) /* |x| < 2**-54 */
         return x;
       else
+#if PTS_V8_GCC_FMA
+        return PTS_V8_FMA(-(x * x), 0.5, x);
+#else
         return x - x * x * 0.5;
+#endif
     }
     if (hx > 0 || hx <= (int32_t)(0xBFD2BEC4)) {
       k = 0;
@@ -1891,24 +2105,46 @@ double pts_ieee754_log1p(double x) {
       if (k == 0) {
         return zero;
       } else {
+#if PTS_V8_GCC_FMA
+        c = PTS_V8_FMA(k, ln2_lo, c);
+        return PTS_V8_FMA(k, ln2_hi, c);
+#else
         c += k * ln2_lo;
         return k * ln2_hi + c;
+#endif
       }
     }
+#if PTS_V8_GCC_FMA
+    R = hfsq * PTS_V8_FMA(-0.66666666666666666, f, 1.0);
+    if (k == 0)
+      return f - R;
+    else /* k * ln2_hi - ((R - (k * ln2_lo + c)) - f) */
+      return PTS_V8_FMA(k, ln2_hi, -((R - PTS_V8_FMA(k, ln2_lo, c)) - f));
+#else
     R = hfsq * (1.0 - 0.66666666666666666 * f);
     if (k == 0)
       return f - R;
     else
       return k * ln2_hi - ((R - (k * ln2_lo + c)) - f);
+#endif
   }
   s = f / (2.0 + f);
   z = s * s;
+#if PTS_V8_GCC_FMA
+  /* R = z * (Lp1 + z * (...)): the product with z is fused into hfsq + R below. */
+  R = PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, PTS_V8_FMA(z, Lp7, Lp6), Lp5), Lp4), Lp3), Lp2), Lp1);
+  if (k == 0)
+    return f - (hfsq - s * PTS_V8_FMA(z, R, hfsq));
+  else /* k * ln2_hi - ((hfsq - (s * (hfsq + R) + (k * ln2_lo + c))) - f) */
+    return PTS_V8_FMA(k, ln2_hi, -((hfsq - (s * PTS_V8_FMA(z, R, hfsq) + PTS_V8_FMA(k, ln2_lo, c))) - f));
+#else
   R = z * (Lp1 +
            z * (Lp2 + z * (Lp3 + z * (Lp4 + z * (Lp5 + z * (Lp6 + z * Lp7))))));
   if (k == 0)
     return f - (hfsq - s * (hfsq + R));
   else
     return k * ln2_hi - ((hfsq - (s * (hfsq + R) + (k * ln2_lo + c))) - f);
+#endif
 }
 
 /*
@@ -1976,6 +2212,117 @@ static const double Lg1 = 6.666666666666735130e-01, /* 3FE55555 55555593 */
     Lg6 = 1.531383769920937332e-01,                 /* 3FC39A09 D078C69F */
     Lg7 = 1.479819860511658591e-01;                 /* 3FC2F112 DF3E5244 */
 
+#if PTS_V8_GCC_FMA
+/*
+ * We always inline k_log1p(), since doing so produces a
+ * substantial performance improvement (~40% on amd64).
+ *
+ * k_log1p(f) is s * (hfsq + R). Inlined into log2, its only caller, the product is fused into the
+ * sum it is added to, so this returns hfsq + R and sets *s; log2 multiplies.
+ */
+static inline double k_log1p_sum(double f, double *s_out) {
+  double s, z, R, w, t1, t2;
+
+  s = f / (2.0 + f);
+  z = s * s;
+  w = z * z;
+  /* t1 = w * (Lg2 + ...): the product with w is fused into R = t2 + t1 below. */
+  t1 = PTS_V8_FMA(w, PTS_V8_FMA(w, Lg6, Lg4), Lg2);
+  t2 = z * PTS_V8_FMA(w, PTS_V8_FMA(w, PTS_V8_FMA(w, Lg7, Lg5), Lg3), Lg1);
+  R = PTS_V8_FMA(w, t1, t2);
+  *s_out = s;
+  return PTS_V8_FMA(0.5 * f, f, R); /* hfsq + R, hfsq = 0.5 * f * f */
+}
+
+/*
+ * Return the base 2 logarithm of x.  See e_log.c and k_log.h for most
+ * comments.
+ *
+ * This reduces x to {k, 1+f} exactly as in e_log.c, then calls the kernel,
+ * then does the combining and scaling steps
+ *    pts_ieee754_log2(x) = (f - 0.5*f*f + k_log1p(f)) / ln2 + k
+ * in not-quite-routine extra precision.
+ */
+double pts_ieee754_log2(double x) {
+  static const double
+      two54 = 1.80143985094819840000e+16,   /* 0x43500000, 0x00000000 */
+      ivln2hi = 1.44269504072144627571e+00, /* 0x3FF71547, 0x65200000 */
+      ivln2lo = 1.67517131648865118353e-10; /* 0x3DE705FC, 0x2EEFA200 */
+
+  double f, half_f, s, r_sum, hi, lo, val_lo, w, y;
+  int32_t i, k, hx;
+  uint32_t lx;
+
+  EXTRACT_WORDS(hx, lx, x);
+
+  k = 0;
+  if (hx < 0x00100000) { /* x < 2**-1022  */
+    if (((hx & 0x7FFFFFFF) | lx) == 0) {
+      return -INFINITY; /* pts_ieee754_log(+-0)=-inf */
+    }
+    if (hx < 0) {
+      return NAN; /* pts_ieee754_log(-#) = NaN */
+    }
+    k -= 54;
+    x *= two54; /* subnormal number, scale up x */
+    GET_HIGH_WORD(hx, x);
+  }
+  if (hx >= 0x7FF00000) return x + x;
+  if (hx == 0x3FF00000 && lx == 0) return 0.0; /* pts_ieee754_log(1) = +0 */
+  k += (hx >> 20) - 1023;
+  hx &= 0x000FFFFF;
+  i = (hx + 0x95F64) & 0x100000;
+  SET_HIGH_WORD(x, hx | (i ^ 0x3FF00000)); /* normalize x or x/2 */
+  k += (i >> 20);
+  y = (double)(k);
+  f = x - 1.0;
+  /* hfsq = 0.5 * f * f is fused into each of its uses; r = k_log1p(f) = s * r_sum into lo's sum. */
+  half_f = 0.5 * f;
+  r_sum = k_log1p_sum(f, &s);
+
+  /*
+   * f-hfsq must (for args near 1) be evaluated in extra precision
+   * to avoid a large cancellation when x is near sqrt(2) or 1/sqrt(2).
+   * This is fairly efficient since f-hfsq only depends on f, so can
+   * be evaluated in parallel with R.  Not combining hfsq with R also
+   * keeps R small (though not as small as a true `lo' term would be),
+   * so that extra precision is not needed for terms involving R.
+   *
+   * Compiler bugs involving extra precision used to break Dekker's
+   * theorem for spitting f-hfsq as hi+lo, unless double_t was used
+   * or the multi-precision calculations were avoided when double_t
+   * has extra precision.  These problems are now automatically
+   * avoided as a side effect of the optimization of combining the
+   * Dekker splitting step with the clear-low-bits step.
+   *
+   * y must (for args near sqrt(2) and 1/sqrt(2)) be added in extra
+   * precision to avoid a very large cancellation when x is very near
+   * these values.  Unlike the above cancellations, this problem is
+   * specific to base 2.  It is strange that adding +-1 is so much
+   * harder than adding +-ln2 or +-log10_2.
+   *
+   * This uses Dekker's theorem to normalize y+val_hi, so the
+   * compiler bugs are back in some configurations, sigh.  And I
+   * don't want to used double_t to avoid them, since that gives a
+   * pessimization and the support for avoiding the pessimization
+   * is not yet available.
+   *
+   * The multi-precision calculations for the multiplications are
+   * routine.
+   */
+  hi = PTS_V8_FMA(-half_f, f, f); /* f - hfsq */
+  SET_LOW_WORD(hi, 0);
+  lo = PTS_V8_FMA(s, r_sum, PTS_V8_FMA(-half_f, f, f - hi)); /* (f - hi) - hfsq + r */
+  /* val_hi = hi * ivln2hi is fused into both of its uses. */
+  val_lo = PTS_V8_FMA(lo + hi, ivln2lo, lo * ivln2hi);
+
+  /* spadd(val_hi, val_lo, y), except for not using double_t: */
+  w = PTS_V8_FMA(hi, ivln2hi, y);           /* y + val_hi */
+  val_lo += PTS_V8_FMA(hi, ivln2hi, y - w); /* (y - w) + val_hi */
+
+  return val_lo + w;
+}
+#else
 /*
  * We always inline k_log1p(), since doing so produces a
  * substantial performance improvement (~40% on amd64).
@@ -2081,6 +2428,7 @@ double pts_ieee754_log2(double x) {
 
   return val_lo + val_hi;
 }
+#endif
 
 /*
  * Return the base 10 logarithm of x
@@ -2144,8 +2492,13 @@ double pts_ieee754_log10(double x) {
   SET_HIGH_WORD(x, hx);
   SET_LOW_WORD(x, lx);
 
+#if PTS_V8_GCC_FMA
+  double z = PTS_V8_FMA(y, log10_2lo, ivln10 * pts_ieee754_log(x));
+  return PTS_V8_FMA(y, log10_2hi, z);
+#else
   double z = y * log10_2lo + ivln10 * pts_ieee754_log(x);
   return z + y * log10_2hi;
+#endif
 }
 
 /* pts_ieee754_expm1(x)
@@ -2302,7 +2655,11 @@ double pts_ieee754_expm1(double x) {
     } else {
       k = invln2 * x + ((xsb == 0) ? 0.5 : -0.5);
       t = k;
+#if PTS_V8_GCC_FMA
+      hi = PTS_V8_FMA(-t, ln2_hi, x); /* x - t * ln2_hi; t*ln2_hi is exact here */
+#else
       hi = x - t * ln2_hi; /* t*ln2_hi is exact here */
+#endif
       lo = t * ln2_lo;
     }
     x = hi - lo;
@@ -2317,24 +2674,42 @@ double pts_ieee754_expm1(double x) {
   /* x is now in primary range */
   hfx = 0.5 * x;
   hxs = x * hfx;
+#if PTS_V8_GCC_FMA
+  r1 = PTS_V8_FMA(hxs, PTS_V8_FMA(hxs, PTS_V8_FMA(hxs, PTS_V8_FMA(hxs, PTS_V8_FMA(hxs, Q5, Q4), Q3), Q2), Q1), one);
+  t = PTS_V8_FMA(-r1, hfx, 3.0);
+  e = hxs * ((r1 - t) / PTS_V8_FMA(-x, t, 6.0));
+  if (k == 0) {
+    return x - PTS_V8_FMA(x, e, -hxs); /* x - (x * e - hxs); c is 0 */
+#else
   r1 = one + hxs * (Q1 + hxs * (Q2 + hxs * (Q3 + hxs * (Q4 + hxs * Q5))));
   t = 3.0 - r1 * hfx;
   e = hxs * ((r1 - t) / (6.0 - x * t));
   if (k == 0) {
     return x - (x * e - hxs); /* c is 0 */
+#endif
   } else {
     INSERT_WORDS(
         twopk,
         0x3FF00000 + (int32_t)((uint32_t)(k) << 20),
         0); /* 2^k */
+#if PTS_V8_GCC_FMA
+    e = PTS_V8_FMA(x, e - c, -c);
+    e -= hxs;
+    if (k == -1) return PTS_V8_FMA(0.5, x - e, -0.5);
+#else
     e = (x * (e - c) - c);
     e -= hxs;
     if (k == -1) return 0.5 * (x - e) - 0.5;
+#endif
     if (k == 1) {
       if (x < -0.25)
         return -2.0 * (e - (x + 0.5));
       else
+#if PTS_V8_GCC_FMA
+        return PTS_V8_FMA(2.0, x - e, one);
+#else
         return one + 2.0 * (x - e);
+#endif
     }
     if (k <= -2 || k > 56) { /* suffice to return pts_ieee754_exp(x)-1 */
       y = one - (e - x);
@@ -2375,7 +2750,11 @@ double pts_ieee754_cbrt(double x) {
       P4 = 0.145996192886612446982;                /* 0x3FC2B000, 0xD4E4EDD7 */
 
   int32_t hx;
+#if PTS_V8_GCC_FMA
+  double r, s, t = 0.0;
+#else
   double r, s, t = 0.0, w;
+#endif
   uint32_t sign;
   uint32_t high, low;
 
@@ -2420,7 +2799,11 @@ double pts_ieee754_cbrt(double x) {
    * Try to optimize for parallel evaluation as in k_tanf.c.
    */
   r = (t * t) * (t / x);
+#if PTS_V8_GCC_FMA
+  t = t * PTS_V8_FMA((r * r) * r, PTS_V8_FMA(r, P4, P3), PTS_V8_FMA(r, PTS_V8_FMA(r, P2, P1), P0));
+#else
   t = t * ((P0 + r * (P1 + r * P2)) + ((r * r) * r) * (P3 + r * P4));
+#endif
 
   /*
    * Round t away from zero to 23 bits (sloppily except for ensuring that
@@ -2437,11 +2820,19 @@ double pts_ieee754_cbrt(double x) {
   t = double_of(bits);
 
   /* one step Newton iteration to 53 bits with error < 0.667 ulps */
+#if PTS_V8_GCC_FMA
+  s = t * t; /* t*t is exact */
+  r = x / s; /* error <= 0.5 ulps; |r| < |t| */
+  /* w = t + t is exact; GCC makes it 2.0 * t and fuses it into w + r */
+  r = (r - t) / PTS_V8_FMA(2.0, t, r); /* r-t is exact; w+r ~= 3*t */
+  t = PTS_V8_FMA(t, r, t);              /* t + t * r; error <= 0.5 + 0.5/3 + epsilon */
+#else
   s = t * t;             /* t*t is exact */
   r = x / s;             /* error <= 0.5 ulps; |r| < |t| */
   w = t + t;             /* t+t is exact */
   r = (r - t) / (w + r); /* r-t is exact; w+r ~= 3*t */
   t = t + t * r;         /* error <= 0.5 + 0.5/3 + epsilon */
+#endif
 
   return (t);
 }
@@ -2602,7 +2993,11 @@ double pts_ieee754_cosh(double x) {
   // |x| in [0.5*log2, 22], return (pts_ieee754_exp(|x|)+1/pts_ieee754_exp(|x|)/2
   if (ix < 0x40360000) {
     double t = pts_ieee754_exp(fabs(x));
+#if PTS_V8_GCC_FMA
+    return PTS_V8_FMA(half, t, half / t);
+#else
     return half * t + half / t;
+#endif
   }
 
   // |x| in [22, pts_ieee754_log(maxdouble)], return half*pts_ieee754_exp(|x|)
@@ -2658,7 +3053,11 @@ double pts_ieee754_sinh(double x) {
     if (ax < TWO_M28) return x;
     double t = pts_ieee754_expm1(ax);
     if (ax < 1) {
+#if PTS_V8_GCC_FMA
+      return h * PTS_V8_FMA(2, t, -(t * t / (t + 1)));
+#else
       return h * (2 * t - t * t / (t + 1));
+#endif
     }
     return h * (t + t / (t + 1));
   }

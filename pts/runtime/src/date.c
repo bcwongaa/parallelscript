@@ -6,6 +6,7 @@
  * abbreviations, or is ICU's fallback "GMT+hh:mm".
  */
 #include "pts.h"
+#include "v8_fma_internal.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -106,7 +107,7 @@ static double make_date(double day, double time) {
   if (!isfinite(day) || !isfinite(time)) {
     return NAN;
   }
-  return day * MS_PER_DAY + time;
+  return PTS_V8_FMA(day, (double)MS_PER_DAY, time); /* fused as in V8's MakeDate on arm64 Linux */
 }
 
 static double time_clip(double t) {

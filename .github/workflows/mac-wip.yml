@@ -79,6 +79,29 @@ jobs:
           server.close();
           NODE
           $GITHUB_WORKSPACE/pts-bin/pts build burst.pts -o burst && for i in 1 2 3; do ./burst; node burst.mjs; done
+      - name: Numbers as macOS's Node prints them
+        if: always()
+        run: |
+          python3 - <<'PY' > /tmp/arch.mjs
+          for line in open('pts/tests/testdata/node_arch_numbers.tsv'):
+              if not line.startswith('#'):
+                  print('console.log(' + line.split('\t')[0] + ');')
+          PY
+          TZ=America/New_York node /tmp/arch.mjs > /tmp/darwin-arm64.txt
+          cp /tmp/arch.mjs /tmp/arch.pts
+          ./pts-bin/pts build /tmp/arch.pts -o /tmp/arch && TZ=America/New_York /tmp/arch > /tmp/pts-darwin-arm64.txt
+          echo "differing lines: $(diff /tmp/darwin-arm64.txt /tmp/pts-darwin-arm64.txt | grep -c '^<')"
+          diff /tmp/darwin-arm64.txt /tmp/pts-darwin-arm64.txt | head -40 || true
+      - name: The stack guard's cost
+        if: always()
+        run: |
+          cd /tmp/smoke
+          printf 'function fib(n: number): number { return n < 2 ? n : fib(n - 1) + fib(n - 2); }\nconst t0 = Date.now();\nconsole.log(fib(34), Date.now() - t0, "ms");\n' > fib.pts
+          cp fib.pts fib.mts
+          $GITHUB_WORKSPACE/pts-bin/pts build fib.pts -o fib
+          for i in 1 2 3; do ./fib; node fib.mts; done
+          nm fib | grep -i fib | head; sym=$(nm fib | grep -i ' t .*fib' | head -1 | awk '{print $3}')
+          otool -tvV fib | awk -v s="$sym:" '$0 ~ "^"s {p=1} p {print; n++} n > 40 {exit}'
       - name: PTS tests
         if: always()
         run: |
@@ -105,3 +128,5 @@ jobs:
           path: |
             /tmp/suite.jsonl
             /tmp/suite.stderr
+            /tmp/darwin-arm64.txt
+            /tmp/pts-darwin-arm64.txt
