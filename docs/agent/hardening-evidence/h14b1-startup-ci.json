@@ -1,0 +1,29 @@
+{
+  "checked_at_session_start": "2026-10-27",
+  "repository": "bcwongaa/parallelscript",
+  "query": "gh run list --repo bcwongaa/parallelscript --limit 10 --json headSha,status,conclusion,databaseId",
+  "runs": [
+    {"conclusion":"skipped","databaseId":40337811060,"headSha":"4dba0fc57e451e90f891806e2e0a32a5353cafc1","status":"completed"},
+    {"conclusion":"failure","databaseId":40337811057,"headSha":"4dba0fc57e451e90f891806e2e0a32a5353cafc1","status":"completed"},
+    {"conclusion":"skipped","databaseId":40328901037,"headSha":"3087b1bda174f1a078d288de3eef7a45d9506f17","status":"completed"},
+    {"conclusion":"success","databaseId":40328899585,"headSha":"3087b1bda174f1a078d288de3eef7a45d9506f17","status":"completed"},
+    {"conclusion":"cancelled","databaseId":40328109964,"headSha":"be3f4188bc7caf0dbafbe7cb2ecd4d0cfc183eca","status":"completed"},
+    {"conclusion":"skipped","databaseId":40328109847,"headSha":"be3f4188bc7caf0dbafbe7cb2ecd4d0cfc183eca","status":"completed"},
+    {"conclusion":"skipped","databaseId":40327670103,"headSha":"b4a2bf06a6cf1d40712f90b476c8e0b92c9dd6bc","status":"completed"},
+    {"conclusion":"cancelled","databaseId":40327669865,"headSha":"b4a2bf06a6cf1d40712f90b476c8e0b92c9dd6bc","status":"completed"},
+    {"conclusion":"cancelled","databaseId":40327631527,"headSha":"2e3f8f32bfbeca55c6f23aa554671bc70a5de434","status":"completed"},
+    {"conclusion":"skipped","databaseId":40327631506,"headSha":"2e3f8f32bfbeca55c6f23aa554671bc70a5de434","status":"completed"}
+  ],
+  "failure": {
+    "run_id": 40337811057,
+    "job": "PTS tests (macOS arm64)",
+    "tests": [
+      {"name":"TestHTTPServerPreDispatchDeadlines/threads=1/TLS=false/trickle_does_not_extend_absolute_deadline","elapsed":"402.6025ms"},
+      {"name":"TestHTTPServerPreDispatchDeadlines/threads=4/TLS=false/trickle_does_not_extend_absolute_deadline","elapsed":"403.619417ms"}
+    ],
+    "wire": "",
+    "read_error": "read: connection reset by peer",
+    "assertion": "got.err is not nil: header expiration must close, not merely go quiet"
+  },
+  "policy": "One startup check only; repair failed run before new work; no in-session CI waiting or polling."
+}

@@ -9,11 +9,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/microsoft/typescript-go/pts/driver"
@@ -147,9 +149,45 @@ type resourceRead struct {
 	elapsed time.Duration
 }
 
-func readResourceClosure(conn net.Conn, started time.Time) resourceRead {
+func readResourceClosure(conn io.Reader, started time.Time) resourceRead {
 	bytes, err := io.ReadAll(io.LimitReader(conn, resourceResponseLimit))
 	return resourceRead{bytes: bytes, err: err, elapsed: time.Since(started)}
+}
+
+func resourceConnectionClosed(err error) bool {
+	return err == nil || errors.Is(err, syscall.ECONNRESET)
+}
+
+func TestResourceClosureAcceptsEOFOrResetOnly(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		end    error
+		closed bool
+	}{
+		{name: "EOF", end: io.EOF, closed: true},
+		{name: "reset", end: syscall.ECONNRESET, closed: true},
+		{
+			name: "wrapped_read_reset",
+			end: &net.OpError{Op: "read", Net: "tcp", Err: &os.SyscallError{
+				Syscall: "read", Err: syscall.ECONNRESET,
+			}},
+			closed: true,
+		},
+		{name: "deadline", end: os.ErrDeadlineExceeded},
+		{name: "wrapped_read_deadline", end: &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}},
+		{name: "timeout", end: syscall.ETIMEDOUT},
+		{name: "local_close", end: net.ErrClosed},
+		{name: "unexpected_EOF", end: io.ErrUnexpectedEOF},
+		{name: "broken_pipe", end: syscall.EPIPE},
+		{name: "unrelated_error", end: errors.New("unrelated read failure")},
+		{name: "reset_message_is_not_errno", end: errors.New("connection reset by peer")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := readResourceClosure(iotest.ErrReader(test.end), time.Now())
+			assert.Equal(t, len(got.bytes), 0)
+			assert.Equal(t, resourceConnectionClosed(got.err), test.closed, "terminal read error: %v", got.err)
+		})
+	}
 }
 
 func checkResourceHeaderTimeout(t *testing.T, endpoint resourceEndpoint, conn net.Conn, started time.Time, trickle bool) {
@@ -162,7 +200,7 @@ func checkResourceHeaderTimeout(t *testing.T, endpoint resourceEndpoint, conn ne
 		got = readResourceClosure(conn, started)
 	}
 	t.Logf("header deadline: elapsed=%s wire=%q read_error=%v", got.elapsed, got.bytes, got.err)
-	assert.Check(t, got.err == nil, "header expiration must close, not merely go quiet: %v", got.err)
+	assert.Check(t, resourceConnectionClosed(got.err), "header expiration must close, not merely go quiet: %v", got.err)
 	assert.Check(t, got.elapsed >= resourceHeadersTimeout/2, "headersTimeout is milliseconds, not an immediate close: %s", got.elapsed)
 	assert.Check(t, len(got.bytes) < resourceResponseLimit, "response exceeded the bounded reader")
 	assert.Check(t, len(got.bytes) == 0, "header expiration closes without an HTTP response: %q", got.bytes)
@@ -320,7 +358,7 @@ func TestHTTPServerPreDispatchDeadlines(t *testing.T) {
 					assert.NilError(t, conn.SetReadDeadline(time.Now().Add(resourceObservation)))
 					got := readResourceClosure(conn, time.Now())
 					t.Logf("next partial header after output drain: elapsed=%s wire=%q read_error=%v", got.elapsed, got.bytes, got.err)
-					assert.Check(t, got.err == nil, "the partial next request must close after output drains: %v", got.err)
+					assert.Check(t, resourceConnectionClosed(got.err), "the partial next request must close after output drains: %v", got.err)
 					assert.Check(t, len(got.bytes) == 0, "no extra response follows the complete large answer")
 					assert.Check(t, got.elapsed < 2*time.Second, "the next header deadline was never started")
 					assert.Equal(t, endpoint.count(t), before+1, "only the complete large request may dispatch")
@@ -380,7 +418,7 @@ func TestHTTPSServerHandshakeDeadline(t *testing.T) {
 						got = readResourceClosure(conn, started)
 					}
 					t.Logf("handshake deadline: elapsed=%s bytes=%d read_error=%v", got.elapsed, len(got.bytes), got.err)
-					assert.Check(t, got.err == nil || errors.Is(got.err, syscall.ECONNRESET), "an unfinished TLS handshake must close, not merely go quiet: %v", got.err)
+					assert.Check(t, resourceConnectionClosed(got.err), "an unfinished TLS handshake must close, not merely go quiet: %v", got.err)
 					assert.Check(t, got.elapsed >= resourceHandshakeTimeout/2, "handshakeTimeout uses milliseconds: %s", got.elapsed)
 					assert.Check(t, got.elapsed < 2*time.Second, "absolute handshake deadline was not enforced: %s", got.elapsed)
 					assert.Check(t, len(got.bytes) == 0, "a handshake timeout must not write a plaintext HTTP response")
@@ -540,7 +578,7 @@ func TestHTTPServerExpiredConnectionsReleaseResources(t *testing.T) {
 				}
 				for _, conn := range connections {
 					got := readResourceClosure(conn, time.Now())
-					assert.Check(t, got.err == nil, "batch=%d a connection stayed open past its deadline: %v", batch, got.err)
+					assert.Check(t, resourceConnectionClosed(got.err), "batch=%d a connection stayed open past its deadline: %v", batch, got.err)
 					_ = conn.Close()
 				}
 				awaitResourceFiles(t, pid, baselineFiles)
