@@ -85,5 +85,40 @@ class HardeningDriverTests(unittest.TestCase):
         self.assertIn("Historical docs/agent/DONE", driver.PROMPT)
 
 
+class BudgetTests(unittest.TestCase):
+    def test_pacing_allows_more_as_the_week_passes(self):
+        reset = 1_000_000_000.0
+        start = reset - driver.WEEK
+        self.assertAlmostEqual(driver.weekly_allowance(reset, start), driver.OPUS_HEADSTART)
+        self.assertAlmostEqual(driver.weekly_allowance(reset, reset - driver.WEEK / 2),
+                               driver.OPUS_HEADSTART + driver.OPUS_WEEKLY_CAP / 2)
+        self.assertEqual(driver.weekly_allowance(reset, reset - 1), driver.OPUS_WEEKLY_CAP)
+
+    def test_budget_blocks_over_pace_and_resumes_later(self):
+        reset = 1_000_000_000.0
+        now = reset - driver.WEEK + 24 * 3600  # one day in: allowance = 0.10 + 0.70/7 = 0.20
+        ok, why, retry = driver.budget_ok({"seven_day": (0.35, reset), "five_hour": (0.1, now + 3600)}, now)
+        self.assertFalse(ok)
+        self.assertGreater(retry, now)
+        self.assertLess(retry, reset)
+        ok, _, _ = driver.budget_ok({"seven_day": (0.15, reset), "five_hour": (0.1, now + 3600)}, now)
+        self.assertTrue(ok)
+
+    def test_cap_and_five_hour_window(self):
+        reset = 1_000_000_000.0
+        now = reset - 3600
+        ok, _, retry = driver.budget_ok({"seven_day": (0.71, reset)}, now)
+        self.assertFalse(ok)
+        self.assertGreaterEqual(retry, reset)
+        ok, why, _ = driver.budget_ok({"seven_day": (0.2, reset), "five_hour": (0.8, now + 600)}, now)
+        self.assertFalse(ok)
+        self.assertIn("5-hour", why)
+
+    def test_windows_parsed_from_rate_limit_event(self):
+        ev = {"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {
+            "five_hour": {"utilization": 0.2, "resetsAt": 5}, "seven_day": {"utilization": 0.4, "resetsAt": 9}}}}
+        self.assertEqual(driver.windows(ev), {"five_hour": (0.2, 5.0), "seven_day": (0.4, 9.0)})
+
+
 if __name__ == "__main__":
     unittest.main()

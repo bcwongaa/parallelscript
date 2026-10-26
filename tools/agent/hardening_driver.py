@@ -28,6 +28,14 @@ MODEL = CHAIN[0][0]
 VIA_PROXY = CHAIN[0][1]
 MAX_TURNS = 500
 SESSION_TIMEOUT = 8 * 3600
+# Usage budget (owner, 2026-10-26: "be more reasonable in using the limit weekly and stop when we
+# are using too much"). Claude plan utilization comes from Claude Code's rate_limit_event.
+WEEK = 7 * 24 * 3600
+OPUS_WEEKLY_CAP = 0.70      # the driver never takes the weekly window past this; the rest is the owner's
+OPUS_HEADSTART = 0.10       # allowance available at the start of a week
+OPUS_FIVE_HOUR_START = 0.70 # don't start an Opus session above this 5-hour utilization
+OPUS_HARD_STOP = OPUS_WEEKLY_CAP + 0.05  # stop a running session past this weekly utilization
+FALLBACK_SESSIONS_PER_DAY = 3  # gpt-6.1-sol / grok-4.7: no utilization signal, so cap sessions per day
 LIMIT_RE = re.compile(r"usage limit|rate.?limit|limit reached|hit your limit|quota|429|overloaded|"
                       r"insufficient|exhausted|credit balance|too many requests", re.I)
 ROOT = Path.home() / ".local/state/pts-hardening"
@@ -133,6 +141,44 @@ def limit_reset(event: dict) -> float | None:
     return float(info.get("resetsAt") or time.time() + 3600)
 
 
+def windows(event: dict) -> dict | None:
+    """{'five_hour': (util, resetsAt), 'seven_day': (util, resetsAt)} from a rate_limit_event."""
+    if event.get("type") != "rate_limit_event":
+        return None
+    w = (event.get("rate_limit_info") or {}).get("unifiedWindows") or {}
+    out = {k: (float(v.get("utilization") or 0), float(v.get("resetsAt") or 0))
+           for k, v in w.items() if isinstance(v, dict)}
+    return out or None
+
+
+def weekly_allowance(reset_at: float, now: float | None = None) -> float:
+    """Linear pacing: share of the week elapsed times the cap, plus a head start, capped."""
+    now = time.time() if now is None else now
+    elapsed = max(0.0, min(1.0, 1 - (reset_at - now) / WEEK))
+    return min(OPUS_WEEKLY_CAP, OPUS_HEADSTART + OPUS_WEEKLY_CAP * elapsed)
+
+
+def budget_ok(win: dict | None, now: float | None = None) -> tuple[bool, str, float]:
+    """May an Opus session start? Returns (ok, reason, retry_at)."""
+    now = time.time() if now is None else now
+    if not win or "seven_day" not in win:
+        return True, "no utilization data", now
+    wk, wk_reset = win["seven_day"]
+    allowed = weekly_allowance(wk_reset, now)
+    if wk >= allowed:
+        # when will the allowance catch up with current use?
+        if wk >= OPUS_WEEKLY_CAP:
+            retry = wk_reset + 60
+        else:
+            need = (wk - OPUS_HEADSTART) / OPUS_WEEKLY_CAP  # elapsed fraction needed
+            retry = wk_reset - WEEK + need * WEEK + 60
+        return False, f"weekly {wk:.0%} >= paced allowance {allowed:.0%}", max(retry, now + 900)
+    fh = win.get("five_hour")
+    if fh and fh[0] >= OPUS_FIVE_HOUR_START:
+        return False, f"5-hour window {fh[0]:.0%} >= {OPUS_FIVE_HOUR_START:.0%}", max(fh[1] + 60, now + 900)
+    return True, f"weekly {wk:.0%} < allowance {allowed:.0%}", now
+
+
 def is_content_refusal(event: dict) -> bool:
     message = event.get("message")
     if not isinstance(message, dict) or message.get("model") != "<synthetic>":
@@ -194,6 +240,7 @@ def run_once(n: int, model: str = MODEL, timeout: float = SESSION_TIMEOUT) -> di
     last = ""
     mismatch = False
     reset_at = None
+    over_budget = False
     p = subprocess.Popen(cmd(model), cwd=REPO, env=env(model), stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, start_new_session=True)
     assert p.stdout is not None
@@ -218,6 +265,15 @@ def run_once(n: int, model: str = MODEL, timeout: float = SESSION_TIMEOUT) -> di
                 r_at = limit_reset(d)
                 if r_at:
                     reset_at = r_at
+                w = windows(d)
+                if w:
+                    (ROOT / "usage.json").write_text(json.dumps({"model": model, "at": time.time(), **w}))
+                    if model == CHAIN[0][0] and w.get("seven_day", (0, 0))[0] >= OPUS_HARD_STOP:
+                        over_budget = True
+                        log(f"STOP: weekly utilization {w['seven_day'][0]:.0%} past the driver's hard cap "
+                            f"{OPUS_HARD_STOP:.0%}; ending the session (work is committed slice by slice)")
+                        stop_group(p)
+                        break
                 m = unapproved_model(d, model)
                 if m:
                     mismatch = True
@@ -238,7 +294,7 @@ def run_once(n: int, model: str = MODEL, timeout: float = SESSION_TIMEOUT) -> di
     limited = bool(reset_at) or bool(result and result.get("is_error") and LIMIT_RE.search(text))
     report = {
         "session": n, "rc": p.returncode, "model": model, "model_mismatch": mismatch,
-        "limited": limited, "reset_at": reset_at,
+        "limited": limited, "reset_at": reset_at, "over_budget": over_budget,
         "progressed": git_head() != before, "result": result,
         "duration_hint": "see result.duration_ms", "log": str(path),
     }
@@ -248,24 +304,58 @@ def run_once(n: int, model: str = MODEL, timeout: float = SESSION_TIMEOUT) -> di
     return report
 
 
+LAST_WINDOWS: dict = {}
+
+
 def probe(model: str) -> tuple[bool, str]:
     try:
         p = subprocess.run(["claude", "-p", "Reply exactly ok", "--model", model,
-                            "--effort", "xhigh", "--max-turns", "1", "--output-format", "json"],
+                            "--effort", "low", "--max-turns", "1", "--output-format", "stream-json",
+                            "--verbose"],
                            cwd=REPO, env=env(model), capture_output=True, text=True, timeout=180)
-        d = parse_event(p.stdout)
-        ok = p.returncode == 0 and bool(d) and not d.get("is_error") and d.get("subtype") == "success"
-        return ok, (str((d or {}).get("result", "")) + p.stderr[-300:])
+        result = None
+        for line in p.stdout.splitlines():
+            d = parse_event(line)
+            if not d:
+                continue
+            if d.get("type") == "result":
+                result = d
+            w = windows(d)
+            if w:
+                LAST_WINDOWS[model] = w
+        ok = p.returncode == 0 and bool(result) and not result.get("is_error") and result.get("subtype") == "success"
+        return ok, (str((result or {}).get("result", "")) + p.stderr[-300:])
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, type(exc).__name__
 
 
-def pick_model(cooldown: dict) -> str | None:
-    """First model in CHAIN that is off cooldown and answers a probe."""
+def fallback_sessions_today(model: str) -> int:
+    today = time.strftime("%Y-%m-%d")
+    log_path = ROOT / "driver.log"
+    if not log_path.exists():
+        return 0
+    return sum(1 for l in log_path.read_text().splitlines()
+               if l.startswith(today) and " started " in l and f" {model} " in l)
+
+
+def pick_model(cooldown: dict, notes: list | None = None) -> str | None:
+    """First model in CHAIN that is off cooldown, within budget and answers a probe."""
     for model, _ in CHAIN:
         if cooldown.get(model, 0) > time.time():
             continue
+        if model != CHAIN[0][0] and fallback_sessions_today(model) >= FALLBACK_SESSIONS_PER_DAY:
+            if notes is not None:
+                notes.append(f"{model}: {FALLBACK_SESSIONS_PER_DAY} sessions today already")
+            continue
         ok, txt = probe(model)
+        if ok and model == CHAIN[0][0]:
+            fine, why, retry = budget_ok(LAST_WINDOWS.get(model))
+            if not fine:
+                cooldown[model] = retry
+                log(f"budget: {model} paused until {time.strftime('%m-%d %H:%M', time.localtime(retry))} ({why})")
+                if notes is not None:
+                    notes.append(f"{model}: {why}, resumes {time.strftime('%a %H:%M', time.localtime(retry))}")
+                continue
         if ok:
             return model
         wait = 3600 if LIMIT_RE.search(txt) else 900
@@ -285,17 +375,20 @@ def main() -> None:
         current = None
         none_notified = False
         notify("Hardening driver started: claude-opus-5-5 -> gpt-6.1-sol -> grok-4.7, "
-               f"xhigh, {MAX_TURNS} turns/session")
+               f"xhigh, {MAX_TURNS} turns/session; budget: Opus paced to {OPUS_WEEKLY_CAP:.0%} of the week, "
+               f"fallbacks {FALLBACK_SESSIONS_PER_DAY} sessions/day each")
         while not complete():
             if (ROOT / "PAUSE").exists():
                 time.sleep(60)
                 continue
-            model = pick_model(cooldown)
+            notes: list = []
+            model = pick_model(cooldown, notes)
             if not model:
                 if not none_notified:
-                    notify("All three models limited/unavailable; checkpoint kept, retrying every 15 minutes.")
+                    notify("Paused for budget/limits: " + "; ".join(notes or ["all models limited"]) +
+                           ". Checkpoint kept; rechecking every 30 minutes.")
                     none_notified = True
-                time.sleep(900)
+                time.sleep(1800)
                 continue
             none_notified = False
             if model != current:
@@ -308,6 +401,11 @@ def main() -> None:
             if r["model_mismatch"]:
                 (ROOT / "PAUSE").touch()
                 notify("Paused: a model outside the approved chain was reported. No further inference started.")
+                continue
+            if r.get("over_budget"):
+                cooldown[model] = (LAST_WINDOWS.get(model, {}).get("seven_day", (0, time.time() + 3600))[1] + 60)
+                notify(f"{model} reached the driver's weekly cap ({OPUS_HARD_STOP:.0%}); session stopped, "
+                       "Opus paused until the weekly reset.")
                 continue
             if r["limited"]:
                 until = r["reset_at"] or time.time() + 3600
