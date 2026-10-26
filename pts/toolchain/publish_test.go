@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -44,6 +45,7 @@ func TestPublishIsAStoreBarrierOnAarch64(t *testing.T) {
 // instruction: the filling stores, then the publishing store, as before (D-226).
 func TestPublishAddsNoInstructionOnX86(t *testing.T) {
 	t.Parallel()
+	requireX86Headers(t)
 	lines := assembly(t, "x86_64-linux-gnu")
 
 	assert.Assert(t, len(matching(lines, `^(mfence|sfence|lfence|lock|xchg)`)) == 0, "a fence in:\n%s", strings.Join(lines, "\n"))
@@ -65,8 +67,11 @@ func assembly(t *testing.T, triple string) []string {
 	for _, include := range []string{"pts/runtime/include", "pts/third_party/bdwgc/include"} {
 		args = append(args, "-I", filepath.Join(tc.Home, include))
 	}
-	out, err := exec.CommandContext(t.Context(), tc.CC, append(args, source)...).Output()
-	assert.NilError(t, err)
+	cmd := exec.CommandContext(t.Context(), tc.CC, append(args, source)...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	assert.NilError(t, err, stderr.String())
 	var lines []string
 	inside := false
 	comment := "//" // aarch64's; x86-64's is #, which is aarch64's immediate
@@ -88,6 +93,22 @@ func assembly(t *testing.T, triple string) []string {
 	}
 	t.Fatalf("no fill_and_publish in:\n%s", out)
 	return nil
+}
+
+// requireX86Headers skips the test on a machine of another processor that lacks the
+// x86-64 C library's headers, which pts.h includes, as the arm64 CI runner does; the
+// x86-64 job runs it.
+func requireX86Headers(t *testing.T) {
+	t.Helper()
+	if runtime.GOARCH == "amd64" {
+		return
+	}
+	probe := filepath.Join(t.TempDir(), "probe.c")
+	assert.NilError(t, os.WriteFile(probe, []byte("#include <stdlib.h>\n"), 0o644))
+	out, err := exec.CommandContext(t.Context(), newToolchain(t).CC, "--target=x86_64-linux-gnu", "-fsyntax-only", probe).CombinedOutput()
+	if err != nil {
+		t.Skipf("needs the x86-64 C library's headers: %s", strings.TrimSpace(string(out)))
+	}
 }
 
 func indexOfMatch(lines []string, pattern string) int {
